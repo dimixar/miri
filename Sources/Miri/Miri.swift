@@ -36,6 +36,24 @@ struct MiriWorkspaceBarWindow {
     let title: String
 }
 
+private struct FullscreenWindowState {
+    let identity: PersistentWindowIdentity
+    let element: AXUIElement
+    let pid: pid_t
+    let windowID: UInt32?
+    let bundleID: String?
+    let appName: String
+    let title: String
+    let workspace: Int
+    let column: Int
+    let leftNeighborID: ObjectIdentifier?
+    let rightNeighborID: ObjectIdentifier?
+    let leftNeighbor: PersistentWindowIdentity?
+    let rightNeighbor: PersistentWindowIdentity?
+    let widthRatio: CGFloat
+    let wasActive: Bool
+}
+
 final class Miri: NSObject, @unchecked Sendable {
     private struct TrackpadNavigationSettings: Equatable {
         var enabled: Bool
@@ -61,6 +79,7 @@ final class Miri: NSObject, @unchecked Sendable {
     private var eventTapSource: CFRunLoopSource?
     private var commandByKeybinding: [String: Command] = [:]
     private var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
+    private var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
     private var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     private var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     private var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
@@ -1587,11 +1606,22 @@ final class Miri: NSObject, @unchecked Sendable {
 
         for window in allWindows() {
             if !discovered.contains(where: { sameWindow($0.element, window.element) }) {
+                let runningApp = NSRunningApplication(processIdentifier: window.pid)
+                let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
+                    || runningApp?.isHidden == true
+                let likelyFullscreenTransition = !temporarilyHidden
+                    && runningApp != nil
+                    && behavior(for: window) != .ignore
+
+                if isFullscreenWindow(window.element) || likelyFullscreenTransition {
+                    rememberFullscreenWindowState(window)
+                    removeWindow(window, preferRightFocus: true)
+                    changed = true
+                    continue
+                }
                 if behavior(for: window) == .ignore {
                     setWindowAlpha(1, for: window.windowID)
                 }
-                let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
-                    || NSRunningApplication(processIdentifier: window.pid)?.isHidden == true
                 if temporarilyHidden {
                     rememberMinimizedWindowState(window)
                 }
@@ -1599,6 +1629,8 @@ final class Miri: NSObject, @unchecked Sendable {
                 changed = true
             }
         }
+
+        restoreExitedFullscreenWindows(discovered: discovered)
 
         for found in discovered {
             if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
@@ -1668,7 +1700,7 @@ final class Miri: NSObject, @unchecked Sendable {
                 continue
             }
 
-            for element in axWindows where !isHiddenOrMinimizedWindow(element) && (isManageableWindow(element) || isKnownWindow(element)) {
+            for element in axWindows where !isHiddenOrMinimizedWindow(element) && !isFullscreenWindow(element) && (isManageableWindow(element) || isKnownWindow(element) || isRememberedFullscreenWindow(element)) {
                 let title = axString(element, kAXTitleAttribute) ?? ""
                 let appName = app.localizedName ?? "pid \(pid)"
                 let windowID = SkyLight.shared.windowID(for: element)
@@ -1693,6 +1725,33 @@ final class Miri: NSObject, @unchecked Sendable {
 
     private func isHiddenOrMinimizedWindow(_ element: AXUIElement) -> Bool {
         axBool(element, kAXMinimizedAttribute) == true
+    }
+
+    private func isFullscreenWindow(_ element: AXUIElement) -> Bool {
+        axBool(element, "AXFullScreen") == true
+    }
+
+    private func isRememberedFullscreenWindow(_ element: AXUIElement) -> Bool {
+        fullscreenWindowStates.values.contains { sameWindow($0.element, element) }
+    }
+
+    private func isLikelyFullscreenFrame(_ element: AXUIElement) -> Bool {
+        guard let frame = axFrame(element) else {
+            return false
+        }
+
+        for screen in NSScreen.screens {
+            let screenFrame = screen.frame
+            let widthMatches = abs(frame.width - screenFrame.width) <= 4
+            let heightMatches = abs(frame.height - screenFrame.height) <= 4
+            let originMatches = abs(frame.minX - screenFrame.minX) <= 4 && abs(frame.minY - screenFrame.minY) <= 4
+            if widthMatches && heightMatches && originMatches {
+                return true
+            }
+        }
+
+        let viewport = currentViewport()
+        return frame.width >= viewport.width * 1.2 || frame.height >= viewport.height * 1.2
     }
 
     private func isManageableWindow(_ element: AXUIElement) -> Bool {
@@ -1827,6 +1886,91 @@ final class Miri: NSObject, @unchecked Sendable {
             }
         }
         ensureTrailingEmptyWorkspace()
+    }
+
+    private func rememberFullscreenWindowState(_ window: ManagedWindow) {
+        guard let location = tiledWindowLocation(for: window.element) else {
+            return
+        }
+        let workspace = location.workspace
+        let leftWindow = location.columnIndex > 0 ? workspace.columns[location.columnIndex - 1] : nil
+        let rightWindow = location.columnIndex + 1 < workspace.columns.count ? workspace.columns[location.columnIndex + 1] : nil
+        let left = leftWindow.map(persistentIdentity(for:))
+        let right = rightWindow.map(persistentIdentity(for:))
+        let identity = persistentIdentity(for: window)
+        fullscreenWindowStates[identity] = FullscreenWindowState(
+            identity: identity,
+            element: window.element,
+            pid: window.pid,
+            windowID: window.windowID,
+            bundleID: window.bundleID,
+            appName: window.appName,
+            title: window.title,
+            workspace: location.workspaceIndex,
+            column: location.columnIndex,
+            leftNeighborID: leftWindow.map(ObjectIdentifier.init),
+            rightNeighborID: rightWindow.map(ObjectIdentifier.init),
+            leftNeighbor: left,
+            rightNeighbor: right,
+            widthRatio: widthRatio(for: window),
+            wasActive: activeWorkspace == location.workspaceIndex && workspace.activeColumn == location.columnIndex
+        )
+    }
+
+    private func restoreExitedFullscreenWindows(discovered: [ManagedWindow]) {
+        for found in discovered {
+            guard let match = fullscreenWindowStates.first(where: { sameWindow($0.value.element, found.element) || persistentIdentity(for: found) == $0.key }) else {
+                continue
+            }
+            fullscreenWindowStates.removeValue(forKey: match.key)
+            found.manualWidthRatio = match.value.widthRatio
+            insertRestoredFullscreenWindow(found, state: match.value)
+        }
+    }
+
+    private func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {
+        while workspaces.count <= state.workspace {
+            workspaces.append(Workspace())
+        }
+        let workspace = workspaces[min(max(state.workspace, 0), workspaces.count - 1)]
+        let index = restoredFullscreenInsertionIndex(in: workspace, state: state)
+        insertWindow(window, in: workspace, at: index, applyLayout: false, focusNewWindow: state.wasActive)
+    }
+
+    private func restoredFullscreenInsertionIndex(in workspace: Workspace, state: FullscreenWindowState) -> Int {
+        let leftIndex = neighborIndex(id: state.leftNeighborID, identity: state.leftNeighbor, in: workspace)
+        let rightIndex = neighborIndex(id: state.rightNeighborID, identity: state.rightNeighbor, in: workspace)
+        if let leftIndex, let rightIndex, leftIndex < rightIndex {
+            return rightIndex
+        }
+        if let leftIndex {
+            return min(leftIndex + 1, workspace.columns.count)
+        }
+        if let rightIndex, state.leftNeighbor == nil {
+            return rightIndex
+        }
+        if let rightIndex, rightIndex > 0 {
+            return rightIndex
+        }
+        return workspace.columns.count
+    }
+
+    private func neighborIndex(id: ObjectIdentifier?, identity: PersistentWindowIdentity?, in workspace: Workspace) -> Int? {
+        if let id,
+           let index = workspace.columns.firstIndex(where: { ObjectIdentifier($0) == id }) {
+            return index
+        }
+        guard let identity else {
+            return nil
+        }
+        if let exact = workspace.columns.firstIndex(where: { persistentIdentity(for: $0) == identity }) {
+            return exact
+        }
+        if let bundleID = identity.bundleID,
+           let bundle = workspace.columns.firstIndex(where: { $0.bundleID == bundleID }) {
+            return bundle
+        }
+        return workspace.columns.firstIndex { $0.appName.caseInsensitiveCompare(identity.appName) == .orderedSame }
     }
 
     private func rememberMinimizedWindowState(_ window: ManagedWindow) {
@@ -3359,6 +3503,25 @@ final class Miri: NSObject, @unchecked Sendable {
         tiledWindowLocation(for: element)?.window
     }
 
+    private func handleFullscreenTransitionIfNeeded(_ element: AXUIElement) -> Bool {
+        if (isFullscreenWindow(element) || isLikelyFullscreenFrame(element)), let location = tiledWindowLocation(for: element) {
+            rememberFullscreenWindowState(location.window)
+            removeWindow(location.window, preferRightFocus: true)
+            projectLayout(focusActiveWindow: location.workspace.columns.isEmpty ? false : true, layoutLockDelay: 0.02)
+            schedulePersistentLayoutSnapshotWrite()
+            return true
+        }
+
+        if !isFullscreenWindow(element), !isLikelyFullscreenFrame(element), isRememberedFullscreenWindow(element) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                self?.rescanWindows(adoptFocused: true)
+            }
+            return true
+        }
+
+        return false
+    }
+
     private func removeDestroyedWindowImmediately(_ element: AXUIElement) -> Bool {
         if let location = tiledWindowLocation(for: element) {
             let wasActiveWorkspace = activeWorkspace == location.workspaceIndex
@@ -3382,7 +3545,9 @@ final class Miri: NSObject, @unchecked Sendable {
     }
 
     private func updateManualWidthRatio(for element: AXUIElement) -> Bool {
-        guard let location = tiledWindowLocation(for: element),
+        guard !isFullscreenWindow(element),
+              !isLikelyFullscreenFrame(element),
+              let location = tiledWindowLocation(for: element),
               let frame = axFrame(element)
         else {
             return false
@@ -3420,6 +3585,10 @@ final class Miri: NSObject, @unchecked Sendable {
 
     private func beginOrContinueManualResize(for element: AXUIElement) {
         cancelHoverFocus()
+        guard !isFullscreenWindow(element), !isLikelyFullscreenFrame(element) else {
+            _ = handleFullscreenTransitionIfNeeded(element)
+            return
+        }
         guard tiledWindow(for: element) != nil else {
             restoreFloatingVisibility()
             return
@@ -3601,6 +3770,9 @@ final class Miri: NSObject, @unchecked Sendable {
                 self?.rescanWindows(adoptFocused: true)
             }
         case kAXWindowResizedNotification:
+            if handleFullscreenTransitionIfNeeded(element) {
+                return
+            }
             guard tiledWindow(for: element) != nil else {
                 restoreFloatingVisibility()
                 return
@@ -3618,6 +3790,9 @@ final class Miri: NSObject, @unchecked Sendable {
                 beginOrContinueManualResize(for: element)
             }
         case kAXWindowMovedNotification:
+            if handleFullscreenTransitionIfNeeded(element) {
+                return
+            }
             if manualResizeNotificationsSuppressed, tiledWindow(for: element) != nil {
                 return
             }
