@@ -58,6 +58,8 @@ struct MiriConfig: Codable {
     var moveColumnAnimationMS: Int?
     var widthAnimationMS: Int?
     var animationCurve: AnimationCurve?
+    var animationFPS: Int?
+    var animationPixelThreshold: CGFloat?
     var hoverToFocus: Bool?
     var hoverFocusDelayMS: Int?
     var hoverFocusMaxScrollRatio: CGFloat?
@@ -103,6 +105,8 @@ struct MiriConfig: Codable {
         moveColumnAnimationMS: 240,
         widthAnimationMS: 280,
         animationCurve: .smooth,
+        animationFPS: 30,
+        animationPixelThreshold: 2,
         hoverToFocus: true,
         hoverFocusDelayMS: 120,
         hoverFocusMaxScrollRatio: 0.15,
@@ -233,6 +237,8 @@ struct MiriConfig: Codable {
         config.trackpadSettleAnimationMS = config.trackpadSettleAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }
         config.widthAnimationMS = config.widthAnimationMS.map { min(max($0, 0), 500) }
+        config.animationFPS = config.animationFPS.map { min(max($0, 1), 120) }
+        config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
         config.hoverFocusDelayMS = config.hoverFocusDelayMS.map { min(max($0, 0), 1000) }
         config.hoverFocusMaxScrollRatio = config.hoverFocusMaxScrollRatio.map { min(max($0, 0), 2) }
         config.hoverFocusRequiresVisibleRatio = config.hoverFocusRequiresVisibleRatio.map { min(max($0, 0), 2) }
@@ -301,6 +307,8 @@ struct MiriConfig: Codable {
         case moveColumnAnimationMS = "move_column_animation_ms"
         case widthAnimationMS = "width_animation_ms"
         case animationCurve = "animation_curve"
+        case animationFPS = "animation_fps"
+        case animationPixelThreshold = "animation_pixel_threshold"
         case hoverToFocus = "hover_to_focus"
         case hoverFocusDelayMS = "hover_focus_delay_ms"
         case hoverFocusMaxScrollRatio = "hover_focus_max_scroll_ratio"

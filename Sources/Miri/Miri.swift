@@ -29,6 +29,10 @@ final class Miri: NSObject, @unchecked Sendable {
     private var eventTapSource: CFRunLoopSource?
     private var commandByKeybinding: [String: Command] = [:]
     private var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
+    private var appliedFrames: [ObjectIdentifier: CGRect] = [:]
+    private var appliedVisibility: [ObjectIdentifier: Bool] = [:]
+    private var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
+    private var snapshotWriteTimer: DispatchSourceTimer?
     private var excludedKeybindingSet = Set<String>()
     private var rescanTimer: Timer?
     private var isApplyingLayout = false
@@ -187,6 +191,8 @@ final class Miri: NSObject, @unchecked Sendable {
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler { [weak self] in
+                self?.snapshotWriteTimer?.cancel()
+                self?.writePersistentLayoutSnapshot()
                 if self?.restoreOnExit == true {
                     self?.restoreManagedWindowsForExit()
                 }
@@ -935,7 +941,7 @@ final class Miri: NSObject, @unchecked Sendable {
         clearTrackpadCamera()
         cancelHoverFocus()
         hoverFocusRequiresRearm = false
-        rescanWindows(adoptFocused: false)
+        let previousFocusedWindowID = activeWindow().map(ObjectIdentifier.init)
         let previousState = captureLayoutState()
         var animated = false
         var frameAnimated = false
@@ -1071,11 +1077,15 @@ final class Miri: NSObject, @unchecked Sendable {
         }
 
         let newState = captureLayoutState()
+        let newFocusedWindowID = activeWindow().map(ObjectIdentifier.init)
+        let animatedWindowIDs = Set([previousFocusedWindowID, newFocusedWindowID].compactMap { $0 })
         projectLayout(
             focusActiveWindow: true,
             animated: animated && (previousState != newState || frameAnimated),
             from: previousState,
-            animationDuration: duration
+            animationDuration: duration,
+            animatedWindowIDs: animatedWindowIDs,
+            resizingWindowID: newFocusedWindowID
         )
     }
 
@@ -1182,6 +1192,7 @@ final class Miri: NSObject, @unchecked Sendable {
         workspace.columns.insert(window, at: targetIndex)
         workspace.activeColumn = targetIndex
         workspace.scrollOffset = nil
+        schedulePersistentLayoutSnapshotWrite()
         return true
     }
 
@@ -1284,6 +1295,7 @@ final class Miri: NSObject, @unchecked Sendable {
         }
 
         window.manualWidthRatio = newRatio
+        schedulePersistentLayoutSnapshotWrite()
         return true
     }
 
@@ -1330,6 +1342,7 @@ final class Miri: NSObject, @unchecked Sendable {
         setActiveWorkspace(targetIndex)
         ensureTrailingEmptyWorkspace()
         activeWorkspace = workspaces.firstIndex(where: { $0 === targetWorkspace }) ?? activeWorkspace
+        schedulePersistentLayoutSnapshotWrite()
         return true
     }
 
@@ -1617,6 +1630,9 @@ final class Miri: NSObject, @unchecked Sendable {
     }
 
     private func removeWindow(_ window: ManagedWindow, preferRightFocus: Bool = false) {
+        let id = ObjectIdentifier(window)
+        appliedFrames.removeValue(forKey: id)
+        appliedVisibility.removeValue(forKey: id)
         if let index = floatingWindows.firstIndex(where: { $0 === window }) {
             floatingWindows.remove(at: index)
             return
@@ -1738,6 +1754,14 @@ final class Miri: NSObject, @unchecked Sendable {
 
     private var animationCurve: AnimationCurve {
         config.animationCurve ?? MiriConfig.fallback.animationCurve ?? .smooth
+    }
+
+    private var animationFPS: Int {
+        config.animationFPS ?? MiriConfig.fallback.animationFPS ?? 30
+    }
+
+    private var animationPixelThreshold: CGFloat {
+        config.animationPixelThreshold ?? MiriConfig.fallback.animationPixelThreshold ?? 2
     }
 
     private var hoverFocusEnabled: Bool {
@@ -1884,11 +1908,11 @@ final class Miri: NSObject, @unchecked Sendable {
         animated: Bool = false,
         from previousState: LayoutState? = nil,
         animationDuration: TimeInterval? = nil,
-        layoutLockDelay: TimeInterval = 0.08
+        layoutLockDelay: TimeInterval = 0.08,
+        animatedWindowIDs: Set<ObjectIdentifier>? = nil,
+        resizingWindowID: ObjectIdentifier? = nil
     ) {
         let viewport = currentViewport()
-        writeRestoreSnapshot(viewport: viewport)
-        writePersistentLayoutSnapshot()
 
         let targetState = captureLayoutState()
         debugLog("layout workspace=\(targetState.activeWorkspace + 1) tiled=\(tiledWindows().count) floating=\(floatingWindows.count) animated=\(animated)")
@@ -1900,7 +1924,9 @@ final class Miri: NSObject, @unchecked Sendable {
                 to: targetState,
                 viewport: viewport,
                 focusActiveWindow: focusActiveWindow,
-                duration: duration
+                duration: duration,
+                animatedWindowIDs: animatedWindowIDs,
+                resizingWindowID: resizingWindowID
             )
             return
         }
@@ -1984,35 +2010,47 @@ final class Miri: NSObject, @unchecked Sendable {
     }
 
     private func applyLayout(_ layout: [LayoutItem], focusActiveWindow: Bool) {
-        for item in layout where !item.visible {
-            setWindowAlpha(0, for: item.window.windowID)
-        }
-
         if focusActiveWindow, let activeWindow = self.activeWindow() {
             let inactiveVisible = layout.filter { $0.visible && $0.window !== activeWindow }
             for item in inactiveVisible {
-                setAXFrame(item.frame, for: item.window.element)
-                setWindowAlpha(1, for: item.window.windowID)
+                applyLayoutItem(item)
             }
 
             if let activeItem = layout.first(where: { $0.window === activeWindow }) {
-                setAXFrame(activeItem.frame, for: activeWindow.element)
-                setWindowAlpha(1, for: activeWindow.windowID)
+                applyLayoutItem(activeItem, forceFrame: true)
             }
         } else {
             for item in layout where item.visible {
-                setAXFrame(item.frame, for: item.window.element)
-                setWindowAlpha(1, for: item.window.windowID)
+                applyLayoutItem(item)
             }
         }
 
         for item in layout where !item.visible {
-            setAXFrame(item.frame, for: item.window.element)
-            setWindowAlpha(0, for: item.window.windowID)
+            applyLayoutItem(item)
         }
 
         if focusActiveWindow, let activeWindow = self.activeWindow() {
             focus(activeWindow)
+        }
+    }
+
+    private func applyLayoutItem(_ item: LayoutItem, forceFrame: Bool = false) {
+        let id = ObjectIdentifier(item.window)
+        let wasVisible = appliedVisibility[id]
+        let previousFrame = appliedFrames[id]
+        let shouldApplyFrame = forceFrame
+            || item.visible
+            || wasVisible != false
+            || previousFrame.map { frameDelta(from: $0, to: item.frame) >= animationPixelThreshold } ?? true
+
+        if shouldApplyFrame {
+            setAXFrame(item.frame, for: item.window.element)
+            appliedFrames[id] = item.frame
+        }
+
+        if wasVisible != item.visible {
+            setWindowAlpha(item.visible ? 1 : 0, for: item.window.windowID)
+            appliedVisibility[id] = item.visible
         }
     }
 
@@ -2363,7 +2401,9 @@ final class Miri: NSObject, @unchecked Sendable {
         to targetState: LayoutState,
         viewport: CGRect,
         focusActiveWindow: Bool,
-        duration: TimeInterval
+        duration: TimeInterval,
+        animatedWindowIDs: Set<ObjectIdentifier>?,
+        resizingWindowID: ObjectIdentifier?
     ) {
         stopAnimation(clearPresentation: false)
         isApplyingLayout = true
@@ -2384,9 +2424,10 @@ final class Miri: NSObject, @unchecked Sendable {
             guard let startFrame, let endFrame else {
                 return nil
             }
-            let participates = startFrame.union(endFrame).intersects(viewport)
-            let sizeStable = abs(startFrame.width - endFrame.width) < 0.5
-                && abs(startFrame.height - endFrame.height) < 0.5
+            let isAnimationCandidate = animatedWindowIDs?.contains(id) ?? true
+            let participates = isAnimationCandidate && startFrame.union(endFrame).intersects(viewport)
+            let sizeStable = resizingWindowID != id || (abs(startFrame.width - endFrame.width) < 0.5
+                && abs(startFrame.height - endFrame.height) < 0.5)
             return WindowMotion(
                 window: window,
                 startFrame: startFrame,
@@ -2404,13 +2445,19 @@ final class Miri: NSObject, @unchecked Sendable {
             return
         }
 
+        let finalVisibleWindowIDs = Set(finalLayout.filter(\.visible).map { ObjectIdentifier($0.window) })
         for motion in motions {
-            setWindowAlpha(motion.participates ? 1 : 0, for: motion.window.windowID)
+            let id = ObjectIdentifier(motion.window)
+            setWindowAlpha((motion.participates || finalVisibleWindowIDs.contains(id)) ? 1 : 0, for: motion.window.windowID)
+            if !motion.participates {
+                setAXFrame(motion.endFrame, for: motion.window.element)
+            }
         }
 
         let startedAt = CFAbsoluteTimeGetCurrent()
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
+        let frameIntervalMS = max(1, Int((1000.0 / Double(animationFPS)).rounded()))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(frameIntervalMS), leeway: .milliseconds(4))
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
@@ -2424,7 +2471,8 @@ final class Miri: NSObject, @unchecked Sendable {
             applyAnimationFrame(
                 motions,
                 progress: easedProgress,
-                viewport: viewport
+                viewport: viewport,
+                pixelThreshold: animationPixelThreshold
             )
             restoreFloatingVisibility()
 
@@ -2449,7 +2497,8 @@ final class Miri: NSObject, @unchecked Sendable {
     private func applyAnimationFrame(
         _ motions: [WindowMotion],
         progress: CGFloat,
-        viewport: CGRect
+        viewport: CGRect,
+        pixelThreshold: CGFloat
     ) {
         var nextPresentationFrames: [ObjectIdentifier: CGRect] = [:]
 
@@ -2460,8 +2509,14 @@ final class Miri: NSObject, @unchecked Sendable {
             }
 
             let frame = interpolate(from: motion.startFrame, to: motion.endFrame, progress: progress)
-            nextPresentationFrames[id] = frame
+            let previousFrame = presentationFrames[id] ?? motion.startFrame
 
+            guard frameDelta(from: previousFrame, to: frame) >= pixelThreshold || progress >= 1 else {
+                nextPresentationFrames[id] = previousFrame
+                continue
+            }
+
+            nextPresentationFrames[id] = frame
             if motion.sizeStable {
                 setAXPosition(frame.origin, for: motion.window.element)
             } else {
@@ -2470,6 +2525,15 @@ final class Miri: NSObject, @unchecked Sendable {
         }
 
         presentationFrames = nextPresentationFrames
+    }
+
+    private func frameDelta(from oldFrame: CGRect, to newFrame: CGRect) -> CGFloat {
+        max(
+            abs(oldFrame.minX - newFrame.minX),
+            abs(oldFrame.minY - newFrame.minY),
+            abs(oldFrame.width - newFrame.width),
+            abs(oldFrame.height - newFrame.height)
+        )
     }
 
     private func stopAnimation(clearPresentation: Bool) {
@@ -2748,6 +2812,7 @@ final class Miri: NSObject, @unchecked Sendable {
 
     private func focus(_ window: ManagedWindow) {
         setWindowAlpha(1, for: window.windowID)
+        suppressFocusedWindowNotificationsUntil = CFAbsoluteTimeGetCurrent() + 0.2
         if let app = NSRunningApplication(processIdentifier: window.pid) {
             app.activate(options: [.activateIgnoringOtherApps])
         }
@@ -2799,6 +2864,22 @@ final class Miri: NSObject, @unchecked Sendable {
             return nil
         }
         return snapshot
+    }
+
+    private func schedulePersistentLayoutSnapshotWrite() {
+        snapshotWriteTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(300), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self else {
+                return
+            }
+            writePersistentLayoutSnapshot()
+            snapshotWriteTimer?.cancel()
+            snapshotWriteTimer = nil
+        }
+        snapshotWriteTimer = timer
+        timer.resume()
     }
 
     private func writePersistentLayoutSnapshot() {
@@ -3065,6 +3146,7 @@ final class Miri: NSObject, @unchecked Sendable {
         stopAnimation(clearPresentation: false)
 
         if updateManualWidthRatio(for: element) {
+            schedulePersistentLayoutSnapshotWrite()
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0)
         }
 
@@ -3094,7 +3176,9 @@ final class Miri: NSObject, @unchecked Sendable {
             manualResizeEndTimer = nil
 
             if manualResizeElement.map({ sameWindow($0, element) }) == true {
-                _ = updateManualWidthRatio(for: element)
+                if updateManualWidthRatio(for: element) {
+                    schedulePersistentLayoutSnapshotWrite()
+                }
                 projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
                 manualResizeElement = nil
             }
@@ -3204,9 +3288,11 @@ final class Miri: NSObject, @unchecked Sendable {
 
         switch name {
         case kAXFocusedWindowChangedNotification:
+            guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
+                return
+            }
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
-            rescanWindows(adoptFocused: false)
             adoptFocusedWindow(pid: pid)
         case kAXCreatedNotification,
              kAXUIElementDestroyedNotification,
