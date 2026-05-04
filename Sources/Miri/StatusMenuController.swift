@@ -8,6 +8,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let workspaceItem = NSMenuItem(title: "Workspace: —", action: nil, keyEquivalent: "")
     private let focusedItem = NSMenuItem(title: "Focused: —", action: nil, keyEquivalent: "")
     private let widthItem = NSMenuItem(title: "Width: —", action: nil, keyEquivalent: "")
+    private var workspaceMenuItems: [NSMenuItem] = []
     private var refreshTimer: Timer?
 
     init(miri: Miri) {
@@ -55,7 +56,38 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         workspaceItem.title = "Workspace: \(status.workspace) of \(status.workspaceCount)"
         focusedItem.title = "Focused: \(status.focusedWindow)"
         widthItem.title = status.widthPercent.map { "Width: \($0)%" } ?? "Width: —"
+        refreshWorkspaceMenuItems()
         refreshWorkspaceBar()
+    }
+
+    private func refreshWorkspaceMenuItems() {
+        for item in workspaceMenuItems {
+            menu.removeItem(item)
+        }
+        workspaceMenuItems.removeAll()
+
+        guard let barStatus = miri?.currentWorkspaceBarStatus(), !barStatus.occupiedWorkspaces.isEmpty else {
+            return
+        }
+
+        let header = NSMenuItem(title: "Workspaces", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        workspaceMenuItems.append(header)
+        for workspace in barStatus.occupiedWorkspaces {
+            let marker = workspace.isActive ? "✓ " : "  "
+            let apps = workspace.appNames.prefix(4).joined(separator: ", ")
+            let suffix = workspace.appNames.count > 4 ? ", +\(workspace.appNames.count - 4)" : ""
+            let item = NSMenuItem(title: "\(marker)Workspace \(workspace.workspace): \(apps)\(suffix)", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.image = workspace.lastFocusedWindow.map { icon(for: $0) }
+            workspaceMenuItems.append(item)
+        }
+        workspaceMenuItems.append(.separator())
+
+        let insertionIndex = min(3, menu.items.count)
+        for (offset, item) in workspaceMenuItems.enumerated() {
+            menu.insertItem(item, at: insertionIndex + offset)
+        }
     }
 
     private func refreshWorkspaceBar() {
@@ -96,7 +128,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         let leftOverflow = range.lowerBound
         let rightOverflow = max(0, count - range.upperBound)
-        let workspaceText = "{\(status.workspace)}"
+        let workspaceSummaries = status.occupiedWorkspaces.prefix(9)
+        let separatorText = workspaceSummaries.isEmpty ? nil : "|"
+        let workspaceText = workspaceSummaries.isEmpty ? "{\(status.workspace)}" : nil
         let overflowStyle = config.workspaceBarOverflowStyle ?? MiriConfig.fallback.workspaceBarOverflowStyle ?? .plusCount
         let leftText = overflowText(count: leftOverflow, side: .left, style: overflowStyle)
         let rightText = overflowText(count: rightOverflow, side: .right, style: overflowStyle)
@@ -107,8 +141,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
 
         let iconCount = CGFloat(range.count)
+        let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
+            let label = summary.isActive ? "{\(summary.workspace)}" : "\(summary.workspace)"
+            let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : 14
+            return total + (total == 0 ? 0 : textGap) + textWidth(label) + iconWidth
+        }
         let width = paddingX * 2
-            + textWidth(workspaceText)
+            + (workspaceText == nil ? workspaceStripWidth : textWidth(workspaceText))
+            + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
             + (leftText == nil ? 0 : textGap + textWidth(leftText))
             + (range.isEmpty ? 0 : textGap + iconCount * iconBox)
             + (rightText == nil ? 0 : textGap + textWidth(rightText))
@@ -120,8 +160,29 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         var x = paddingX
         let yText: CGFloat = 3
-        (workspaceText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
-        x += textWidth(workspaceText)
+        if let workspaceText {
+            (workspaceText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(workspaceText)
+        } else {
+            var first = true
+            for summary in workspaceSummaries {
+                if !first { x += textGap }
+                first = false
+                let label = summary.isActive ? "{\(summary.workspace)}" : "\(summary.workspace)"
+                (label as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+                x += textWidth(label)
+                if !summary.isActive, let window = summary.lastFocusedWindow {
+                    icon(for: window).draw(in: NSRect(x: x + 1, y: 5, width: 12, height: 12), from: .zero, operation: .sourceOver, fraction: 1)
+                    x += 14
+                }
+            }
+        }
+
+        if let separatorText {
+            x += textGap
+            (separatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(separatorText)
+        }
 
         if let leftText {
             x += textGap

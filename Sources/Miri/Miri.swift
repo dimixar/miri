@@ -16,10 +16,18 @@ struct MiriStatus {
     let widthPercent: Int?
 }
 
+struct MiriWorkspaceSummary {
+    let workspace: Int
+    let isActive: Bool
+    let lastFocusedWindow: MiriWorkspaceBarWindow?
+    let appNames: [String]
+}
+
 struct MiriWorkspaceBarStatus {
     let workspace: Int
     let focusedIndex: Int?
     let windows: [MiriWorkspaceBarWindow]
+    let occupiedWorkspaces: [MiriWorkspaceSummary]
 }
 
 struct MiriWorkspaceBarWindow {
@@ -125,17 +133,35 @@ final class Miri: NSObject, @unchecked Sendable {
 
     func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
         guard workspaces.indices.contains(activeWorkspace) else {
-            return MiriWorkspaceBarStatus(workspace: activeWorkspace + 1, focusedIndex: nil, windows: [])
+            return MiriWorkspaceBarStatus(workspace: activeWorkspace + 1, focusedIndex: nil, windows: [], occupiedWorkspaces: [])
         }
 
         let workspace = workspaces[activeWorkspace]
         return MiriWorkspaceBarStatus(
             workspace: activeWorkspace + 1,
             focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
-            windows: workspace.columns.map { window in
-                MiriWorkspaceBarWindow(bundleID: window.bundleID, appName: window.appName, title: window.title)
-            }
+            windows: workspace.columns.map(workspaceBarWindow),
+            occupiedWorkspaces: occupiedWorkspaceSummaries()
         )
+    }
+
+    private func occupiedWorkspaceSummaries() -> [MiriWorkspaceSummary] {
+        workspaces.enumerated().compactMap { index, workspace in
+            guard !workspace.columns.isEmpty else { return nil }
+            let focusedIndex = min(max(workspace.activeColumn, 0), workspace.columns.count - 1)
+            let focusedWindow = workspaceBarWindow(workspace.columns[focusedIndex])
+            let appNames = Array(NSOrderedSet(array: workspace.columns.map(\.appName))) as? [String] ?? workspace.columns.map(\.appName)
+            return MiriWorkspaceSummary(
+                workspace: index + 1,
+                isActive: index == activeWorkspace,
+                lastFocusedWindow: focusedWindow,
+                appNames: appNames
+            )
+        }
+    }
+
+    private func workspaceBarWindow(_ window: ManagedWindow) -> MiriWorkspaceBarWindow {
+        MiriWorkspaceBarWindow(bundleID: window.bundleID, appName: window.appName, title: window.title)
     }
 
     func currentStatus() -> MiriStatus {
