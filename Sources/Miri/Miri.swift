@@ -4,6 +4,13 @@ import CoreGraphics
 import Darwin
 import Foundation
 
+struct MiriStatus {
+    let workspace: Int
+    let workspaceCount: Int
+    let focusedWindow: String
+    let widthPercent: Int?
+}
+
 final class Miri: NSObject, @unchecked Sendable {
     private struct TrackpadNavigationSettings: Equatable {
         var enabled: Bool
@@ -92,7 +99,54 @@ final class Miri: NSObject, @unchecked Sendable {
         if hideMethod == .skyLightAlpha && !SkyLight.shared.canSetAlpha {
             print("miri: SkyLight alpha support unavailable; parked windows will remain as edge slivers")
         }
-        RunLoop.main.run()
+    }
+
+    func currentStatus() -> MiriStatus {
+        let nonEmptyWorkspaceCount = max(1, workspaces.filter { !$0.columns.isEmpty }.count)
+        guard let window = activeWindow() else {
+            return MiriStatus(
+                workspace: activeWorkspace + 1,
+                workspaceCount: nonEmptyWorkspaceCount,
+                focusedWindow: "None",
+                widthPercent: nil
+            )
+        }
+
+        let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
+        return MiriStatus(
+            workspace: activeWorkspace + 1,
+            workspaceCount: nonEmptyWorkspaceCount,
+            focusedWindow: title,
+            widthPercent: Int((widthRatio(for: window) * 100).rounded())
+        )
+    }
+
+    func openConfigFromMenu() {
+        if let url = loadedConfig.sourceURL {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        let fallbackURL = URL(fileURLWithPath: NSString(string: "~/.config/miri/config.json").expandingTildeInPath)
+        NSWorkspace.shared.open(fallbackURL)
+    }
+
+    func reloadFromMenu() {
+        loadedConfig.sourceModificationDate = nil
+        _ = reloadConfigIfNeeded()
+    }
+
+    func rescanFromMenu() {
+        rescanWindows(adoptFocused: true)
+    }
+
+    @MainActor func quitFromMenu() {
+        snapshotWriteTimer?.cancel()
+        writePersistentLayoutSnapshot()
+        if restoreOnExit {
+            restoreManagedWindowsForExit()
+        }
+        NSApp.terminate(nil)
     }
 
     private func scheduleRescanTimer() {

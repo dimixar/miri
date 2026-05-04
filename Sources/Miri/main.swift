@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 
@@ -9,4 +10,11 @@ if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--cleanup-watc
     CleanupWatcher.run(parentPID: parentPID, snapshotPath: CommandLine.arguments[3])
 }
 
-Miri().start()
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+
+let miri = Miri()
+let statusMenu = StatusMenuController(miri: miri)
+_ = statusMenu
+miri.start()
+app.run()
