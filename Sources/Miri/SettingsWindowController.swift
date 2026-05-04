@@ -78,6 +78,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         tabView.addTabViewItem(tab("Focus", focusView()))
         tabView.addTabViewItem(tab("Animations", animationsView()))
         tabView.addTabViewItem(tab("Trackpad", trackpadView()))
+        tabView.addTabViewItem(tab("Keybindings", keybindingsView()))
         tabView.addTabViewItem(tab("Rules", rulesView()))
     }
 
@@ -186,6 +187,19 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Invert Y", checkbox("trackpadNavigationInvertY", draft.trackpadNavigationInvertY ?? false)),
     ]) }
 
+    private func keybindingsView() -> NSView {
+        var rows: [(String, NSView)] = []
+        rows.append(("Excluded keybindings CSV", textField("excludedKeybindings", (draft.excludedKeybindings ?? []).joined(separator: ", "))))
+
+        let keybindings = draft.keybindings ?? MiriConfig.defaultKeybindings
+        for command in MiriConfig.defaultKeybindings.keys.sorted() {
+            let bindings = keybindings[command] ?? []
+            rows.append((command, textField("keybinding.\(command)", bindings.joined(separator: ", "))))
+        }
+
+        return form(rows)
+    }
+
     private func rulesView() -> NSView {
         let root = NSStackView()
         root.orientation = .vertical
@@ -197,6 +211,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         buttons.spacing = 8
         buttons.addArrangedSubview(button("Add Manual Rule", #selector(addManualRule)))
         buttons.addArrangedSubview(button("Add From Open App…", #selector(addFromOpenApp)))
+        buttons.addArrangedSubview(button("Duplicate", #selector(duplicateRule)))
+        buttons.addArrangedSubview(button("Move Up", #selector(moveRuleUp)))
+        buttons.addArrangedSubview(button("Move Down", #selector(moveRuleDown)))
         buttons.addArrangedSubview(button("Delete", #selector(deleteRule)))
         root.addArrangedSubview(buttons)
 
@@ -272,6 +289,29 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadNavigationSnap = TrackpadNavigationSnap(rawValue: string("trackpadNavigationSnap"))
         draft.trackpadNavigationInvertX = bool("trackpadNavigationInvertX")
         draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
+
+        draft.excludedKeybindings = csv("excludedKeybindings")
+        var keybindings: [String: [String]] = [:]
+        for command in MiriConfig.defaultKeybindings.keys.sorted() {
+            keybindings[command] = csv("keybinding.\(command)")
+        }
+        draft.keybindings = keybindings
+    }
+
+    private func validateDraft() -> String? {
+        var seen: [String: String] = [:]
+        let keybindings = draft.keybindings ?? [:]
+        for command in keybindings.keys.sorted() {
+            for binding in keybindings[command] ?? [] {
+                let normalized = binding.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !normalized.isEmpty else { continue }
+                if let previous = seen[normalized] {
+                    return "Keybinding '\(binding)' is assigned to both '\(previous)' and '\(command)'."
+                }
+                seen[normalized] = command
+            }
+        }
+        return nil
     }
 
     @objc private func addManualRule() {
@@ -302,6 +342,30 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     @objc private func editSelectedRule() {
         editRule(at: rulesTable.selectedRow)
+    }
+
+    @objc private func duplicateRule() {
+        let row = rulesTable.selectedRow
+        guard draft.rules.indices.contains(row) else { return }
+        draft.rules.insert(draft.rules[row], at: row + 1)
+        rulesTable.reloadData()
+        rulesTable.selectRowIndexes(IndexSet(integer: row + 1), byExtendingSelection: false)
+    }
+
+    @objc private func moveRuleUp() {
+        let row = rulesTable.selectedRow
+        guard draft.rules.indices.contains(row), row > 0 else { return }
+        draft.rules.swapAt(row, row - 1)
+        rulesTable.reloadData()
+        rulesTable.selectRowIndexes(IndexSet(integer: row - 1), byExtendingSelection: false)
+    }
+
+    @objc private func moveRuleDown() {
+        let row = rulesTable.selectedRow
+        guard draft.rules.indices.contains(row), row < draft.rules.count - 1 else { return }
+        draft.rules.swapAt(row, row + 1)
+        rulesTable.reloadData()
+        rulesTable.selectRowIndexes(IndexSet(integer: row + 1), byExtendingSelection: false)
     }
 
     @objc private func deleteRule() {
@@ -391,8 +455,33 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     @objc private func cancel() { close() }
-    @objc private func apply() { readControlsIntoDraft(); miri?.saveConfigFromSettings(draft) }
-    @objc private func save() { apply(); close() }
+
+    @objc private func apply() {
+        readControlsIntoDraft()
+        if let validationError = validateDraft() {
+            showAlert(title: "Invalid Settings", message: validationError)
+            return
+        }
+        miri?.saveConfigFromSettings(draft)
+        showAlert(title: "Miri Settings Saved", message: "Config was saved and reloaded.")
+    }
+
+    @objc private func save() {
+        readControlsIntoDraft()
+        if let validationError = validateDraft() {
+            showAlert(title: "Invalid Settings", message: validationError)
+            return
+        }
+        miri?.saveConfigFromSettings(draft)
+        close()
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
+    }
 
     private func button(_ title: String, _ action: Selector) -> NSButton { let b = NSButton(title: title, target: self, action: action); return b }
     private func checkbox(_ key: String, _ value: Bool) -> NSButton { let b = NSButton(checkboxWithTitle: "", target: nil, action: nil); b.state = value ? .on : .off; controls[key] = b; return b }
@@ -402,6 +491,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func popup(_ key: String, _ values: [String], _ selected: String) -> NSPopUpButton { let p = NSPopUpButton(); p.addItems(withTitles: values); p.selectItem(withTitle: selected); controls[key] = p; return p }
     private func bool(_ key: String) -> Bool { (controls[key] as? NSButton)?.state == .on }
     private func string(_ key: String) -> String { if let p = controls[key] as? NSPopUpButton { return p.titleOfSelectedItem ?? "" }; return (controls[key] as? NSTextField)?.stringValue ?? "" }
+    private func csv(_ key: String) -> [String] { string(key).split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
     private func int(_ key: String) -> Int { Int(string(key)) ?? 0 }
     private func double(_ key: String) -> Double { Double(string(key)) ?? 0 }
 }
