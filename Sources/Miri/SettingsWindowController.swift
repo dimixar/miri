@@ -79,6 +79,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         tabView.addTabViewItem(tab("Animations", animationsView()))
         tabView.addTabViewItem(tab("Trackpad", trackpadView()))
         tabView.addTabViewItem(tab("Keybindings", keybindingsView()))
+        tabView.addTabViewItem(tab("Workspace Bar", workspaceBarView()))
         tabView.addTabViewItem(tab("Rules", rulesView()))
     }
 
@@ -187,6 +188,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Invert Y", checkbox("trackpadNavigationInvertY", draft.trackpadNavigationInvertY ?? false)),
     ]) }
 
+    private func workspaceBarView() -> NSView { form([
+        ("Highlight color", colorWell("workspaceBarHighlightColor", draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "yellow")),
+        ("Visible app window icons", slider("workspaceBarVisibleIconCount", draft.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3, min: 1, max: 6)),
+        ("Overflow style", popup("workspaceBarOverflowStyle", WorkspaceBarOverflowStyle.allCasesStrings, draft.workspaceBarOverflowStyle?.rawValue ?? MiriConfig.fallback.workspaceBarOverflowStyle?.rawValue ?? "plus_count")),
+    ]) }
+
     private func keybindingsView() -> NSView {
         var rows: [(String, NSView)] = []
         rows.append(("Excluded keybindings CSV", textField("excludedKeybindings", (draft.excludedKeybindings ?? []).joined(separator: ", "))))
@@ -289,6 +296,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadNavigationSnap = TrackpadNavigationSnap(rawValue: string("trackpadNavigationSnap"))
         draft.trackpadNavigationInvertX = bool("trackpadNavigationInvertX")
         draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
+        draft.workspaceBarHighlightColor = colorHex("workspaceBarHighlightColor")
+        draft.workspaceBarVisibleIconCount = max(1, min(int("workspaceBarVisibleIconCount"), 6))
+        draft.workspaceBarOverflowStyle = WorkspaceBarOverflowStyle(rawValue: string("workspaceBarOverflowStyle"))
 
         draft.excludedKeybindings = csv("excludedKeybindings")
         var keybindings: [String: [String]] = [:]
@@ -489,11 +499,83 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func intField(_ key: String, _ value: Int) -> NSTextField { textField(key, String(value)) }
     private func doubleField(_ key: String, _ value: Double) -> NSTextField { textField(key, String(value)) }
     private func popup(_ key: String, _ values: [String], _ selected: String) -> NSPopUpButton { let p = NSPopUpButton(); p.addItems(withTitles: values); p.selectItem(withTitle: selected); controls[key] = p; return p }
+
+    private func slider(_ key: String, _ value: Int, min: Int, max: Int) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        let slider = NSSlider(value: Double(value), minValue: Double(min), maxValue: Double(max), target: self, action: #selector(sliderChanged(_:)))
+        slider.numberOfTickMarks = max - min + 1
+        slider.allowsTickMarkValuesOnly = true
+        slider.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        slider.identifier = NSUserInterfaceItemIdentifier(key)
+        let label = NSTextField(labelWithString: "\(value)")
+        label.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        label.identifier = NSUserInterfaceItemIdentifier("\(key).label")
+        stack.addArrangedSubview(slider)
+        stack.addArrangedSubview(label)
+        controls[key] = slider
+        return stack
+    }
+
+    @objc private func sliderChanged(_ sender: NSSlider) {
+        guard let key = sender.identifier?.rawValue else { return }
+        sender.integerValue = Int(sender.doubleValue.rounded())
+        if let stack = sender.superview as? NSStackView,
+           let label = stack.arrangedSubviews.compactMap({ $0 as? NSTextField }).first(where: { $0.identifier?.rawValue == "\(key).label" }) {
+            label.stringValue = "\(sender.integerValue)"
+        }
+    }
+
+    private func colorWell(_ key: String, _ value: String) -> NSColorWell {
+        let well = NSColorWell(frame: NSRect(x: 0, y: 0, width: 64, height: 28))
+        well.color = colorFromSetting(value)
+        controls[key] = well
+        return well
+    }
+
     private func bool(_ key: String) -> Bool { (controls[key] as? NSButton)?.state == .on }
     private func string(_ key: String) -> String { if let p = controls[key] as? NSPopUpButton { return p.titleOfSelectedItem ?? "" }; return (controls[key] as? NSTextField)?.stringValue ?? "" }
     private func csv(_ key: String) -> [String] { string(key).split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-    private func int(_ key: String) -> Int { Int(string(key)) ?? 0 }
+    private func int(_ key: String) -> Int { if let s = controls[key] as? NSSlider { return s.integerValue }; return Int(string(key)) ?? 0 }
     private func double(_ key: String) -> Double { Double(string(key)) ?? 0 }
+
+    private func colorHex(_ key: String) -> String {
+        guard let color = (controls[key] as? NSColorWell)?.color.usingColorSpace(.sRGB) else { return "#FFD60A" }
+        let r = Int((color.redComponent * 255).rounded())
+        let g = Int((color.greenComponent * 255).rounded())
+        let b = Int((color.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
+
+    private func colorFromSetting(_ value: String) -> NSColor {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "red": return .systemRed
+        case "orange": return .systemOrange
+        case "green": return .systemGreen
+        case "mint": return .systemMint
+        case "teal": return .systemTeal
+        case "cyan": return .systemCyan
+        case "blue": return .systemBlue
+        case "indigo": return .systemIndigo
+        case "purple": return .systemPurple
+        case "pink": return .systemPink
+        case "gray", "grey": return .systemGray
+        case let hex where hex.hasPrefix("#"):
+            return colorFromHex(hex) ?? .systemYellow
+        default:
+            return .systemYellow
+        }
+    }
+
+    private func colorFromHex(_ hex: String) -> NSColor? {
+        let trimmed = String(hex.dropFirst())
+        guard trimmed.count == 6, let value = Int(trimmed, radix: 16) else { return nil }
+        let r = CGFloat((value >> 16) & 0xff) / 255
+        let g = CGFloat((value >> 8) & 0xff) / 255
+        let b = CGFloat(value & 0xff) / 255
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+    }
 }
 
 extension HideMethod { static let allCasesStrings = ["skylight_alpha", "park_only"] }
@@ -502,3 +584,4 @@ extension NewWindowPosition { static let allCasesStrings = ["before_active", "af
 extension HoverFocusMode { static let allCasesStrings = ["off", "visible_only", "edge_or_visible"] }
 extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "linear"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
+extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }

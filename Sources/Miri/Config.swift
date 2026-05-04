@@ -42,6 +42,13 @@ enum TrackpadNavigationSnap: String, Codable {
     case none
 }
 
+enum WorkspaceBarOverflowStyle: String, Codable {
+    case plusCount = "plus_count"
+    case dotsCount = "dots_count"
+    case chevron
+    case none
+}
+
 struct LoadedMiriConfig {
     var config: MiriConfig
     var sourceURL: URL?
@@ -93,6 +100,9 @@ struct MiriConfig: Codable {
     var statePath: String?
     var hideMethod: HideMethod?
     var debugLogging: Bool?
+    var workspaceBarHighlightColor: String?
+    var workspaceBarVisibleIconCount: Int?
+    var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
     var rules: [WindowRule]
 
     static let fallback = MiriConfig(
@@ -140,6 +150,9 @@ struct MiriConfig: Codable {
         statePath: nil,
         hideMethod: .skyLightAlpha,
         debugLogging: false,
+        workspaceBarHighlightColor: "yellow",
+        workspaceBarVisibleIconCount: 3,
+        workspaceBarOverflowStyle: .plusCount,
         rules: [
             WindowRule(bundleID: "com.apple.finder", behavior: .ignore),
         ]
@@ -255,6 +268,7 @@ struct MiriConfig: Codable {
         config.trackpadNavigationVelocityGain = config.trackpadNavigationVelocityGain.map { min(max($0, 0), 5) }
         config.trackpadNavigationSettleAnimationMS = config.trackpadNavigationSettleAnimationMS.map { min(max($0, 0), 500) }
         config.rescanIntervalMS = config.rescanIntervalMS.map { min(max($0, 100), 5000) }
+        config.workspaceBarVisibleIconCount = config.workspaceBarVisibleIconCount.map { min(max($0, 1), 6) }
         config.rules = config.rules.map { rule in
             var rule = rule
             rule.widthRatio = rule.widthRatio.map(\.clampedWidthRatio)
@@ -342,6 +356,9 @@ struct MiriConfig: Codable {
         case statePath = "state_path"
         case hideMethod = "hide_method"
         case debugLogging = "debug_logging"
+        case workspaceBarHighlightColor = "workspace_bar_highlight_color"
+        case workspaceBarVisibleIconCount = "workspace_bar_visible_icon_count"
+        case workspaceBarOverflowStyle = "workspace_bar_overflow_style"
         case rules
     }
 }

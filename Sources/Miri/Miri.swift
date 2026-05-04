@@ -16,6 +16,18 @@ struct MiriStatus {
     let widthPercent: Int?
 }
 
+struct MiriWorkspaceBarStatus {
+    let workspace: Int
+    let focusedIndex: Int?
+    let windows: [MiriWorkspaceBarWindow]
+}
+
+struct MiriWorkspaceBarWindow {
+    let bundleID: String?
+    let appName: String
+    let title: String
+}
+
 final class Miri: NSObject, @unchecked Sendable {
     private struct TrackpadNavigationSettings: Equatable {
         var enabled: Bool
@@ -105,6 +117,25 @@ final class Miri: NSObject, @unchecked Sendable {
         if hideMethod == .skyLightAlpha && !SkyLight.shared.canSetAlpha {
             print("miri: SkyLight alpha support unavailable; parked windows will remain as edge slivers")
         }
+    }
+
+    func currentConfigForStatusBar() -> MiriConfig {
+        config
+    }
+
+    func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
+        guard workspaces.indices.contains(activeWorkspace) else {
+            return MiriWorkspaceBarStatus(workspace: activeWorkspace + 1, focusedIndex: nil, windows: [])
+        }
+
+        let workspace = workspaces[activeWorkspace]
+        return MiriWorkspaceBarStatus(
+            workspace: activeWorkspace + 1,
+            focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
+            windows: workspace.columns.map { window in
+                MiriWorkspaceBarWindow(bundleID: window.bundleID, appName: window.appName, title: window.title)
+            }
+        )
     }
 
     func currentStatus() -> MiriStatus {
