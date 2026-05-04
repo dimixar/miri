@@ -1025,14 +1025,14 @@ final class Miri: NSObject, @unchecked Sendable {
                 return
             }
             workspace.activeColumn = max(workspace.activeColumn - 1, 0)
-            workspace.scrollOffset = nil
+            revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             animated = true
         case .columnRight:
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
             workspace.activeColumn = min(workspace.activeColumn + 1, workspace.columns.count - 1)
-            workspace.scrollOffset = nil
+            revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             animated = true
         case .columnFirst:
             guard focusColumn(at: 0) else {
@@ -2706,6 +2706,39 @@ final class Miri: NSObject, @unchecked Sendable {
         }
 
         return (origins, widths)
+    }
+
+    private func revealActiveColumnIfNeeded(in workspace: Workspace, viewport: CGRect) {
+        guard !workspace.columns.isEmpty,
+              workspace.columns.indices.contains(workspace.activeColumn),
+              viewport.width > 0
+        else {
+            workspace.scrollOffset = nil
+            return
+        }
+
+        let metrics = stripMetrics(for: workspace, viewport: viewport)
+        guard metrics.origins.indices.contains(workspace.activeColumn),
+              metrics.widths.indices.contains(workspace.activeColumn)
+        else {
+            workspace.scrollOffset = nil
+            return
+        }
+
+        let currentOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
+        let columnMinX = metrics.origins[workspace.activeColumn]
+        let columnMaxX = columnMinX + metrics.widths[workspace.activeColumn]
+        var targetOffset = currentOffset
+
+        if columnMinX < currentOffset {
+            targetOffset = columnMinX
+        } else if columnMaxX > currentOffset + viewport.width {
+            targetOffset = columnMaxX - viewport.width
+        }
+
+        let maxOffset = maxHorizontalCameraOffset(for: workspace, viewport: viewport)
+        targetOffset = min(max(targetOffset, 0), maxOffset)
+        workspace.scrollOffset = targetOffset
     }
 
     private func horizontalCameraOffset(for workspace: Workspace, viewport: CGRect) -> CGFloat {
