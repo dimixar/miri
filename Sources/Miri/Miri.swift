@@ -28,6 +28,7 @@ final class Miri: NSObject, @unchecked Sendable {
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
     private var commandByKeybinding: [String: Command] = [:]
+    private var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
     private var excludedKeybindingSet = Set<String>()
     private var rescanTimer: Timer?
     private var isApplyingLayout = false
@@ -1402,7 +1403,12 @@ final class Miri: NSObject, @unchecked Sendable {
                 if behavior(for: window) == .ignore {
                     setWindowAlpha(1, for: window.windowID)
                 }
-                removeWindow(window)
+                let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
+                    || NSRunningApplication(processIdentifier: window.pid)?.isHidden == true
+                if temporarilyHidden {
+                    rememberMinimizedWindowState(window)
+                }
+                removeWindow(window, preferRightFocus: temporarilyHidden)
                 changed = true
             }
         }
@@ -1428,7 +1434,8 @@ final class Miri: NSObject, @unchecked Sendable {
                 if behavior(for: found) == .float {
                     insertFloatingWindow(found, applyLayout: false)
                 } else {
-                    insertNewWindow(found, applyLayout: false, focusNewWindow: false)
+                    restoreMinimizedWindowStateIfAvailable(for: found)
+                    insertRestoredWindowNearFocused(found, applyLayout: false)
                 }
                 changed = true
             }
@@ -1457,7 +1464,7 @@ final class Miri: NSObject, @unchecked Sendable {
         var windows: [ManagedWindow] = []
 
         for app in NSWorkspace.shared.runningApplications {
-            guard app.activationPolicy == .regular else {
+            guard app.activationPolicy == .regular, !app.isHidden else {
                 continue
             }
             let pid = app.processIdentifier
@@ -1474,7 +1481,7 @@ final class Miri: NSObject, @unchecked Sendable {
                 continue
             }
 
-            for element in axWindows where isManageableWindow(element) || isKnownWindow(element) {
+            for element in axWindows where !isHiddenOrMinimizedWindow(element) && (isManageableWindow(element) || isKnownWindow(element)) {
                 let title = axString(element, kAXTitleAttribute) ?? ""
                 let appName = app.localizedName ?? "pid \(pid)"
                 let windowID = SkyLight.shared.windowID(for: element)
@@ -1495,6 +1502,10 @@ final class Miri: NSObject, @unchecked Sendable {
         }
 
         return windows
+    }
+
+    private func isHiddenOrMinimizedWindow(_ element: AXUIElement) -> Bool {
+        axBool(element, kAXMinimizedAttribute) == true
     }
 
     private func isManageableWindow(_ element: AXUIElement) -> Bool {
@@ -1531,11 +1542,32 @@ final class Miri: NSObject, @unchecked Sendable {
         workspace.clampFocus()
 
         let insertionIndex = newWindowInsertionIndex(in: workspace, for: window)
+        insertWindow(window, in: workspace, at: insertionIndex, applyLayout: applyLayout, focusNewWindow: focusNewWindow)
+    }
 
-        workspace.columns.insert(window, at: insertionIndex)
-        workspace.activeColumn = insertionIndex
+    private func insertRestoredWindowNearFocused(_ window: ManagedWindow, applyLayout: Bool = true) {
+        let workspace = activeWorkspaceObject() ?? targetWorkspace(for: window)
+        workspace.clampFocus()
+        let insertionIndex = workspace.columns.isEmpty ? 0 : min(workspace.activeColumn + 1, workspace.columns.count)
+        insertWindow(window, in: workspace, at: insertionIndex, applyLayout: applyLayout, focusNewWindow: false)
+    }
+
+    private func insertWindow(
+        _ window: ManagedWindow,
+        in workspace: Workspace,
+        at insertionIndex: Int,
+        applyLayout: Bool,
+        focusNewWindow: Bool
+    ) {
+        let index = min(max(insertionIndex, 0), workspace.columns.count)
+        workspace.columns.insert(window, at: index)
+        if focusNewWindow {
+            workspace.activeColumn = index
+        } else if workspace.columns.count > 1, workspace.activeColumn >= index {
+            workspace.activeColumn += 1
+        }
         workspace.scrollOffset = nil
-        if let workspaceIndex = workspaces.firstIndex(where: { $0 === workspace }) {
+        if focusNewWindow, let workspaceIndex = workspaces.firstIndex(where: { $0 === workspace }) {
             setActiveWorkspace(workspaceIndex, rememberPrevious: false)
         }
         ensureTrailingEmptyWorkspace()
@@ -1584,7 +1616,7 @@ final class Miri: NSObject, @unchecked Sendable {
         }
     }
 
-    private func removeWindow(_ window: ManagedWindow) {
+    private func removeWindow(_ window: ManagedWindow, preferRightFocus: Bool = false) {
         if let index = floatingWindows.firstIndex(where: { $0 === window }) {
             floatingWindows.remove(at: index)
             return
@@ -1592,8 +1624,11 @@ final class Miri: NSObject, @unchecked Sendable {
 
         for workspace in workspaces {
             if let index = workspace.columns.firstIndex(where: { $0 === window }) {
+                let wasActive = workspace.activeColumn == index
                 workspace.columns.remove(at: index)
-                if workspace.activeColumn >= index {
+                if wasActive && preferRightFocus {
+                    workspace.activeColumn = min(index, max(0, workspace.columns.count - 1))
+                } else if workspace.activeColumn >= index {
                     workspace.activeColumn = max(0, workspace.activeColumn - 1)
                 }
                 workspace.scrollOffset = nil
@@ -1602,6 +1637,26 @@ final class Miri: NSObject, @unchecked Sendable {
             }
         }
         ensureTrailingEmptyWorkspace()
+    }
+
+    private func rememberMinimizedWindowState(_ window: ManagedWindow) {
+        guard let location = tiledWindowLocation(for: window.element) else {
+            return
+        }
+        minimizedWindowStates[persistentIdentity(for: window)] = PersistentWindowState(
+            identity: persistentIdentity(for: window),
+            workspace: location.workspaceIndex,
+            column: location.columnIndex,
+            manualWidthRatio: widthRatio(for: window)
+        )
+    }
+
+    private func restoreMinimizedWindowStateIfAvailable(for window: ManagedWindow) {
+        let identity = persistentIdentity(for: window)
+        guard let state = minimizedWindowStates.removeValue(forKey: identity) else {
+            return
+        }
+        window.manualWidthRatio = state.manualWidthRatio
     }
 
     private func ensureTrailingEmptyWorkspace() {
@@ -3126,6 +3181,10 @@ final class Miri: NSObject, @unchecked Sendable {
             kAXUIElementDestroyedNotification,
             kAXWindowMovedNotification,
             kAXWindowResizedNotification,
+            kAXWindowMiniaturizedNotification,
+            kAXWindowDeminiaturizedNotification,
+            kAXApplicationHiddenNotification,
+            kAXApplicationShownNotification,
         ]
 
         for notification in notifications {
@@ -3149,7 +3208,12 @@ final class Miri: NSObject, @unchecked Sendable {
             AXUIElementGetPid(element, &pid)
             rescanWindows(adoptFocused: false)
             adoptFocusedWindow(pid: pid)
-        case kAXCreatedNotification, kAXUIElementDestroyedNotification:
+        case kAXCreatedNotification,
+             kAXUIElementDestroyedNotification,
+             kAXWindowMiniaturizedNotification,
+             kAXWindowDeminiaturizedNotification,
+             kAXApplicationHiddenNotification,
+             kAXApplicationShownNotification:
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 self?.rescanWindows(adoptFocused: true)
             }
