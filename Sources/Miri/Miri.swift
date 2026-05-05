@@ -13,9 +13,9 @@ final class Miri: NSObject, @unchecked Sendable {
     var config: MiriConfig {
         loadedConfig.config
     }
-    private var workspaces: [Workspace] = [Workspace()]
+    var workspaces: [Workspace] = [Workspace()]
     private var floatingWindows: [ManagedWindow] = []
-    private var activeWorkspace: Int = 0
+    var activeWorkspace: Int = 0
     private weak var previousWorkspace: Workspace?
     private var observers: [pid_t: AXObserver] = [:]
     private var eventTap: CFMachPort?
@@ -26,11 +26,11 @@ final class Miri: NSObject, @unchecked Sendable {
     private var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     private var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     private var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
-    private var snapshotWriteTimer: DispatchSourceTimer?
+    var snapshotWriteTimer: DispatchSourceTimer?
     @MainActor private var settingsWindowController: SettingsWindowController?
     private var excludedKeybindingSet = Set<String>()
     private var rescanTimer: Timer?
-    private var debugLoggedWindowSignatures = Set<String>()
+    var debugLoggedWindowSignatures = Set<String>()
     private var isApplyingLayout = false
     private var animationTimer: DispatchSourceTimer?
     private var hoverFocusTimer: DispatchSourceTimer?
@@ -51,8 +51,8 @@ final class Miri: NSObject, @unchecked Sendable {
     private var manualResizeElement: AXUIElement?
     private var manualResizeSuppressedUntil: CFAbsoluteTime = 0
     private var presentationFrames: [ObjectIdentifier: CGRect] = [:]
-    private lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
-    private var needsPersistentLayoutRestore = true
+    lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
+    var needsPersistentLayoutRestore = true
     private var signalSources: [DispatchSourceSignal] = []
     private let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
@@ -1001,7 +1001,7 @@ final class Miri: NSObject, @unchecked Sendable {
     }
 
     @discardableResult
-    private func setActiveWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> Bool {
+    func setActiveWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> Bool {
         guard !workspaces.isEmpty else {
             activeWorkspace = 0
             previousWorkspace = nil
@@ -1458,7 +1458,7 @@ final class Miri: NSObject, @unchecked Sendable {
         return frame.width >= viewport.width * 1.2 || frame.height >= viewport.height * 1.2
     }
 
-    private func isManageableWindow(_ element: AXUIElement) -> Bool {
+    func isManageableWindow(_ element: AXUIElement) -> Bool {
         guard axString(element, kAXRoleAttribute) == kAXWindowRole else {
             return false
         }
@@ -1491,7 +1491,7 @@ final class Miri: NSObject, @unchecked Sendable {
         axString(element, kAXSubroleAttribute) == "AXUnknown"
     }
 
-    private func isKnownWindow(_ element: AXUIElement) -> Bool {
+    func isKnownWindow(_ element: AXUIElement) -> Bool {
         allWindows().contains { sameWindow($0.element, element) }
     }
 
@@ -1737,10 +1737,6 @@ final class Miri: NSObject, @unchecked Sendable {
         for workspace in workspaces {
             workspace.clampFocus()
         }
-    }
-
-    private var debugLogging: Bool {
-        config.debugLogging ?? MiriConfig.fallback.debugLogging ?? false
     }
 
     private func projectLayout(
@@ -2047,7 +2043,7 @@ final class Miri: NSObject, @unchecked Sendable {
         return frame.width <= 620 && frame.height <= 620
     }
 
-    private func isChromiumTransientTitle(_ title: String) -> Bool {
+    func isChromiumTransientTitle(_ title: String) -> Bool {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalizedTitle.isEmpty
             || normalizedTitle == "global media controls"
@@ -2069,7 +2065,7 @@ final class Miri: NSObject, @unchecked Sendable {
             || normalizedTitle == "pip"
     }
 
-    private func isChromiumBrowser(_ app: NSRunningApplication) -> Bool {
+    func isChromiumBrowser(_ app: NSRunningApplication) -> Bool {
         guard let bundleID = app.bundleIdentifier else {
             return false
         }
@@ -2090,125 +2086,6 @@ final class Miri: NSObject, @unchecked Sendable {
             return
         }
         SkyLight.shared.setAlpha(alpha, for: windowID)
-    }
-
-    private func debugLog(_ message: String) {
-        guard debugLogging else {
-            return
-        }
-        let line = "miri: \(message)"
-        print(line)
-        appendDebugLog(line)
-    }
-
-    private var debugLogURL: URL {
-        let configHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
-            .map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config")
-        return configHome.appendingPathComponent("miri/debug.log")
-    }
-
-    private func appendDebugLog(_ line: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let text = "\(timestamp) \(line)\n"
-        let url = debugLogURL
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: url.path), let data = text.data(using: .utf8) {
-                let handle = try FileHandle(forWritingTo: url)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-                try handle.close()
-            } else {
-                try text.write(to: url, atomically: true, encoding: .utf8)
-            }
-        } catch {
-            print("miri: failed to write debug log: \(error)")
-        }
-    }
-
-    private func logTransientPopupIfNeeded(_ window: ManagedWindow, app: NSRunningApplication) {
-        guard debugLogging else { return }
-        let frameDescription = axFrame(window.element).map { String(describing: $0) } ?? "nil"
-        let signature = "transient|\(window.bundleID ?? "nil")|\(window.title)|\(frameDescription)|\(window.windowID.map(String.init) ?? "nil")"
-        guard !debugLoggedWindowSignatures.contains(signature) else { return }
-        debugLoggedWindowSignatures.insert(signature)
-        debugLog("transient popup ignored app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil") frame=\(frameDescription)")
-    }
-
-    private func logIgnoredPictureInPictureIfNeeded(_ window: ManagedWindow, app: NSRunningApplication) {
-        guard debugLogging else { return }
-        let frameDescription = axFrame(window.element).map { String(describing: $0) } ?? "nil"
-        let signature = "pip|\(window.bundleID ?? "nil")|\(window.title)|\(window.windowID.map(String.init) ?? "nil")"
-        guard !debugLoggedWindowSignatures.contains(signature) else { return }
-        debugLoggedWindowSignatures.insert(signature)
-        debugLog("picture-in-picture ignored app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil") frame=\(frameDescription)")
-    }
-
-    private func logRawAXWindowIfNeeded(_ element: AXUIElement, app: NSRunningApplication, source: String) {
-        guard debugLogging else { return }
-        var pid: pid_t = 0
-        AXUIElementGetPid(element, &pid)
-        let title = axString(element, kAXTitleAttribute) ?? ""
-        let frameDescription = axFrame(element).map { String(describing: $0) } ?? "nil"
-        let windowID = SkyLight.shared.windowID(for: element)
-        let signature = "raw|\(source)|\(app.bundleIdentifier ?? "nil")|\(title)|\(frameDescription)|\(windowID.map(String.init) ?? "nil")"
-        guard !debugLoggedWindowSignatures.contains(signature) else { return }
-        debugLoggedWindowSignatures.insert(signature)
-
-        let role = axString(element, kAXRoleAttribute) ?? "nil"
-        let subrole = axString(element, kAXSubroleAttribute) ?? "nil"
-        let minimized = axBool(element, kAXMinimizedAttribute).map(String.init) ?? "nil"
-        let fullscreen = axBool(element, "AXFullScreen").map(String.init) ?? "nil"
-        let manageable = isManageableWindow(element)
-        let known = isKnownWindow(element)
-        let transientTitle = isChromiumTransientTitle(title)
-        let cgInfo = windowID.flatMap { cgWindowDebugInfo(windowID: $0) } ?? "cg=nil"
-
-        debugLog("raw ax window source=\(source) app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) title='\(title)' id=\(windowID.map(String.init) ?? "nil") role=\(role) subrole=\(subrole) frame=\(frameDescription) minimized=\(minimized) fullscreen=\(fullscreen) manageable=\(manageable) known=\(known) chromiumTransientTitle=\(transientTitle) \(cgInfo)")
-    }
-
-    private func logAXNotification(_ name: String, element: AXUIElement) {
-        guard debugLogging else { return }
-        var pid: pid_t = 0
-        AXUIElementGetPid(element, &pid)
-        guard let app = NSRunningApplication(processIdentifier: pid), isChromiumBrowser(app) else { return }
-        logRawAXWindowIfNeeded(element, app: app, source: "notification:\(name)")
-    }
-
-    private func logDiscoveredWindowIfNeeded(_ window: ManagedWindow, app: NSRunningApplication) {
-        guard debugLogging else { return }
-        let frameDescription = axFrame(window.element).map { String(describing: $0) } ?? "nil"
-        let signature = "\(window.bundleID ?? "nil")|\(window.title)|\(frameDescription)|\(window.windowID.map(String.init) ?? "nil")"
-        guard !debugLoggedWindowSignatures.contains(signature) else { return }
-        debugLoggedWindowSignatures.insert(signature)
-
-        let role = axString(window.element, kAXRoleAttribute) ?? "nil"
-        let subrole = axString(window.element, kAXSubroleAttribute) ?? "nil"
-        let modal = axBool(window.element, "AXModal").map(String.init) ?? "nil"
-        let minimized = axBool(window.element, kAXMinimizedAttribute).map(String.init) ?? "nil"
-        let fullscreen = axBool(window.element, "AXFullScreen").map(String.init) ?? "nil"
-        let positionSettable = isAXAttributeSettable(window.element, kAXPositionAttribute)
-        let sizeSettable = isAXAttributeSettable(window.element, kAXSizeAttribute)
-        let hasClose = axAttributeExists(window.element, kAXCloseButtonAttribute)
-        let hasMinimize = axAttributeExists(window.element, kAXMinimizeButtonAttribute)
-        let hasZoom = axAttributeExists(window.element, kAXZoomButtonAttribute)
-        let cgInfo = window.windowID.flatMap { cgWindowDebugInfo(windowID: $0) } ?? "cg=nil"
-
-        debugLog("window discovered app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil") role=\(role) subrole=\(subrole) frame=\(frameDescription) minimized=\(minimized) fullscreen=\(fullscreen) modal=\(modal) posSettable=\(positionSettable) sizeSettable=\(sizeSettable) buttons(close/min/zoom)=\(hasClose)/\(hasMinimize)/\(hasZoom) activationPolicy=\(app.activationPolicy.rawValue) \(cgInfo)")
-    }
-
-    private func cgWindowDebugInfo(windowID: UInt32) -> String? {
-        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowID)) as? [[String: Any]],
-              let info = list.first
-        else { return nil }
-        let layer = info[kCGWindowLayer as String] ?? "nil"
-        let alpha = info[kCGWindowAlpha as String] ?? "nil"
-        let onscreen = info[kCGWindowIsOnscreen as String] ?? "nil"
-        let owner = info[kCGWindowOwnerName as String] ?? "nil"
-        let name = info[kCGWindowName as String] ?? "nil"
-        let bounds = info[kCGWindowBounds as String] ?? "nil"
-        return "cg(layer=\(layer) alpha=\(alpha) onscreen=\(onscreen) owner='\(owner)' name='\(name)' bounds=\(bounds))"
     }
 
     private func hoverFocusTarget(
@@ -2812,7 +2689,7 @@ final class Miri: NSObject, @unchecked Sendable {
         return frame
     }
 
-    private func widthRatio(for window: ManagedWindow) -> CGFloat {
+    func widthRatio(for window: ManagedWindow) -> CGFloat {
         if let manualWidthRatio = window.manualWidthRatio {
             return manualWidthRatio.clampedManualWidthRatio
         }
@@ -2871,7 +2748,7 @@ final class Miri: NSObject, @unchecked Sendable {
         AXUIElementSetAttributeValue(window.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
     }
 
-    private func activeWindow() -> ManagedWindow? {
+    func activeWindow() -> ManagedWindow? {
         guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
             return nil
         }
@@ -2885,253 +2762,6 @@ final class Miri: NSObject, @unchecked Sendable {
 
     private func tiledWindows() -> [ManagedWindow] {
         workspaces.flatMap(\.columns)
-    }
-
-    private var persistLayoutEnabled: Bool {
-        config.persistLayout ?? MiriConfig.fallback.persistLayout ?? true
-    }
-
-    private var persistentLayoutStateURL: URL {
-        if let statePath = config.statePath, !statePath.isEmpty {
-            return URL(fileURLWithPath: NSString(string: statePath).expandingTildeInPath)
-        }
-
-        let stateHome = ProcessInfo.processInfo.environment["XDG_STATE_HOME"]
-            .map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local")
-                .appendingPathComponent("state")
-        return stateHome
-            .appendingPathComponent("miri", isDirectory: true)
-            .appendingPathComponent("layout.json")
-    }
-
-    private func readPersistentLayoutSnapshot() -> PersistentLayoutSnapshot? {
-        guard persistLayoutEnabled,
-              let data = try? Data(contentsOf: persistentLayoutStateURL),
-              let snapshot = try? JSONDecoder().decode(PersistentLayoutSnapshot.self, from: data),
-              (1...2).contains(snapshot.version)
-        else {
-            return nil
-        }
-        return snapshot
-    }
-
-    private func schedulePersistentLayoutSnapshotWrite() {
-        snapshotWriteTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(300), leeway: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            guard let self else {
-                return
-            }
-            writePersistentLayoutSnapshot()
-            snapshotWriteTimer?.cancel()
-            snapshotWriteTimer = nil
-        }
-        snapshotWriteTimer = timer
-        timer.resume()
-    }
-
-    private func writePersistentLayoutSnapshot() {
-        guard persistLayoutEnabled else {
-            try? FileManager.default.removeItem(at: persistentLayoutStateURL)
-            return
-        }
-
-        let states = workspaces.enumerated().flatMap { workspaceIndex, workspace in
-            workspace.columns.enumerated().map { columnIndex, window in
-                PersistentWindowState(
-                    identity: persistentIdentity(for: window),
-                    workspace: workspaceIndex,
-                    column: columnIndex,
-                    manualWidthRatio: widthRatio(for: window)
-                )
-            }
-        }
-        guard !states.isEmpty else {
-            try? FileManager.default.removeItem(at: persistentLayoutStateURL)
-            return
-        }
-
-        let snapshot = PersistentLayoutSnapshot(
-            version: 2,
-            activeWorkspace: min(max(activeWorkspace, 0), max(workspaces.count - 1, 0)),
-            activeColumns: workspaces.map(\.activeColumn),
-            scrollOffsets: workspaces.map(\.scrollOffset),
-            focusedWindow: activeWindow().map(persistentIdentity(for:)),
-            windows: states
-        )
-
-        do {
-            let url = persistentLayoutStateURL
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: url, options: [.atomic])
-        } catch {
-            debugLog("failed to write persistent layout: \(error)")
-        }
-    }
-
-    @discardableResult
-    private func applyPersistentLayoutSnapshotIfNeeded() -> Bool {
-        guard needsPersistentLayoutRestore else {
-            return false
-        }
-
-        guard let snapshot = persistentLayoutSnapshot else {
-            needsPersistentLayoutRestore = false
-            return false
-        }
-
-        var usedSnapshotIndices = Set<Int>()
-        var placements: [(state: PersistentWindowState, window: ManagedWindow)] = []
-        for (workspaceIndex, workspace) in workspaces.enumerated() {
-            for (columnIndex, window) in workspace.columns.enumerated() {
-                guard let state = persistentWindowState(
-                    for: window,
-                    currentWorkspace: workspaceIndex,
-                    currentColumn: columnIndex,
-                    in: snapshot,
-                    used: &usedSnapshotIndices
-                ) else {
-                    continue
-                }
-                window.manualWidthRatio = state.manualWidthRatio
-                placements.append((state, window))
-            }
-        }
-
-        guard !placements.isEmpty else {
-            return false
-        }
-        needsPersistentLayoutRestore = false
-
-        let placedIDs = Set(placements.map { ObjectIdentifier($0.window) })
-        let workspaceCount = max(
-            workspaces.count,
-            (placements.map(\.state.workspace).max() ?? 0) + 1,
-            snapshot.activeWorkspace + 1,
-            1
-        )
-        let nextWorkspaces = (0..<workspaceCount).map { _ in Workspace() }
-
-        for (workspaceIndex, workspace) in workspaces.enumerated() {
-            let targetWorkspace = nextWorkspaces[min(workspaceIndex, nextWorkspaces.count - 1)]
-            for window in workspace.columns where !placedIDs.contains(ObjectIdentifier(window)) {
-                targetWorkspace.columns.append(window)
-            }
-        }
-
-        let sortedPlacements = placements.sorted {
-            if $0.state.workspace != $1.state.workspace {
-                return $0.state.workspace < $1.state.workspace
-            }
-            return $0.state.column < $1.state.column
-        }
-        for placement in sortedPlacements {
-            let workspaceIndex = min(max(placement.state.workspace, 0), nextWorkspaces.count - 1)
-            let workspace = nextWorkspaces[workspaceIndex]
-            workspace.columns.insert(placement.window, at: min(max(placement.state.column, 0), workspace.columns.count))
-        }
-
-        workspaces = nextWorkspaces
-        activeWorkspace = min(max(snapshot.activeWorkspace, 0), workspaces.count - 1)
-        for (index, workspace) in workspaces.enumerated() {
-            if snapshot.activeColumns.indices.contains(index) {
-                workspace.activeColumn = snapshot.activeColumns[index]
-            }
-            if let scrollOffsets = snapshot.scrollOffsets, scrollOffsets.indices.contains(index) {
-                workspace.scrollOffset = scrollOffsets[index]
-            } else {
-                workspace.scrollOffset = nil
-            }
-            workspace.clampFocus()
-        }
-        return true
-    }
-
-    private func restorePersistentFocusedWindow() -> Bool {
-        guard let focusedWindow = persistentLayoutSnapshot?.focusedWindow,
-              let location = tiledWindowLocation(matching: focusedWindow)
-        else {
-            return false
-        }
-
-        setActiveWorkspace(location.workspaceIndex)
-        location.workspace.activeColumn = location.columnIndex
-        return true
-    }
-
-    private func persistentWindowState(
-        for window: ManagedWindow,
-        currentWorkspace: Int,
-        currentColumn: Int,
-        in snapshot: PersistentLayoutSnapshot,
-        used: inout Set<Int>
-    ) -> PersistentWindowState? {
-        let identity = persistentIdentity(for: window)
-        if let exact = bestPersistentWindowState(
-            in: snapshot,
-            used: used,
-            currentWorkspace: currentWorkspace,
-            currentColumn: currentColumn,
-            matches: { $0.identity == identity }
-        ) {
-            used.insert(exact.index)
-            return exact.state
-        }
-
-        if let bundleID = identity.bundleID,
-           let bundleMatch = bestPersistentWindowState(
-               in: snapshot,
-               used: used,
-               currentWorkspace: currentWorkspace,
-               currentColumn: currentColumn,
-               matches: { $0.identity.bundleID == bundleID }
-           )
-        {
-            used.insert(bundleMatch.index)
-            return bundleMatch.state
-        }
-
-        let normalizedAppName = identity.appName.lowercased()
-        if let appMatch = bestPersistentWindowState(
-            in: snapshot,
-            used: used,
-            currentWorkspace: currentWorkspace,
-            currentColumn: currentColumn,
-            matches: { $0.identity.appName.lowercased() == normalizedAppName }
-        ) {
-            used.insert(appMatch.index)
-            return appMatch.state
-        }
-
-        return nil
-    }
-
-    private func bestPersistentWindowState(
-        in snapshot: PersistentLayoutSnapshot,
-        used: Set<Int>,
-        currentWorkspace: Int,
-        currentColumn: Int,
-        matches: (PersistentWindowState) -> Bool
-    ) -> (index: Int, state: PersistentWindowState)? {
-        var best: (index: Int, state: PersistentWindowState, score: Int)?
-        for (index, state) in snapshot.windows.enumerated() where !used.contains(index) && matches(state) {
-            let score = abs(state.workspace - currentWorkspace) * 100 + abs(state.column - currentColumn)
-            if best == nil || score < best!.score {
-                best = (index, state, score)
-            }
-        }
-        return best.map { ($0.index, $0.state) }
-    }
-
-    private func persistentIdentity(for window: ManagedWindow) -> PersistentWindowIdentity {
-        PersistentWindowIdentity(bundleID: window.bundleID, appName: window.appName, title: window.title)
     }
 
     private func restoreManagedWindowsForExit() {
@@ -3188,7 +2818,7 @@ final class Miri: NSObject, @unchecked Sendable {
         return nil
     }
 
-    private func tiledWindowLocation(
+    func tiledWindowLocation(
         matching identity: PersistentWindowIdentity
     ) -> (workspaceIndex: Int, workspace: Workspace, columnIndex: Int, window: ManagedWindow)? {
         for (workspaceIndex, workspace) in workspaces.enumerated() {
@@ -3526,7 +3156,7 @@ final class Miri: NSObject, @unchecked Sendable {
         CFEqual(left, right)
     }
 
-    private func axString(_ element: AXUIElement, _ attribute: String) -> String? {
+    func axString(_ element: AXUIElement, _ attribute: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
             return nil
@@ -3534,7 +3164,7 @@ final class Miri: NSObject, @unchecked Sendable {
         return value as? String
     }
 
-    private func axBool(_ element: AXUIElement, _ attribute: String) -> Bool? {
+    func axBool(_ element: AXUIElement, _ attribute: String) -> Bool? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
             return nil
@@ -3542,17 +3172,17 @@ final class Miri: NSObject, @unchecked Sendable {
         return value as? Bool
     }
 
-    private func axAttributeExists(_ element: AXUIElement, _ attribute: String) -> Bool {
+    func axAttributeExists(_ element: AXUIElement, _ attribute: String) -> Bool {
         var value: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success && value != nil
     }
 
-    private func isAXAttributeSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
+    func isAXAttributeSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
         var settable = DarwinBoolean(false)
         return AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success && settable.boolValue
     }
 
-    private func axFrame(_ element: AXUIElement) -> CGRect? {
+    func axFrame(_ element: AXUIElement) -> CGRect? {
         var positionRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
