@@ -30,6 +30,12 @@ enum AnimationCurve: String, Codable {
     case linear
 }
 
+enum AnimationStrategy: String, Codable {
+    case smoothAX = "smooth_ax"
+    case snappy
+    case off
+}
+
 enum HoverFocusMode: String, Codable {
     case off
     case visibleOnly = "visible_only"
@@ -65,6 +71,7 @@ struct MiriConfig: Codable {
     var moveColumnAnimationMS: Int?
     var widthAnimationMS: Int?
     var animationCurve: AnimationCurve?
+    var animationStrategy: AnimationStrategy?
     var animationFPS: Int?
     var animationPixelThreshold: CGFloat?
     var hoverToFocus: Bool?
@@ -115,8 +122,9 @@ struct MiriConfig: Codable {
         moveColumnAnimationMS: 240,
         widthAnimationMS: 280,
         animationCurve: .smooth,
-        animationFPS: 30,
-        animationPixelThreshold: 2,
+        animationStrategy: .snappy,
+        animationFPS: 60,
+        animationPixelThreshold: 0.5,
         hoverToFocus: true,
         hoverFocusDelayMS: 120,
         hoverFocusMaxScrollRatio: 0.15,
@@ -321,6 +329,7 @@ struct MiriConfig: Codable {
         case moveColumnAnimationMS = "move_column_animation_ms"
         case widthAnimationMS = "width_animation_ms"
         case animationCurve = "animation_curve"
+        case animationStrategy = "animation_strategy"
         case animationFPS = "animation_fps"
         case animationPixelThreshold = "animation_pixel_threshold"
         case hoverToFocus = "hover_to_focus"

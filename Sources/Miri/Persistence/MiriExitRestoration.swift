@@ -11,7 +11,7 @@ extension Miri {
         let viewport = currentViewport()
         for window in tiledWindows() {
             setWindowAlpha(1, for: window.windowID)
-            setAXFrame(viewport, for: window.element)
+            setAXFrame(viewport, for: window)
         }
         restoreFloatingVisibility(raise: true)
         try? FileManager.default.removeItem(at: restoreStateURL)

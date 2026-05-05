@@ -21,6 +21,7 @@ final class Miri: NSObject, @unchecked Sendable {
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
     var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     var appliedVisibility: [ObjectIdentifier: Bool] = [:]
+    var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     var snapshotWriteTimer: DispatchSourceTimer?
     @MainActor var settingsWindowController: SettingsWindowController?
@@ -28,7 +29,7 @@ final class Miri: NSObject, @unchecked Sendable {
     var rescanTimer: Timer?
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
-    var animationTimer: DispatchSourceTimer?
+    var animationTimer: AnimationTimer?
     var hoverFocusTimer: DispatchSourceTimer?
     var hoverFocusTarget: ObjectIdentifier?
     var hoverFocusRequiresRearm = false

@@ -84,7 +84,10 @@ extension Miri {
 
         switch name {
         case kAXFocusedWindowChangedNotification:
-            guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
+            guard !isApplyingLayout,
+                  animationTimer == nil,
+                  CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil
+            else {
                 return
             }
             var pid: pid_t = 0

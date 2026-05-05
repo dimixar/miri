@@ -86,6 +86,7 @@ extension Miri {
         let id = ObjectIdentifier(window)
         appliedFrames.removeValue(forKey: id)
         appliedVisibility.removeValue(forKey: id)
+        hiddenWorkspaceWindowIDs.remove(id)
         if let index = floatingWindows.firstIndex(where: { $0 === window }) {
             floatingWindows.remove(at: index)
             return

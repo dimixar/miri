@@ -12,6 +12,25 @@ extension Miri {
         animatedWindowIDs: Set<ObjectIdentifier>?,
         resizingWindowID: ObjectIdentifier?
     ) {
+        guard let profile = animationProfile else {
+            let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
+            applyLayout(finalLayout, focusActiveWindow: focusActiveWindow)
+            restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
+            presentationFrames.removeAll()
+            releaseLayoutLock()
+            return
+        }
+
+        let duration = animationDuration(duration, using: profile)
+        guard duration > 0 else {
+            let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
+            applyLayout(finalLayout, focusActiveWindow: focusActiveWindow)
+            restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
+            presentationFrames.removeAll()
+            releaseLayoutLock()
+            return
+        }
+
         stopAnimation(clearPresentation: false)
         isApplyingLayout = true
 
@@ -20,7 +39,8 @@ extension Miri {
         let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
         let startByWindow = layoutByWindow(startLayout)
         let targetByWindow = layoutByWindow(targetProjectedLayout)
-        let windowIDs = Set(startByWindow.keys).union(targetByWindow.keys)
+        let targetWorkspaceWindowIDs = workspaceWindowIDs(workspaceIndex: targetState.activeWorkspace)
+        let windowIDs = Set(startByWindow.keys).union(targetByWindow.keys).intersection(targetWorkspaceWindowIDs)
 
         let motions = windowIDs.compactMap { id -> WindowMotion? in
             guard let window = startByWindow[id]?.window ?? targetByWindow[id]?.window else {
@@ -56,16 +76,15 @@ extension Miri {
 
         for motion in motions {
             setWindowAlpha(motion.participates && motion.startsVisible ? 1 : 0, for: motion.window.windowID)
-            if !motion.participates {
-                setAXFrame(motion.endFrame, for: motion.window.element)
+            if motion.participates {
+                prepareAnimationMotion(motion, profile: profile)
+            } else {
+                setAXFrame(motion.endFrame, for: motion.window)
             }
         }
 
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        let frameIntervalMS = max(1, Int((1000.0 / Double(animationFPS)).rounded()))
-        timer.schedule(deadline: .now(), repeating: .milliseconds(frameIntervalMS), leeway: .milliseconds(4))
-        timer.setEventHandler { [weak self] in
+        animationTimer = AnimationTimer(preferredFPS: animationFPS) { [weak self] in
             guard let self else {
                 return
             }
@@ -79,7 +98,8 @@ extension Miri {
                 motions,
                 progress: easedProgress,
                 viewport: viewport,
-                pixelThreshold: animationPixelThreshold
+                pixelThreshold: animationPixelThreshold(using: profile),
+                profile: profile
             )
             restoreFloatingVisibility()
 
@@ -92,9 +112,6 @@ extension Miri {
                 releaseLayoutLock()
             }
         }
-
-        animationTimer = timer
-        timer.resume()
     }
 
     func layoutByWindow(_ layout: [LayoutItem]) -> [ObjectIdentifier: LayoutItem] {
@@ -105,7 +122,8 @@ extension Miri {
         _ motions: [WindowMotion],
         progress: CGFloat,
         viewport: CGRect,
-        pixelThreshold: CGFloat
+        pixelThreshold: CGFloat,
+        profile: AnimationProfile
     ) {
         var nextPresentationFrames: [ObjectIdentifier: CGRect] = [:]
 
@@ -115,7 +133,7 @@ extension Miri {
                 continue
             }
 
-            let frame = interpolate(from: motion.startFrame, to: motion.endFrame, progress: progress)
+            let frame = animationFrame(for: motion, progress: progress, profile: profile)
             let previousFrame = presentationFrames[id] ?? motion.startFrame
 
             guard frameDelta(from: previousFrame, to: frame) >= pixelThreshold || progress >= 1 else {
@@ -125,10 +143,10 @@ extension Miri {
 
             nextPresentationFrames[id] = frame
             applyAnimationVisibility(for: motion, progress: progress)
-            if motion.sizeStable {
+            if motion.sizeStable || !shouldApplyAnimatedSize(for: motion, profile: profile) {
                 setAXPosition(frame.origin, for: motion.window.element)
             } else {
-                setAXFrame(frame, for: motion.window.element)
+                setAXFrame(frame, for: motion.window, disableEnhancedUserInterface: false)
             }
         }
 

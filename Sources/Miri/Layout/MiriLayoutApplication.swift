@@ -17,6 +17,7 @@ extension Miri {
 
         let targetState = captureLayoutState()
         debugLog("layout workspace=\(targetState.activeWorkspace + 1) tiled=\(tiledWindows().count) floating=\(floatingWindows.count) animated=\(animated)")
+        hideInactiveWorkspaceWindows(activeWorkspace: targetState.activeWorkspace)
         let duration = animationDuration ?? self.animationDuration
         suppressManualResizeNotifications(for: (animated ? duration : 0) + max(layoutLockDelay, 0.25))
         if animated, duration > 0, let previousState {
@@ -144,14 +145,20 @@ extension Miri {
             || wasVisible != false
             || previousFrame.map { frameDelta(from: $0, to: item.frame) >= animationPixelThreshold } ?? true
 
+        let visibilityChanged = wasVisible != item.visible
+        if visibilityChanged && !item.visible {
+            setWindowAlpha(0, for: item.window.windowID)
+            appliedVisibility[id] = false
+        }
+
         if shouldApplyFrame {
-            setAXFrame(item.frame, for: item.window.element)
+            setAXFrame(item.frame, for: item.window)
             appliedFrames[id] = item.frame
         }
 
-        if wasVisible != item.visible {
-            setWindowAlpha(item.visible ? 1 : 0, for: item.window.windowID)
-            appliedVisibility[id] = item.visible
+        if visibilityChanged && item.visible {
+            setWindowAlpha(1, for: item.window.windowID)
+            appliedVisibility[id] = true
         }
     }
 

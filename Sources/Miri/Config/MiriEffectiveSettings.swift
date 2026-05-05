@@ -49,6 +49,10 @@ extension Miri {
         config.animationCurve ?? MiriConfig.fallback.animationCurve ?? .smooth
     }
 
+    var animationStrategy: AnimationStrategy {
+        config.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snappy
+    }
+
     var animationFPS: Int {
         config.animationFPS ?? MiriConfig.fallback.animationFPS ?? 30
     }

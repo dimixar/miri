@@ -170,8 +170,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Trackpad settle animation ms", intField("trackpadSettleAnimationMS", draft.trackpadSettleAnimationMS ?? 0)),
         ("Move column animation ms", intField("moveColumnAnimationMS", draft.moveColumnAnimationMS ?? 0)),
         ("Width animation ms", intField("widthAnimationMS", draft.widthAnimationMS ?? 0)),
-        ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 30)),
-        ("Pixel threshold", doubleField("animationPixelThreshold", Double(draft.animationPixelThreshold ?? 2))),
+        ("Strategy", popup("animationStrategy", AnimationStrategy.allCasesStrings, draft.animationStrategy?.rawValue ?? MiriConfig.fallback.animationStrategy?.rawValue ?? "snappy")),
+        ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 60)),
+        ("Pixel threshold", doubleField("animationPixelThreshold", Double(draft.animationPixelThreshold ?? 0.5))),
         ("Curve", popup("animationCurve", AnimationCurve.allCasesStrings, draft.animationCurve?.rawValue ?? "smooth")),
     ]) }
 
@@ -283,6 +284,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadSettleAnimationMS = int("trackpadSettleAnimationMS")
         draft.moveColumnAnimationMS = int("moveColumnAnimationMS")
         draft.widthAnimationMS = int("widthAnimationMS")
+        draft.animationStrategy = AnimationStrategy(rawValue: string("animationStrategy"))
         draft.animationFPS = int("animationFPS")
         draft.animationPixelThreshold = CGFloat(double("animationPixelThreshold"))
         draft.animationCurve = AnimationCurve(rawValue: string("animationCurve"))
@@ -583,5 +585,6 @@ extension FocusAlignment { static let allCasesStrings = ["left", "center", "smar
 extension NewWindowPosition { static let allCasesStrings = ["before_active", "after_active", "end"] }
 extension HoverFocusMode { static let allCasesStrings = ["off", "visible_only", "edge_or_visible"] }
 extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "linear"] }
+extension AnimationStrategy { static let allCasesStrings = ["smooth_ax", "snappy", "off"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }

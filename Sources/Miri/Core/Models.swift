@@ -3,7 +3,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-final class ManagedWindow {
+final class ManagedWindow: @unchecked Sendable {
     let element: AXUIElement
     let pid: pid_t
     let windowID: UInt32?
@@ -94,13 +94,13 @@ struct LayoutState: Equatable {
     var cameraY: CGFloat?
 }
 
-struct LayoutItem {
+struct LayoutItem: Sendable {
     var window: ManagedWindow
     var frame: CGRect
     var visible: Bool
 }
 
-struct WindowMotion {
+struct WindowMotion: Sendable {
     var window: ManagedWindow
     var startFrame: CGRect
     var endFrame: CGRect
