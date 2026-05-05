@@ -34,6 +34,10 @@ struct MiriWorkspaceBarWindow {
     let title: String
 }
 
+struct TransientSystemWindow {
+    var element: AXUIElement
+}
+
 struct TrackpadNavigationSettings: Equatable {
     var enabled: Bool
     var fingers: Int
