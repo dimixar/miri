@@ -84,6 +84,7 @@
   "state_path": null,
   "hide_method": "skylight_alpha",
   "debug_logging": false,
+  "width_resize_mode": "default",
   "workspace_bar_highlight_color": "#FFD60A",
   "workspace_bar_visible_icon_count": 3,
   "workspace_bar_overflow_style": "plus_count",

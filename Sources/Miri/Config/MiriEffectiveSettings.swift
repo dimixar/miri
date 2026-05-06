@@ -199,4 +199,8 @@ extension Miri {
     var debugLogging: Bool {
         config.debugLogging ?? MiriConfig.fallback.debugLogging ?? false
     }
+
+    var widthResizeMode: WidthResizeMode {
+        config.widthResizeMode ?? MiriConfig.fallback.widthResizeMode ?? .default
+    }
 }

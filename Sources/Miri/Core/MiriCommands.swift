@@ -1,6 +1,16 @@
 import CoreGraphics
 import Foundation
 
+enum IntelligentResizeAnchor {
+    case left
+    case right
+}
+
+enum IntelligentResizeDirection {
+    case left
+    case right
+}
+
 extension Miri {
     func submit(_ command: Command, animateWorkspace: Bool = false) {
         if shouldQueueFocusCommand(command) {
@@ -67,6 +77,7 @@ extension Miri {
             activeWorkspaceObject()?.clampFocus()
             animated = animateWorkspace
         case .columnLeft:
+            lastHorizontalFocusDirection = -1
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
@@ -74,6 +85,7 @@ extension Miri {
             revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             animated = true
         case .columnRight:
+            lastHorizontalFocusDirection = 1
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
@@ -257,7 +269,15 @@ extension Miri {
             return false
         }
 
+        let sourceIndex = workspace.activeColumn
         let targetIndex = min(max(requestedIndex, 0), workspace.columns.count - 1)
+        if targetIndex < sourceIndex {
+            lastHorizontalFocusDirection = -1
+            clearIntelligentResizeMemory()
+        } else if targetIndex > sourceIndex {
+            lastHorizontalFocusDirection = 1
+            clearIntelligentResizeMemory()
+        }
         workspace.activeColumn = targetIndex
         workspace.scrollOffset = nil
         return true
@@ -290,6 +310,8 @@ extension Miri {
         let window = workspace.columns.remove(at: sourceIndex)
         workspace.columns.insert(window, at: targetIndex)
         workspace.activeColumn = targetIndex
+        lastHorizontalFocusDirection = targetIndex < sourceIndex ? -1 : 1
+        clearIntelligentResizeMemory()
         workspace.scrollOffset = nil
         schedulePersistentLayoutSnapshotWrite()
         return true
@@ -362,12 +384,145 @@ extension Miri {
 
         workspace.clampFocus()
         let window = workspace.columns[workspace.activeColumn]
+        let oldRatio = widthRatio(for: window)
+        let oldScrollOffset = horizontalCameraOffset(for: workspace, viewport: currentViewport())
         guard setWidthRatio(ratio, for: window) else {
             return false
         }
 
-        workspace.scrollOffset = nil
+        if widthResizeMode == .intelligent {
+            applyIntelligentWidthResizeScrollOffset(
+                in: workspace,
+                activeColumn: workspace.activeColumn,
+                oldRatio: oldRatio,
+                oldScrollOffset: oldScrollOffset,
+                newRatio: widthRatio(for: window),
+                windowID: ObjectIdentifier(window)
+            )
+        } else {
+            workspace.scrollOffset = nil
+        }
         return true
+    }
+
+    func applyIntelligentWidthResizeScrollOffset(
+        in workspace: Workspace,
+        activeColumn: Int,
+        oldRatio: CGFloat,
+        oldScrollOffset: CGFloat,
+        newRatio: CGFloat,
+        windowID: ObjectIdentifier
+    ) {
+        let viewport = currentViewport()
+        guard viewport.width > 0,
+              workspace.columns.indices.contains(activeColumn)
+        else {
+            workspace.scrollOffset = nil
+            return
+        }
+
+        let oldMetrics = stripMetrics(for: workspace, viewport: viewport)
+        guard oldMetrics.origins.indices.contains(activeColumn),
+              oldMetrics.widths.indices.contains(activeColumn)
+        else {
+            workspace.scrollOffset = nil
+            return
+        }
+
+        let oldFrame = CGRect(
+            x: viewport.minX + oldMetrics.origins[activeColumn] - oldScrollOffset,
+            y: viewport.minY,
+            width: viewport.width * oldRatio,
+            height: viewport.height
+        )
+        let measuredGrowDirection = intelligentGrowDirection(for: oldFrame, viewport: viewport)
+        let growDirection: IntelligentResizeDirection
+        let anchor: IntelligentResizeAnchor
+        if newRatio >= oldRatio {
+            if lastIntelligentResizeWindowID == windowID, let lastIntelligentGrowDirection {
+                growDirection = lastIntelligentGrowDirection
+            } else {
+                growDirection = measuredGrowDirection
+            }
+            lastIntelligentResizeWindowID = windowID
+            lastIntelligentGrowDirection = growDirection
+            anchor = growDirection == .right ? .left : .right
+        } else if oldRatio >= 1.0 {
+            clearIntelligentResizeMemory()
+            if activeColumn == 0 {
+                anchor = .left
+            } else if activeColumn == workspace.columns.count - 1 {
+                anchor = .right
+            } else {
+                anchor = lastHorizontalFocusDirection < 0 ? .left : .right
+            }
+        } else {
+            clearIntelligentResizeMemory()
+            anchor = measuredGrowDirection == .right ? .left : .right
+        }
+
+        let newMetrics = stripMetrics(for: workspace, viewport: viewport)
+        guard newMetrics.origins.indices.contains(activeColumn),
+              newMetrics.widths.indices.contains(activeColumn)
+        else {
+            workspace.scrollOffset = nil
+            return
+        }
+
+        var targetOffset: CGFloat
+        switch anchor {
+        case .left:
+            targetOffset = newMetrics.origins[activeColumn] - (oldFrame.minX - viewport.minX)
+        case .right:
+            targetOffset = newMetrics.origins[activeColumn] + newMetrics.widths[activeColumn] - (oldFrame.maxX - viewport.minX)
+        }
+
+        targetOffset = scrollOffsetEnsuringFullVisibility(
+            ofColumn: activeColumn,
+            metrics: newMetrics,
+            viewport: viewport,
+            preferredOffset: targetOffset
+        )
+        workspace.scrollOffset = min(max(targetOffset, 0), maxHorizontalCameraOffset(for: workspace, viewport: viewport))
+    }
+
+    func scrollOffsetEnsuringFullVisibility(
+        ofColumn activeColumn: Int,
+        metrics: (origins: [CGFloat], widths: [CGFloat]),
+        viewport: CGRect,
+        preferredOffset: CGFloat
+    ) -> CGFloat {
+        guard metrics.origins.indices.contains(activeColumn),
+              metrics.widths.indices.contains(activeColumn),
+              metrics.widths[activeColumn] <= viewport.width
+        else {
+            return preferredOffset
+        }
+
+        var offset = preferredOffset
+        let columnMinX = metrics.origins[activeColumn]
+        let columnMaxX = columnMinX + metrics.widths[activeColumn]
+        let visibleMinX = offset
+        let visibleMaxX = offset + viewport.width
+
+        if columnMinX < visibleMinX {
+            offset = columnMinX
+        } else if columnMaxX > visibleMaxX {
+            offset = columnMaxX - viewport.width
+        }
+
+        return offset
+    }
+
+    func intelligentGrowDirection(for frame: CGRect, viewport: CGRect) -> IntelligentResizeDirection {
+        let leftFree = max(0, frame.minX - viewport.minX)
+        let rightFree = max(0, viewport.maxX - frame.maxX)
+        return rightFree >= leftFree ? .right : .left
+    }
+
+    func clearIntelligentResizeMemory() {
+        lastIntelligentResizeWindowID = nil
+        lastIntelligentGrowDirection = nil
     }
 
     func setAllWindowWidthRatios(_ ratio: CGFloat) -> Bool {

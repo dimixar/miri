@@ -66,6 +66,11 @@ enum WorkspaceBarOverflowStyle: String, Codable {
     case none
 }
 
+enum WidthResizeMode: String, Codable {
+    case `default`
+    case intelligent
+}
+
 struct LoadedMiriConfig {
     var config: MiriConfig
     var sourceURL: URL?
@@ -118,6 +123,7 @@ struct MiriConfig: Codable {
     var statePath: String?
     var hideMethod: HideMethod?
     var debugLogging: Bool?
+    var widthResizeMode: WidthResizeMode?
     var workspaceBarHighlightColor: String?
     var workspaceBarVisibleIconCount: Int?
     var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
@@ -169,6 +175,7 @@ struct MiriConfig: Codable {
         statePath: nil,
         hideMethod: .skyLightAlpha,
         debugLogging: false,
+        widthResizeMode: .default,
         workspaceBarHighlightColor: "yellow",
         workspaceBarVisibleIconCount: 3,
         workspaceBarOverflowStyle: .plusCount,
@@ -376,6 +383,7 @@ struct MiriConfig: Codable {
         case statePath = "state_path"
         case hideMethod = "hide_method"
         case debugLogging = "debug_logging"
+        case widthResizeMode = "width_resize_mode"
         case workspaceBarHighlightColor = "workspace_bar_highlight_color"
         case workspaceBarVisibleIconCount = "workspace_bar_visible_icon_count"
         case workspaceBarOverflowStyle = "workspace_bar_overflow_style"

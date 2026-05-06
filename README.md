@@ -148,6 +148,7 @@ The repo includes a full default config. A compact version looks like this:
   "state_path": null,
   "hide_method": "skylight_alpha",
   "debug_logging": false,
+  "width_resize_mode": "default",
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -173,6 +174,7 @@ Useful string settings:
   `after_active`, or `end`
 - `trackpad_navigation_snap`: `nearest_column`, `nearest_visible`, or `none`
 - `hide_method`: `skylight_alpha` or `park_only`
+- `width_resize_mode`: `default` or `intelligent`
 
 Rules can match on `bundle_id`, `app_name`, or `title_contains`. Use
 `behavior: "ignore"` for windows miri should leave alone, `behavior: "float"`

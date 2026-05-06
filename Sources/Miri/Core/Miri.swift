@@ -56,6 +56,9 @@ final class Miri: NSObject, @unchecked Sendable {
     var manualResizeEndTimer: DispatchSourceTimer?
     var manualResizeElement: AXUIElement?
     var manualResizeSuppressedUntil: CFAbsoluteTime = 0
+    var lastHorizontalFocusDirection: Int = 1
+    var lastIntelligentResizeWindowID: ObjectIdentifier?
+    var lastIntelligentGrowDirection: IntelligentResizeDirection?
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
     lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
     var needsPersistentLayoutRestore = true

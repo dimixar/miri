@@ -146,6 +146,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func layoutView() -> NSView { form([
         ("Default width ratio", doubleField("defaultWidthRatio", Double(draft.defaultWidthRatio))),
         ("Preset width ratios CSV", textField("presetWidthRatios", (draft.presetWidthRatios ?? []).map { String(format: "%.2f", Double($0)) }.joined(separator: ", "))),
+        ("Width resize mode", popup("widthResizeMode", WidthResizeMode.allCasesStrings, draft.widthResizeMode?.rawValue ?? MiriConfig.fallback.widthResizeMode?.rawValue ?? "default")),
         ("Focus alignment", popup("focusAlignment", FocusAlignment.allCasesStrings, draft.focusAlignment?.rawValue ?? "smart")),
         ("New window position", popup("newWindowPosition", NewWindowPosition.allCasesStrings, draft.newWindowPosition?.rawValue ?? "after_active")),
         ("Inner gap", doubleField("innerGap", Double(draft.innerGap ?? 0))),
@@ -266,6 +267,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.debugLogging = bool("debugLogging")
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))
         draft.presetWidthRatios = string("presetWidthRatios").split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? .nan) }
+        draft.widthResizeMode = WidthResizeMode(rawValue: string("widthResizeMode"))
         draft.focusAlignment = FocusAlignment(rawValue: string("focusAlignment"))
         draft.newWindowPosition = NewWindowPosition(rawValue: string("newWindowPosition"))
         draft.innerGap = CGFloat(double("innerGap"))
@@ -588,3 +590,4 @@ extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "li
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
+extension WidthResizeMode { static let allCasesStrings = ["default", "intelligent"] }
