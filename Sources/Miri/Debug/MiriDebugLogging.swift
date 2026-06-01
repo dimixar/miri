@@ -84,7 +84,7 @@ extension Miri {
         guard debugLogging else { return }
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
-        guard let app = NSRunningApplication(processIdentifier: pid), isChromiumBrowser(app) else { return }
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
         logRawAXWindowIfNeeded(element, app: app, source: "notification:\(name)")
     }
 

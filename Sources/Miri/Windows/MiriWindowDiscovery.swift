@@ -145,9 +145,7 @@ extension Miri {
             }
 
             for element in axWindows {
-                if debugLogging, isChromiumBrowser(app) {
-                    logRawAXWindowIfNeeded(element, app: app, source: "scan")
-                }
+                logRawAXWindowIfNeeded(element, app: app, source: "scan")
                 guard !isUnknownSubroleWindow(element),
                       !isHiddenOrMinimizedWindow(element),
                       !isFullscreenWindow(element),

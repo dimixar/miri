@@ -119,10 +119,25 @@ extension Miri {
         if subrole == "AXSystemDialog" || subrole == "AXDialog" {
             return true
         }
+        if isUnknownSubroleTransientOverlay(element) {
+            return true
+        }
         if isChromiumTransientElement(element, app: app) {
             return true
         }
         return isOpenAndSavePanelService(app)
+    }
+
+    func isUnknownSubroleTransientOverlay(_ element: AXUIElement) -> Bool {
+        guard axString(element, kAXRoleAttribute) == kAXWindowRole,
+              axString(element, kAXSubroleAttribute) == "AXUnknown"
+        else {
+            return false
+        }
+
+        let title = axString(element, kAXTitleAttribute)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty && !isManageableWindow(element)
     }
 
     func isChromiumTransientElement(_ element: AXUIElement, app: NSRunningApplication) -> Bool {
