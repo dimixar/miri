@@ -53,11 +53,29 @@ extension Miri {
                 let runningApp = NSRunningApplication(processIdentifier: window.pid)
                 let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
                     || runningApp?.isHidden == true
+                let windowID = ObjectIdentifier(window)
                 let likelyFullscreenTransition = !temporarilyHidden
                     && runningApp != nil
                     && behavior(for: window) != .ignore
 
-                if isFullscreenWindow(window.element) || likelyFullscreenTransition {
+                if isFullscreenWindow(window.element) {
+                    likelyFullscreenTransitionMissingSince.removeValue(forKey: windowID)
+                    rememberFullscreenWindowState(window)
+                    removeWindow(window, preferRightFocus: true)
+                    changed = true
+                    continue
+                }
+
+                if likelyFullscreenTransition {
+                    let now = CFAbsoluteTimeGetCurrent()
+                    let missingSince = likelyFullscreenTransitionMissingSince[windowID] ?? now
+                    likelyFullscreenTransitionMissingSince[windowID] = missingSince
+                    if now - missingSince < likelyFullscreenTransitionGrace {
+                        debugLog("delaying likely fullscreen removal grace=\(String(format: "%.2f", likelyFullscreenTransitionGrace))s app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
+                        continue
+                    }
+
+                    likelyFullscreenTransitionMissingSince.removeValue(forKey: windowID)
                     rememberFullscreenWindowState(window)
                     removeWindow(window, preferRightFocus: true)
                     changed = true
@@ -78,6 +96,7 @@ extension Miri {
 
         for found in discovered {
             if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
+                likelyFullscreenTransitionMissingSince.removeValue(forKey: ObjectIdentifier(existing))
                 existing.title = found.title
                 existing.appName = found.appName
                 existing.bundleID = found.bundleID

@@ -139,6 +139,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Restore windows on quit", checkbox("restoreOnExit", draft.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true)),
         ("Persist layout", checkbox("persistLayout", draft.persistLayout ?? MiriConfig.fallback.persistLayout ?? true)),
         ("Rescan interval ms", intField("rescanIntervalMS", draft.rescanIntervalMS ?? MiriConfig.fallback.rescanIntervalMS ?? 1000)),
+        ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
         ("Hide method", popup("hideMethod", HideMethod.allCasesStrings, draft.hideMethod?.rawValue ?? MiriConfig.fallback.hideMethod?.rawValue ?? "skylight_alpha")),
         ("Debug logging", checkbox("debugLogging", draft.debugLogging ?? MiriConfig.fallback.debugLogging ?? false)),
     ]) }
@@ -263,6 +264,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.restoreOnExit = bool("restoreOnExit")
         draft.persistLayout = bool("persistLayout")
         draft.rescanIntervalMS = int("rescanIntervalMS")
+        draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
         draft.hideMethod = HideMethod(rawValue: string("hideMethod"))
         draft.debugLogging = bool("debugLogging")
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))
@@ -514,7 +516,26 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         slider.widthAnchor.constraint(equalToConstant: 180).isActive = true
         slider.identifier = NSUserInterfaceItemIdentifier(key)
         let label = NSTextField(labelWithString: "\(value)")
-        label.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        label.identifier = NSUserInterfaceItemIdentifier("\(key).label")
+        stack.addArrangedSubview(slider)
+        stack.addArrangedSubview(label)
+        controls[key] = slider
+        return stack
+    }
+
+    private func secondsSlider(_ key: String, _ value: Double, min: Double, max: Double) -> NSStackView {
+        let clamped = Swift.min(Swift.max(value, min), max)
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        let slider = NSSlider(value: clamped, minValue: min, maxValue: max, target: self, action: #selector(secondsSliderChanged(_:)))
+        slider.numberOfTickMarks = Int(((max - min) / 0.1).rounded()) + 1
+        slider.allowsTickMarkValuesOnly = true
+        slider.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        slider.identifier = NSUserInterfaceItemIdentifier(key)
+        let label = NSTextField(labelWithString: String(format: "%.1fs", clamped))
+        label.widthAnchor.constraint(equalToConstant: 48).isActive = true
         label.identifier = NSUserInterfaceItemIdentifier("\(key).label")
         stack.addArrangedSubview(slider)
         stack.addArrangedSubview(label)
@@ -531,6 +552,15 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         }
     }
 
+    @objc private func secondsSliderChanged(_ sender: NSSlider) {
+        guard let key = sender.identifier?.rawValue else { return }
+        sender.doubleValue = (sender.doubleValue * 10).rounded() / 10
+        if let stack = sender.superview as? NSStackView,
+           let label = stack.arrangedSubviews.compactMap({ $0 as? NSTextField }).first(where: { $0.identifier?.rawValue == "\(key).label" }) {
+            label.stringValue = String(format: "%.1fs", sender.doubleValue)
+        }
+    }
+
     private func colorWell(_ key: String, _ value: String) -> NSColorWell {
         let well = NSColorWell(frame: NSRect(x: 0, y: 0, width: 64, height: 28))
         well.color = colorFromSetting(value)
@@ -542,7 +572,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func string(_ key: String) -> String { if let p = controls[key] as? NSPopUpButton { return p.titleOfSelectedItem ?? "" }; return (controls[key] as? NSTextField)?.stringValue ?? "" }
     private func csv(_ key: String) -> [String] { string(key).split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
     private func int(_ key: String) -> Int { if let s = controls[key] as? NSSlider { return s.integerValue }; return Int(string(key)) ?? 0 }
-    private func double(_ key: String) -> Double { Double(string(key)) ?? 0 }
+    private func double(_ key: String) -> Double { if let s = controls[key] as? NSSlider { return s.doubleValue }; return Double(string(key)) ?? 0 }
 
     private func colorHex(_ key: String) -> String {
         guard let color = (controls[key] as? NSColorWell)?.color.usingColorSpace(.sRGB) else { return "#FFD60A" }

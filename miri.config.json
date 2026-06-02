@@ -79,6 +79,7 @@
   "trackpad_navigation_invert_x": false,
   "trackpad_navigation_invert_y": false,
   "rescan_interval_ms": 1000,
+  "likely_fullscreen_transition_grace_ms": 1500,
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,

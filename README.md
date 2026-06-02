@@ -81,7 +81,8 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
   untitled `AXUnknown` overlays, and other transient system panels that should
   not become tiled columns.
 - **Focus visibility fixes:** reveals the active column after horizontal focus
-  changes and focus adoption so keyboard navigation does not land off-screen.
+  changes, focus adoption, and frontmost-app window creation so newly opened apps
+  do not focus an off-screen tiled column.
 - **Persistence improvements:** debounced snapshots store effective manual
   widths and match restored windows by exact identity first, then by
   bundle/app/title fallback with nearest workspace/column preference.
@@ -153,8 +154,9 @@ The menu bar item exposes:
 - **Quit Miri**, which performs normal window restoration.
 
 The settings editor saves to the active JSON config and reloads miri in place.
-It covers layout defaults, focus behavior, animation options, trackpad tuning,
-window rules, excluded shortcuts, and command keybindings.
+It covers layout defaults, focus behavior, animation options, fullscreen-transition
+recovery timing, trackpad tuning, window rules, excluded shortcuts, and command
+keybindings.
 
 ## Config
 
@@ -219,6 +221,7 @@ The repo includes a full default config. A compact version looks like this:
   "trackpad_navigation_invert_x": false,
   "trackpad_navigation_invert_y": false,
   "rescan_interval_ms": 1000,
+  "likely_fullscreen_transition_grace_ms": 1500,
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,

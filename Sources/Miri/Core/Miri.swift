@@ -19,6 +19,7 @@ final class Miri: NSObject, @unchecked Sendable {
     var commandByKeybinding: [String: Command] = [:]
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
+    var likelyFullscreenTransitionMissingSince: [ObjectIdentifier: CFAbsoluteTime] = [:]
     var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
