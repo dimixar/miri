@@ -41,6 +41,37 @@ final class Workspace {
     }
 }
 
+final class LogicalSpaceContext {
+    let id: Int
+    var workspaces: [Workspace]
+    var floatingWindows: [ManagedWindow]
+    var activeWorkspace: Int
+    var signature: Set<UInt32>
+
+    init(
+        id: Int,
+        workspaces: [Workspace] = [Workspace()],
+        floatingWindows: [ManagedWindow] = [],
+        activeWorkspace: Int = 0,
+        signature: Set<UInt32> = []
+    ) {
+        self.id = id
+        self.workspaces = workspaces
+        self.floatingWindows = floatingWindows
+        self.activeWorkspace = activeWorkspace
+        self.signature = signature
+    }
+}
+
+struct BufferedSpaceWindow {
+    var window: ManagedWindow
+    var sourceContextID: Int
+    var sourceWorkspace: Int?
+    var sourceColumn: Int?
+    var sourceFloatingIndex: Int?
+    var bufferedAt: CFAbsoluteTime
+}
+
 struct RestoreSnapshot: Codable {
     var windowIDs: [UInt32]
     var floatingWindowIDs: [UInt32]?

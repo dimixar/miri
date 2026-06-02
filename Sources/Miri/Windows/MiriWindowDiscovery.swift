@@ -39,8 +39,17 @@ extension Miri {
     }
 
     @objc func activeSpaceChanged(_ notification: Notification) {
+        if activeContextHasBufferedSourceWindows() {
+            debugLog("skipping logical macOS space save during switch because active context has buffered source windows")
+        } else {
+            saveActiveLogicalSpaceContext()
+        }
+        pendingLogicalSpaceSwitch = true
         spaceChangeGeneration &+= 1
         debugLog("active macOS space changed generation=\(spaceChangeGeneration)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            self?.rescanWindows(adoptFocused: true)
+        }
     }
 
     func rescanWindows(adoptFocused: Bool) {
@@ -56,7 +65,17 @@ extension Miri {
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
             return
         }
-        var changed = false
+        let switchedLogicalSpace = handlePendingLogicalSpaceSwitch(discovered: discovered)
+        var changed = switchedLogicalSpace
+        var shouldSaveLogicalSpaceContext = true
+
+        if likelyBulkTransientDisappearance(discovered: discovered) {
+            debugLog("freezing logical macOS space during bulk transient disappearance visible=\(discoveredSignature(discovered).count) known=\(currentLogicalSpaceSignature().count)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.rescanWindows(adoptFocused: true)
+            }
+            return
+        }
 
         for window in allWindows() {
             if !discovered.contains(where: { sameWindow($0.element, window.element) }) {
@@ -89,6 +108,11 @@ extension Miri {
                     debugLog("preserving window during fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
                     continue
                 }
+                if bufferWindowInUnknownSpaceIfNeeded(window) {
+                    changed = true
+                    shouldSaveLogicalSpaceContext = false
+                    continue
+                }
                 if behavior(for: window) == .ignore {
                     setWindowAlpha(1, for: window.windowID)
                 }
@@ -105,6 +129,7 @@ extension Miri {
         for found in discovered {
             if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
                 pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(existing))
+                _ = consumeBufferedWindowIfNeeded(existing)
                 existing.title = found.title
                 existing.appName = found.appName
                 existing.bundleID = found.bundleID
@@ -121,6 +146,7 @@ extension Miri {
                     changed = true
                 }
             } else {
+                consumeBufferedWindowIfNeeded(found)
                 if behavior(for: found) == .float {
                     insertFloatingWindow(found, applyLayout: false)
                 } else {
@@ -157,6 +183,9 @@ extension Miri {
             )
         } else if changed || restoredPersistentLayout {
             projectLayout(focusActiveWindow: false, layoutLockDelay: restoredPersistentLayout ? 0.4 : 0.08)
+        }
+        if shouldSaveLogicalSpaceContext {
+            saveActiveLogicalSpaceContext()
         }
     }
 

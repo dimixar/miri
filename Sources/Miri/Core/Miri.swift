@@ -13,6 +13,11 @@ final class Miri: NSObject, @unchecked Sendable {
     var floatingWindows: [ManagedWindow] = []
     var activeWorkspace: Int = 0
     weak var previousWorkspace: Workspace?
+    var logicalSpaceContexts: [LogicalSpaceContext] = [LogicalSpaceContext(id: 0)]
+    var activeLogicalSpaceContextID: Int = 0
+    var nextLogicalSpaceContextID: Int = 1
+    var pendingLogicalSpaceSwitch = false
+    var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] = [:]
     var observers: [pid_t: AXObserver] = [:]
     var eventTap: CFMachPort?
     var eventTapSource: CFRunLoopSource?
