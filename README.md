@@ -6,7 +6,11 @@
 [![Fork](https://img.shields.io/badge/fork-dimixar%2Fmiri-111111?style=flat-square&logo=github)](https://github.com/dimixar/miri)
 [![Original](https://img.shields.io/badge/original-maria--rcks%2Fmiri-111111?style=flat-square&logo=github)](https://github.com/maria-rcks/miri)
 
-<video src="./assets/repo/miri-demo.mp4" controls width="1000" aria-label="miri macOS window layout preview"></video>
+<a href="./assets/repo/miri-demo.mp4">
+  <img src="./assets/repo/miri-demo-preview.webp" alt="miri macOS window layout preview" width="1000" />
+</a>
+
+[Watch the full demo video](./assets/repo/miri-demo.mp4)
 
 _Niri-ish, keyboard-first window manager for macOS._
 
