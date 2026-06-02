@@ -98,7 +98,12 @@ extension Miri {
                     insertFloatingWindow(found, applyLayout: false)
                 } else {
                     restoreMinimizedWindowStateIfAvailable(for: found)
-                    insertRestoredWindowNearFocused(found, applyLayout: false)
+                    let isFrontmostApp = found.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
+                    insertRestoredWindowNearFocused(
+                        found,
+                        applyLayout: false,
+                        focusNewWindow: isFrontmostApp
+                    )
                 }
                 changed = true
             }

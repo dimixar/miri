@@ -11,11 +11,15 @@ extension Miri {
         insertWindow(window, in: workspace, at: insertionIndex, applyLayout: applyLayout, focusNewWindow: focusNewWindow)
     }
 
-    func insertRestoredWindowNearFocused(_ window: ManagedWindow, applyLayout: Bool = true) {
+    func insertRestoredWindowNearFocused(
+        _ window: ManagedWindow,
+        applyLayout: Bool = true,
+        focusNewWindow: Bool = false
+    ) {
         let workspace = activeWorkspaceObject() ?? targetWorkspace(for: window)
         workspace.clampFocus()
         let insertionIndex = workspace.columns.isEmpty ? 0 : min(workspace.activeColumn + 1, workspace.columns.count)
-        insertWindow(window, in: workspace, at: insertionIndex, applyLayout: applyLayout, focusNewWindow: false)
+        insertWindow(window, in: workspace, at: insertionIndex, applyLayout: applyLayout, focusNewWindow: focusNewWindow)
     }
 
     func insertWindow(
