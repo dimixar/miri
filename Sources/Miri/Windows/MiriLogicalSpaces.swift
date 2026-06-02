@@ -101,6 +101,16 @@ extension Miri {
         return best?.context
     }
 
+    func likelyFullscreenExitSettle(discovered: [ManagedWindow]) -> Bool {
+        guard discoveredSignature(discovered).isEmpty,
+              !fullscreenWindowStates.isEmpty
+        else {
+            return false
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+        return fullscreenSpaceChangeGuardIsActive() || now < fullscreenTransitionGuardUntil
+    }
+
     func likelyBulkTransientDisappearance(discovered: [ManagedWindow]) -> Bool {
         let existing = allWindows().filter { $0.windowID != nil }
         guard existing.count >= 3 else {

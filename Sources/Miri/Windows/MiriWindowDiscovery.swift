@@ -65,6 +65,14 @@ extension Miri {
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
             return
         }
+        if likelyFullscreenExitSettle(discovered: discovered) {
+            debugLog("freezing logical macOS space during fullscreen settle visible=0 known=\(currentLogicalSpaceSignature().count)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.rescanWindows(adoptFocused: true)
+            }
+            return
+        }
+
         let switchedLogicalSpace = handlePendingLogicalSpaceSwitch(discovered: discovered)
         var changed = switchedLogicalSpace
         var shouldSaveLogicalSpaceContext = true
