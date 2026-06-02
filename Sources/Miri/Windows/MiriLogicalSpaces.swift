@@ -52,7 +52,7 @@ extension Miri {
 
         let visibleSignature = discoveredSignature(discovered)
         let bufferedVisibleIDs = visibleSignature.intersection(Set(spaceBufferedWindows.keys))
-        let context = bestLogicalSpaceContext(for: visibleSignature, bufferedVisibleIDs: bufferedVisibleIDs)
+        let context = bestLogicalSpaceContext(for: visibleSignature, bufferedVisibleIDs: bufferedVisibleIDs, discovered: discovered)
         loadLogicalSpaceContext(context)
         debugLog(
             "logical macOS space activated id=\(context.id) visible=\(visibleSignature.count) buffered=\(bufferedVisibleIDs.count) known=\(context.signature.count)"
@@ -62,7 +62,8 @@ extension Miri {
 
     func bestLogicalSpaceContext(
         for visibleSignature: Set<UInt32>,
-        bufferedVisibleIDs: Set<UInt32>
+        bufferedVisibleIDs: Set<UInt32>,
+        discovered: [ManagedWindow]
     ) -> LogicalSpaceContext {
         if visibleSignature.isEmpty,
            let empty = logicalSpaceContexts.first(where: { $0.signature.isEmpty && $0.id != activeLogicalSpaceContextID })
@@ -77,7 +78,11 @@ extension Miri {
         if bufferedVisibleIDs.isEmpty, let match = bestLogicalSpaceContextMatching(visibleSignature) {
             return match
         }
+        if let promoted = promotePendingPersistentLogicalSpaceContext(for: visibleSignature, discovered: discovered) {
+            return promoted
+        }
 
+        nextLogicalSpaceContextID = max(nextLogicalSpaceContextID, 0)
         let context = LogicalSpaceContext(id: nextLogicalSpaceContextID, signature: visibleSignature)
         nextLogicalSpaceContextID += 1
         logicalSpaceContexts.append(context)

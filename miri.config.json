@@ -81,6 +81,7 @@
   "rescan_interval_ms": 1000,
   "likely_fullscreen_transition_grace_ms": 1500,
   "fullscreen_space_change_guard_ms": 1500,
+  "logical_space_autosave_interval_minutes": 30,
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,

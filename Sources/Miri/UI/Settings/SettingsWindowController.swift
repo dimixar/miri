@@ -141,6 +141,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Rescan interval ms", intField("rescanIntervalMS", draft.rescanIntervalMS ?? MiriConfig.fallback.rescanIntervalMS ?? 1000)),
         ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
         ("Fullscreen Space guard", secondsSlider("fullscreenSpaceChangeGuardSeconds", Double(draft.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000, min: 0.1, max: 3.0)),
+        ("Logical Space autosave", minutesSlider("logicalSpaceAutosaveIntervalMinutes", draft.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30, min: 1, max: 60)),
         ("Hide method", popup("hideMethod", HideMethod.allCasesStrings, draft.hideMethod?.rawValue ?? MiriConfig.fallback.hideMethod?.rawValue ?? "skylight_alpha")),
         ("Debug logging", checkbox("debugLogging", draft.debugLogging ?? MiriConfig.fallback.debugLogging ?? false)),
     ]) }
@@ -267,6 +268,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.rescanIntervalMS = int("rescanIntervalMS")
         draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
         draft.fullscreenSpaceChangeGuardMS = Int((double("fullscreenSpaceChangeGuardSeconds") * 1000).rounded())
+        draft.logicalSpaceAutosaveIntervalMinutes = max(1, min(int("logicalSpaceAutosaveIntervalMinutes"), 60))
         draft.hideMethod = HideMethod(rawValue: string("hideMethod"))
         draft.debugLogging = bool("debugLogging")
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))
@@ -526,6 +528,25 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return stack
     }
 
+    private func minutesSlider(_ key: String, _ value: Int, min: Int, max: Int) -> NSStackView {
+        let clamped = Swift.min(Swift.max(value, min), max)
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        let slider = NSSlider(value: Double(clamped), minValue: Double(min), maxValue: Double(max), target: self, action: #selector(minutesSliderChanged(_:)))
+        slider.numberOfTickMarks = max - min + 1
+        slider.allowsTickMarkValuesOnly = true
+        slider.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        slider.identifier = NSUserInterfaceItemIdentifier(key)
+        let label = NSTextField(labelWithString: "\(clamped)m")
+        label.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        label.identifier = NSUserInterfaceItemIdentifier("\(key).label")
+        stack.addArrangedSubview(slider)
+        stack.addArrangedSubview(label)
+        controls[key] = slider
+        return stack
+    }
+
     private func secondsSlider(_ key: String, _ value: Double, min: Double, max: Double) -> NSStackView {
         let clamped = Swift.min(Swift.max(value, min), max)
         let stack = NSStackView()
@@ -551,6 +572,15 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         if let stack = sender.superview as? NSStackView,
            let label = stack.arrangedSubviews.compactMap({ $0 as? NSTextField }).first(where: { $0.identifier?.rawValue == "\(key).label" }) {
             label.stringValue = "\(sender.integerValue)"
+        }
+    }
+
+    @objc private func minutesSliderChanged(_ sender: NSSlider) {
+        guard let key = sender.identifier?.rawValue else { return }
+        sender.integerValue = Int(sender.doubleValue.rounded())
+        if let stack = sender.superview as? NSStackView,
+           let label = stack.arrangedSubviews.compactMap({ $0 as? NSTextField }).first(where: { $0.identifier?.rawValue == "\(key).label" }) {
+            label.stringValue = "\(sender.integerValue)m"
         }
     }
 

@@ -60,6 +60,7 @@ extension Miri {
         }
 
         let discovered = discoverWindows()
+        let restoredPersistentLogicalSpace = restorePersistentLogicalSpaceContextsIfNeeded(discovered: discovered)
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
@@ -74,7 +75,7 @@ extension Miri {
         }
 
         let switchedLogicalSpace = handlePendingLogicalSpaceSwitch(discovered: discovered)
-        var changed = switchedLogicalSpace
+        var changed = switchedLogicalSpace || restoredPersistentLogicalSpace
         var shouldSaveLogicalSpaceContext = true
 
         if likelyBulkTransientDisappearance(discovered: discovered) {

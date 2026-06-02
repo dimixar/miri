@@ -87,6 +87,37 @@ struct PersistentLayoutSnapshot: Codable {
     var windows: [PersistentWindowState]
 }
 
+struct PersistentLogicalSpaceSnapshot: Codable {
+    var version: Int
+    var activeContextID: Int
+    var nextContextID: Int
+    var contexts: [PersistentLogicalSpaceContext]
+}
+
+struct PersistentLogicalSpaceContext: Codable {
+    var id: Int
+    var activeWorkspace: Int
+    var activeColumns: [Int]
+    var scrollOffsets: [CGFloat?]?
+    var signatureWindowIDs: [UInt32]
+    var tiledWindows: [PersistentLogicalSpaceWindow]
+    var floatingWindows: [PersistentLogicalSpaceFloatingWindow]
+}
+
+struct PersistentLogicalSpaceWindow: Codable {
+    var windowID: UInt32?
+    var identity: PersistentWindowIdentity
+    var workspace: Int
+    var column: Int
+    var manualWidthRatio: CGFloat?
+}
+
+struct PersistentLogicalSpaceFloatingWindow: Codable {
+    var windowID: UInt32?
+    var identity: PersistentWindowIdentity
+    var index: Int
+}
+
 struct PersistentWindowState: Codable {
     var identity: PersistentWindowIdentity
     var workspace: Int

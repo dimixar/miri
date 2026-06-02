@@ -78,6 +78,9 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
 - **Native fullscreen Space protection:** detects fullscreen helper windows and
   remembered fullscreen apps so desktop windows are not removed or reinserted
   into the wrong Miri workspace while macOS is focused on a fullscreen Space.
+- **Inferred macOS Space contexts:** keeps separate Miri workspace/floating
+  layouts per inferred native macOS Space, using visible window signatures and
+  moved-window buffers instead of private Spaces APIs.
 - **Destroyed-window handling:** removes destroyed tiled/floating windows as soon
   as Accessibility reports them, then reprojects layout without waiting for a
   later rescan.
@@ -87,9 +90,10 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
 - **Focus visibility fixes:** reveals the active column after horizontal focus
   changes, focus adoption, and frontmost-app window creation so newly opened apps
   do not focus an off-screen tiled column.
-- **Persistence improvements:** debounced snapshots store effective manual
-  widths and match restored windows by exact identity first, then by
-  bundle/app/title fallback with nearest workspace/column preference.
+- **Persistence improvements:** debounced layout snapshots store effective manual
+  widths, while inferred macOS Space contexts are saved separately on quit and
+  by a safe configurable autosave timer so per-Space layouts can survive Miri
+  restarts.
 - **Local packaging compatibility:** `scripts/package-app.sh` wraps the DMG
   packager while still leaving a directly openable `dist/Miri.app` for local
   development.
@@ -113,8 +117,8 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
 - Supports app rules for tiled, floating, and ignored windows.
 - Hot-reloads config changes without restarting, keeping the previous config if
   a saved file cannot be parsed.
-- Persists workspace, column order, manual widths, and focused window across
-  restarts.
+- Persists workspace, column order, manual widths, focused window, and inferred
+  macOS Space contexts across restarts.
 - Parks off-workspace windows near the side edge, with optional SkyLight alpha
   hiding when private symbols are available.
 - Restores tiled and floating windows on normal exit and uses cleanup snapshots
@@ -160,8 +164,8 @@ The menu bar item exposes:
 
 The settings editor saves to the active JSON config and reloads miri in place.
 It covers layout defaults, focus behavior, animation options, fullscreen and
-fullscreen-Space recovery timing, trackpad tuning, window rules, excluded
-shortcuts, and command keybindings.
+fullscreen-Space recovery timing, logical Space autosave timing, trackpad tuning,
+window rules, excluded shortcuts, and command keybindings.
 
 ## Config
 
@@ -228,6 +232,7 @@ The repo includes a full default config. A compact version looks like this:
   "rescan_interval_ms": 1000,
   "likely_fullscreen_transition_grace_ms": 1500,
   "fullscreen_space_change_guard_ms": 1500,
+  "logical_space_autosave_interval_minutes": 30,
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,
@@ -264,6 +269,8 @@ Fullscreen recovery settings:
   `AXUnknown` helper windows appear; during and after the guard, if focus remains
   on a remembered fullscreen app, miri freezes normal rescan/removal/reinsert
   mutations so other workspace windows keep their original Miri layout.
+- `logical_space_autosave_interval_minutes`: safe periodic autosave interval for
+  inferred macOS Space contexts; clamped to 1–60 minutes and reset when changed.
 
 Useful string settings:
 
@@ -286,10 +293,86 @@ for visible untiled windows that should be raised above tiled columns, and
 `workspace`, `open_position`, `trackpad_navigation`, and `hover_to_focus` for
 matching windows.
 
-With `persist_layout` enabled, miri writes a local layout snapshot to
-`$XDG_STATE_HOME/miri/layout.json` or `~/.local/state/miri/layout.json`. Set
-`state_path` to override that location. The snapshot uses app names, bundle IDs,
-window titles, and window identity hints to match windows after restart.
+## Native macOS Space handling
+
+miri does not call private SkyLight/CGS Spaces APIs to ask macOS for a Space ID.
+Instead, it infers a **logical macOS Space context** from the windows that are
+currently visible/manageable. Each logical context owns its own Miri workspaces,
+columns, floating windows, active workspace, scroll offsets, and visible window
+signature.
+
+The main decisions are:
+
+- On `NSWorkspace.activeSpaceDidChangeNotification`, miri saves the current
+  logical context, waits briefly, rescans visible Accessibility windows, and
+  activates the best matching context.
+- Matching prefers raw window IDs that are visible in the scan. If a window was
+  buffered as moved-away, miri first matches using anchor IDs that exclude the
+  buffered IDs, then attaches the buffered windows to the target context.
+- If no runtime context matches, miri checks pending persisted contexts loaded at
+  startup. A match is promoted with its original saved logical ID.
+- If neither runtime nor pending persisted contexts match, miri creates a new
+  logical context with the next non-negative ID.
+- An empty visible set is allowed only when it looks like a real empty Space. It
+  is ignored/frozen during fullscreen settle, bulk disappearance, and other
+  transition guards.
+
+Moved windows are handled non-destructively. When a known window disappears while
+its app is still running, not hidden/minimized, still has a CG window, and is not
+onscreen, miri treats it as moved to another native Space. The window is buffered
+with its source context and source placement. When it appears in another context,
+miri transfers ownership and removes it from the source context.
+
+Limitations to keep in mind:
+
+- macOS' public active-Space notification does not include old/new Space IDs, so
+  all normal Space handling is inferred from visible windows.
+- Raw window IDs are best while apps/windows remain alive. If apps recreate
+  windows, miri falls back to bundle/app/title identity, which can be ambiguous
+  for duplicate windows from the same app.
+- Mission Control, fullscreen enter/exit, and Exposé-like transitions can expose
+  partial/empty Accessibility snapshots. miri freezes during common cases, but
+  unusual transitions may still need a later rescan to settle.
+- If two native Spaces contain indistinguishable sets of windows, miri may not be
+  able to tell them apart without private Space IDs.
+- Fullscreen native Spaces are protected separately: remembered fullscreen apps
+  and fullscreen helper windows suppress focus adoption and destructive rescans
+  while macOS is in or returning from a fullscreen Space.
+
+## Persistent layout and logical Space persistence
+
+With `persist_layout` enabled, miri writes two state files under
+`$XDG_STATE_HOME/miri/` or `~/.local/state/miri/` by default:
+
+- `layout.json`: the traditional global Miri layout fallback. It stores tiled
+  window identities, workspace/column positions, active workspace, active
+  columns, scroll offsets, manual width ratios, and focused window. It is written
+  by debounced layout changes and is used as a fallback when no persisted logical
+  Space context matches on startup.
+- `logical-spaces.json`: inferred macOS Space contexts. It stores a list of
+  contexts, each with a non-negative logical ID, signature window IDs, active
+  workspace, active columns, scroll offsets, tiled window placements, floating
+  window order, raw window IDs where available, and persistent window identities.
+
+Set `state_path` to override the `layout.json` location. `logical-spaces.json` is
+stored next to that file. The logical-Space file is read once at app startup:
+
+1. The current visible windows are matched against saved contexts.
+2. The best match becomes the active runtime context and keeps its saved ID.
+3. Unmatched saved contexts are kept as pending persisted contexts.
+4. When a later native Space switch reveals matching windows, the pending context
+   is promoted into runtime, again keeping its saved ID.
+5. Only truly unseen native Spaces allocate new logical IDs.
+
+Persistent context IDs are guarded: negative IDs and duplicate saved IDs are
+ignored, and `nextContextID` is kept above all valid saved/runtime IDs.
+
+Saving rules are intentionally conservative. Logical Space contexts are saved on
+normal app quit and by a safe periodic autosave controlled by
+`logical_space_autosave_interval_minutes` (1–60 minutes). The periodic write is
+skipped while a fullscreen guard, fullscreen transition, pending Space switch, or
+moved-window buffer is active. Changing the setting from the GUI or JSON reloads
+and resets the timer so stale intervals are not reused.
 
 ## Development
 
@@ -332,7 +415,9 @@ Release artifacts are built by `.github/workflows/release.yml`.
   back to normal behavior.
 - Trackpad navigation and SkyLight integration use private Apple frameworks or
   symbols and may need adjustment across macOS releases.
-- This does not use native macOS Spaces.
+- miri does not control native macOS Spaces directly and does not use private
+  Space IDs. It infers Space-like contexts from public Accessibility/window
+  signals and keeps Miri layouts per inferred context.
 
 ## Links
 

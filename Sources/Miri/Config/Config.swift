@@ -120,6 +120,7 @@ struct MiriConfig: Codable {
     var rescanIntervalMS: Int?
     var likelyFullscreenTransitionGraceMS: Int?
     var fullscreenSpaceChangeGuardMS: Int?
+    var logicalSpaceAutosaveIntervalMinutes: Int?
     var restoreOnExit: Bool?
     var persistLayout: Bool?
     var statePath: String?
@@ -174,6 +175,7 @@ struct MiriConfig: Codable {
         rescanIntervalMS: 1000,
         likelyFullscreenTransitionGraceMS: 1500,
         fullscreenSpaceChangeGuardMS: 1500,
+        logicalSpaceAutosaveIntervalMinutes: 30,
         restoreOnExit: true,
         persistLayout: true,
         statePath: nil,
@@ -300,6 +302,7 @@ struct MiriConfig: Codable {
         config.rescanIntervalMS = config.rescanIntervalMS.map { min(max($0, 100), 5000) }
         config.likelyFullscreenTransitionGraceMS = config.likelyFullscreenTransitionGraceMS.map { min(max($0, 100), 2000) }
         config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
+        config.logicalSpaceAutosaveIntervalMinutes = config.logicalSpaceAutosaveIntervalMinutes.map { min(max($0, 1), 60) }
         config.workspaceBarVisibleIconCount = config.workspaceBarVisibleIconCount.map { min(max($0, 1), 6) }
         config.rules = config.rules.map { rule in
             var rule = rule
@@ -386,6 +389,7 @@ struct MiriConfig: Codable {
         case rescanIntervalMS = "rescan_interval_ms"
         case likelyFullscreenTransitionGraceMS = "likely_fullscreen_transition_grace_ms"
         case fullscreenSpaceChangeGuardMS = "fullscreen_space_change_guard_ms"
+        case logicalSpaceAutosaveIntervalMinutes = "logical_space_autosave_interval_minutes"
         case restoreOnExit = "restore_on_exit"
         case persistLayout = "persist_layout"
         case statePath = "state_path"

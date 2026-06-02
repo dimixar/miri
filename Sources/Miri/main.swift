@@ -14,6 +14,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 let miri = Miri()
+app.delegate = miri
 let statusMenu = StatusMenuController(miri: miri)
 _ = statusMenu
 miri.start()

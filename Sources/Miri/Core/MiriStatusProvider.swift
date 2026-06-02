@@ -137,7 +137,9 @@ extension Miri {
 
     @MainActor func quitFromMenu() {
         snapshotWriteTimer?.cancel()
+        logicalSpaceSnapshotTimer?.cancel()
         writePersistentLayoutSnapshot()
+        writePersistentLogicalSpaceSnapshot()
         if restoreOnExit {
             restoreManagedWindowsForExit()
         }
@@ -179,6 +181,7 @@ extension Miri {
         }
 
         let previousRescanInterval = rescanInterval
+        let previousLogicalSpaceAutosaveInterval = logicalSpaceAutosaveInterval
         let previousRestoreOnExit = restoreOnExit
         let previousTrackpadSettings = trackpadNavigationSettings
         let reloaded = MiriConfig.loadWithMetadata(logLoaded: false)
@@ -198,6 +201,9 @@ extension Miri {
         }
         if rescanInterval != previousRescanInterval {
             scheduleRescanTimer()
+        }
+        if logicalSpaceAutosaveInterval != previousLogicalSpaceAutosaveInterval {
+            schedulePeriodicLogicalSpaceSnapshotWrite()
         }
         updateCleanupWatcher(previousRestoreOnExit: previousRestoreOnExit)
 

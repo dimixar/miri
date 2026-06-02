@@ -196,6 +196,14 @@ extension Miri {
         TimeInterval(config.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000
     }
 
+    var logicalSpaceAutosaveInterval: TimeInterval {
+        TimeInterval(logicalSpaceAutosaveIntervalMinutes * 60)
+    }
+
+    var logicalSpaceAutosaveIntervalMinutes: Int {
+        config.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30
+    }
+
     var restoreOnExit: Bool {
         config.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true
     }

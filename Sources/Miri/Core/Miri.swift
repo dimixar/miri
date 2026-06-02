@@ -4,7 +4,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-final class Miri: NSObject, @unchecked Sendable {
+final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var loadedConfig = MiriConfig.loadWithMetadata()
     var config: MiriConfig {
         loadedConfig.config
@@ -35,6 +35,7 @@ final class Miri: NSObject, @unchecked Sendable {
     var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     var snapshotWriteTimer: DispatchSourceTimer?
+    var logicalSpaceSnapshotTimer: DispatchSourceTimer?
     @MainActor var settingsWindowController: SettingsWindowController?
     var excludedKeybindingSet = Set<String>()
     var rescanTimer: Timer?
@@ -73,6 +74,9 @@ final class Miri: NSObject, @unchecked Sendable {
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
     lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
     var needsPersistentLayoutRestore = true
+    lazy var persistentLogicalSpaceSnapshot = readPersistentLogicalSpaceSnapshot()
+    var needsPersistentLogicalSpaceRestore = true
+    var pendingPersistentLogicalSpaceContexts: [PersistentLogicalSpaceContext] = []
     var signalSources: [DispatchSourceSignal] = []
     let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
@@ -94,6 +98,7 @@ final class Miri: NSObject, @unchecked Sendable {
         installTrackpadNavigation()
         rescanWindows(adoptFocused: true)
         scheduleRescanTimer()
+        schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")
         print("miri: loaded \(commandByKeybinding.count) keybindings")
@@ -107,6 +112,16 @@ final class Miri: NSObject, @unchecked Sendable {
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
         if hideMethod == .skyLightAlpha && !SkyLight.shared.canSetAlpha {
             print("miri: SkyLight alpha support unavailable; parked windows will remain as edge slivers")
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        snapshotWriteTimer?.cancel()
+        logicalSpaceSnapshotTimer?.cancel()
+        writePersistentLayoutSnapshot()
+        writePersistentLogicalSpaceSnapshot()
+        if restoreOnExit {
+            restoreManagedWindowsForExit()
         }
     }
 
@@ -149,7 +164,9 @@ final class Miri: NSObject, @unchecked Sendable {
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler { [weak self] in
                 self?.snapshotWriteTimer?.cancel()
+                self?.logicalSpaceSnapshotTimer?.cancel()
                 self?.writePersistentLayoutSnapshot()
+                self?.writePersistentLogicalSpaceSnapshot()
                 if self?.restoreOnExit == true {
                     self?.restoreManagedWindowsForExit()
                 }
