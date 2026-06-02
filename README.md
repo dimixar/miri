@@ -72,8 +72,12 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
   chooses grow/shrink direction and scroll offset so the active column stays
   visually stable and fully visible.
 - **Better hidden/minimized/fullscreen recovery:** preserves tiled state across
-  minimize, app hide, and fullscreen transitions, then restores windows to their
-  previous workspace, position, width, and focus context.
+  minimize, app hide, native fullscreen transitions, and fullscreen Space
+  switches, then restores windows to their previous workspace, position, width,
+  and focus context.
+- **Native fullscreen Space protection:** detects fullscreen helper windows and
+  remembered fullscreen apps so desktop windows are not removed or reinserted
+  into the wrong Miri workspace while macOS is focused on a fullscreen Space.
 - **Destroyed-window handling:** removes destroyed tiled/floating windows as soon
   as Accessibility reports them, then reprojects layout without waiting for a
   later rescan.
@@ -103,8 +107,9 @@ terminal, macOS may ask for the terminal app itself to get those permissions.
 - Can center, smart-align, or left-align the focused column while keeping the
   first column pinned when appropriate.
 - Tracks `Cmd+Tab`, app launches/exits, manual resizes, minimized/hidden apps,
-  fullscreen transitions, destroyed windows, focus changes, and transient
-  overlays so the model follows macOS instead of fighting it.
+  fullscreen transitions, fullscreen Space changes, destroyed windows, focus
+  changes, and transient overlays so the model follows macOS instead of fighting
+  it.
 - Supports app rules for tiled, floating, and ignored windows.
 - Hot-reloads config changes without restarting, keeping the previous config if
   a saved file cannot be parsed.
@@ -154,9 +159,9 @@ The menu bar item exposes:
 - **Quit Miri**, which performs normal window restoration.
 
 The settings editor saves to the active JSON config and reloads miri in place.
-It covers layout defaults, focus behavior, animation options, fullscreen-transition
-recovery timing, trackpad tuning, window rules, excluded shortcuts, and command
-keybindings.
+It covers layout defaults, focus behavior, animation options, fullscreen and
+fullscreen-Space recovery timing, trackpad tuning, window rules, excluded
+shortcuts, and command keybindings.
 
 ## Config
 
@@ -222,6 +227,7 @@ The repo includes a full default config. A compact version looks like this:
   "trackpad_navigation_invert_y": false,
   "rescan_interval_ms": 1000,
   "likely_fullscreen_transition_grace_ms": 1500,
+  "fullscreen_space_change_guard_ms": 1500,
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,
@@ -249,6 +255,15 @@ Keybinding strings support `cmd`/`win`/`windows`/`super`/`meta`, `ctrl`,
 `shift`, `alt`/`option`, side-specific `lalt`/`ralt`, and `fn`/`globe`, plus
 common key aliases for arrows, navigation keys, page keys, function keys, and
 punctuation.
+
+Fullscreen recovery settings:
+
+- `likely_fullscreen_transition_grace_ms`: grace period for window-level native
+  fullscreen transitions, including transient missing CG window info.
+- `fullscreen_space_change_guard_ms`: guard period after fullscreen-sized
+  `AXUnknown` helper windows appear; during and after the guard, if focus remains
+  on a remembered fullscreen app, miri freezes normal rescan/removal/reinsert
+  mutations so other workspace windows keep their original Miri layout.
 
 Useful string settings:
 

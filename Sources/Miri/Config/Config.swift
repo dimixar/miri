@@ -119,6 +119,7 @@ struct MiriConfig: Codable {
     var trackpadNavigationInvertY: Bool?
     var rescanIntervalMS: Int?
     var likelyFullscreenTransitionGraceMS: Int?
+    var fullscreenSpaceChangeGuardMS: Int?
     var restoreOnExit: Bool?
     var persistLayout: Bool?
     var statePath: String?
@@ -172,6 +173,7 @@ struct MiriConfig: Codable {
         trackpadNavigationInvertY: false,
         rescanIntervalMS: 1000,
         likelyFullscreenTransitionGraceMS: 1500,
+        fullscreenSpaceChangeGuardMS: 1500,
         restoreOnExit: true,
         persistLayout: true,
         statePath: nil,
@@ -297,6 +299,7 @@ struct MiriConfig: Codable {
         config.trackpadNavigationSettleAnimationMS = config.trackpadNavigationSettleAnimationMS.map { min(max($0, 0), 500) }
         config.rescanIntervalMS = config.rescanIntervalMS.map { min(max($0, 100), 5000) }
         config.likelyFullscreenTransitionGraceMS = config.likelyFullscreenTransitionGraceMS.map { min(max($0, 100), 2000) }
+        config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
         config.workspaceBarVisibleIconCount = config.workspaceBarVisibleIconCount.map { min(max($0, 1), 6) }
         config.rules = config.rules.map { rule in
             var rule = rule
@@ -382,6 +385,7 @@ struct MiriConfig: Codable {
         case trackpadNavigationInvertY = "trackpad_navigation_invert_y"
         case rescanIntervalMS = "rescan_interval_ms"
         case likelyFullscreenTransitionGraceMS = "likely_fullscreen_transition_grace_ms"
+        case fullscreenSpaceChangeGuardMS = "fullscreen_space_change_guard_ms"
         case restoreOnExit = "restore_on_exit"
         case persistLayout = "persist_layout"
         case statePath = "state_path"

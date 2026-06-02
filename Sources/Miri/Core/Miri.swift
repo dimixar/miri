@@ -19,7 +19,12 @@ final class Miri: NSObject, @unchecked Sendable {
     var commandByKeybinding: [String: Command] = [:]
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
-    var likelyFullscreenTransitionMissingSince: [ObjectIdentifier: CFAbsoluteTime] = [:]
+    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:]
+    var fullscreenTransitionGuardUntil: CFAbsoluteTime = 0
+    var fullscreenSpaceChangeGuardUntil: CFAbsoluteTime = 0
+    var fullscreenSpaceChangeGuardStartedGeneration: UInt64 = 0
+    var fullscreenSpaceChangeGuardWorkspace: Int?
+    var spaceChangeGeneration: UInt64 = 0
     var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
@@ -123,6 +128,12 @@ final class Miri: NSObject, @unchecked Sendable {
             self,
             selector: #selector(applicationTerminated(_:)),
             name: NSWorkspace.didTerminateApplicationNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(activeSpaceChanged(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
     }

@@ -38,6 +38,11 @@ extension Miri {
         }
     }
 
+    @objc func activeSpaceChanged(_ notification: Notification) {
+        spaceChangeGeneration &+= 1
+        debugLog("active macOS space changed generation=\(spaceChangeGeneration)")
+    }
+
     func rescanWindows(adoptFocused: Bool) {
         guard !transientSystemWindowIsActive() else {
             cancelHoverFocus()
@@ -46,6 +51,11 @@ extension Miri {
         }
 
         let discovered = discoverWindows()
+        if let fullscreenState = focusedRememberedFullscreenWindowState() {
+            enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
+            debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
+            return
+        }
         var changed = false
 
         for window in allWindows() {
@@ -54,31 +64,29 @@ extension Miri {
                 let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
                     || runningApp?.isHidden == true
                 let windowID = ObjectIdentifier(window)
-                let likelyFullscreenTransition = !temporarilyHidden
-                    && runningApp != nil
-                    && behavior(for: window) != .ignore
+                let now = CFAbsoluteTimeGetCurrent()
 
                 if isFullscreenWindow(window.element) {
-                    likelyFullscreenTransitionMissingSince.removeValue(forKey: windowID)
+                    pendingFullscreenTransitionSince.removeValue(forKey: windowID)
+                    fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
                     rememberFullscreenWindowState(window)
                     removeWindow(window, preferRightFocus: true)
                     changed = true
                     continue
                 }
 
-                if likelyFullscreenTransition {
-                    let now = CFAbsoluteTimeGetCurrent()
-                    let missingSince = likelyFullscreenTransitionMissingSince[windowID] ?? now
-                    likelyFullscreenTransitionMissingSince[windowID] = missingSince
-                    if now - missingSince < likelyFullscreenTransitionGrace {
-                        debugLog("delaying likely fullscreen removal grace=\(String(format: "%.2f", likelyFullscreenTransitionGrace))s app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
-                        continue
-                    }
+                if let pendingSince = pendingFullscreenTransitionSince[windowID], now - pendingSince < fullscreenTransitionGrace {
+                    debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
+                    continue
+                }
+                pendingFullscreenTransitionSince.removeValue(forKey: windowID)
 
-                    likelyFullscreenTransitionMissingSince.removeValue(forKey: windowID)
-                    rememberFullscreenWindowState(window)
-                    removeWindow(window, preferRightFocus: true)
-                    changed = true
+                if runningApp != nil,
+                   !temporarilyHidden,
+                   behavior(for: window) != .ignore,
+                   now < fullscreenTransitionGuardUntil
+                {
+                    debugLog("preserving window during fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
                     continue
                 }
                 if behavior(for: window) == .ignore {
@@ -96,7 +104,7 @@ extension Miri {
 
         for found in discovered {
             if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
-                likelyFullscreenTransitionMissingSince.removeValue(forKey: ObjectIdentifier(existing))
+                pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(existing))
                 existing.title = found.title
                 existing.appName = found.appName
                 existing.bundleID = found.bundleID
@@ -132,11 +140,17 @@ extension Miri {
         ensureTrailingEmptyWorkspace()
 
         if adoptFocused {
-            let adoptedFocusedWindow = adoptFocusedWindow(
-                pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
-                applyLayout: false
-            )
-            let restoredPersistentFocus = adoptedFocusedWindow ? false : restorePersistentFocusedWindow()
+            let restoredPersistentFocus: Bool
+            if fullscreenSpaceChangeGuardIsActive() {
+                enforceFullscreenSpaceGuardWorkspace()
+                restoredPersistentFocus = false
+            } else {
+                let adoptedFocusedWindow = adoptFocusedWindow(
+                    pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                    applyLayout: false
+                )
+                restoredPersistentFocus = adoptedFocusedWindow ? false : restorePersistentFocusedWindow()
+            }
             projectLayout(
                 focusActiveWindow: restoredPersistentFocus,
                 layoutLockDelay: restoredPersistentLayout ? 0.4 : 0.08
@@ -170,6 +184,7 @@ extension Miri {
 
             for element in axWindows {
                 logRawAXWindowIfNeeded(element, app: app, source: "scan")
+                noteFullscreenSpaceHelperIfNeeded(element)
                 guard !isUnknownSubroleWindow(element),
                       !isHiddenOrMinimizedWindow(element),
                       !isFullscreenWindow(element),

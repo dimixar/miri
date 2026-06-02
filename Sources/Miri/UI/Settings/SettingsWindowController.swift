@@ -140,6 +140,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Persist layout", checkbox("persistLayout", draft.persistLayout ?? MiriConfig.fallback.persistLayout ?? true)),
         ("Rescan interval ms", intField("rescanIntervalMS", draft.rescanIntervalMS ?? MiriConfig.fallback.rescanIntervalMS ?? 1000)),
         ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
+        ("Fullscreen Space guard", secondsSlider("fullscreenSpaceChangeGuardSeconds", Double(draft.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000, min: 0.1, max: 3.0)),
         ("Hide method", popup("hideMethod", HideMethod.allCasesStrings, draft.hideMethod?.rawValue ?? MiriConfig.fallback.hideMethod?.rawValue ?? "skylight_alpha")),
         ("Debug logging", checkbox("debugLogging", draft.debugLogging ?? MiriConfig.fallback.debugLogging ?? false)),
     ]) }
@@ -265,6 +266,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.persistLayout = bool("persistLayout")
         draft.rescanIntervalMS = int("rescanIntervalMS")
         draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
+        draft.fullscreenSpaceChangeGuardMS = Int((double("fullscreenSpaceChangeGuardSeconds") * 1000).rounded())
         draft.hideMethod = HideMethod(rawValue: string("hideMethod"))
         draft.debugLogging = bool("debugLogging")
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))

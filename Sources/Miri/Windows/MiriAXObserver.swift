@@ -8,6 +8,15 @@ extension Miri {
         guard let pid else {
             return false
         }
+        if fullscreenSpaceChangeGuardIsActive() {
+            debugLog("suppressing focus adoption during fullscreen space guard")
+            return false
+        }
+        if let fullscreenState = focusedRememberedFullscreenWindowState() {
+            enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
+            debugLog("suppressing focus adoption while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")'")
+            return false
+        }
 
         let appElement = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
@@ -82,6 +91,7 @@ extension Miri {
 
     fileprivate func handleAXNotification(_ name: String, element: AXUIElement) {
         logAXNotification(name, element: element)
+        noteFullscreenSpaceHelperIfNeeded(element)
         if transientSystemWindowIsActive(forceRefresh: true) {
             cancelHoverFocus()
             clearTrackpadCamera()

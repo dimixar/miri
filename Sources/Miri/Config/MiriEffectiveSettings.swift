@@ -188,8 +188,12 @@ extension Miri {
         TimeInterval(config.rescanIntervalMS ?? MiriConfig.fallback.rescanIntervalMS ?? 1000) / 1000
     }
 
-    var likelyFullscreenTransitionGrace: TimeInterval {
+    var fullscreenTransitionGrace: TimeInterval {
         TimeInterval(config.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000
+    }
+
+    var fullscreenSpaceChangeGuardDuration: TimeInterval {
+        TimeInterval(config.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000
     }
 
     var restoreOnExit: Bool {

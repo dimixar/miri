@@ -13,6 +13,7 @@ extension Miri {
         animatedWindowIDs: Set<ObjectIdentifier>? = nil,
         resizingWindowID: ObjectIdentifier? = nil
     ) {
+        enforceFullscreenSpaceGuardWorkspace()
         layoutRequestGeneration &+= 1
         let viewport = currentViewport()
 
