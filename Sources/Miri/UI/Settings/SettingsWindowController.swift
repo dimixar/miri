@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private var availableApps: [RuleAppInfo]
     private let tabView = NSTabView()
     private let rulesTable = NSTableView()
+    private weak var ruleTitleMatchHelpLabel: NSTextField?
 
     private var controls: [String: NSControl] = [:]
 
@@ -254,7 +255,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func ruleSummary(_ rule: WindowRule) -> String {
-        let match = rule.bundleID ?? rule.appName ?? rule.titleContains ?? "manual"
+        let title = rule.titleContains.map { rule.titleExactMatch == true ? "title='\($0)'" : "title contains '\($0)'" }
+        let match = rule.bundleID ?? rule.appName ?? title ?? "manual"
         let behavior = rule.behavior?.rawValue ?? "default"
         let width = rule.widthRatio.map { " width=\($0)" } ?? ""
         let workspace = rule.workspace.map { " workspace=\($0)" } ?? ""
@@ -407,6 +409,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         let bundle = NSTextField(string: rule.bundleID ?? "")
         let app = NSTextField(string: rule.appName ?? "")
         let title = NSTextField(string: rule.titleContains ?? "")
+        let exactTitleMatch = NSButton(checkboxWithTitle: "Exact title match", target: self, action: #selector(ruleTitleMatchChanged(_:)))
+        exactTitleMatch.state = rule.titleExactMatch == true ? .on : .off
+        let titleMatchHelp = NSTextField(labelWithString: titleMatchHelpText(exact: exactTitleMatch.state == .on))
+        titleMatchHelp.lineBreakMode = .byWordWrapping
+        titleMatchHelp.maximumNumberOfLines = 2
+        titleMatchHelp.textColor = .secondaryLabelColor
+        ruleTitleMatchHelpLabel = titleMatchHelp
         let width = NSTextField(string: rule.widthRatio.map { String(Double($0)) } ?? "")
         let workspace = NSTextField(string: rule.workspace.map(String.init) ?? "")
         let behavior = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 220, height: 26), pullsDown: false)
@@ -422,15 +431,19 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             field.widthAnchor.constraint(equalToConstant: 300).isActive = true
         }
         behavior.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        exactTitleMatch.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        titleMatchHelp.widthAnchor.constraint(equalToConstant: 300).isActive = true
 
         addRuleEditorRow(label: "Bundle ID", control: bundle, to: stack)
         addRuleEditorRow(label: "App Name", control: app, to: stack)
-        addRuleEditorRow(label: "Title Contains", control: title, to: stack)
+        addRuleEditorRow(label: "Title Text", control: title, to: stack)
+        addRuleEditorRow(label: "Title Matching", control: exactTitleMatch, to: stack)
+        addRuleEditorRow(label: "", control: titleMatchHelp, to: stack)
         addRuleEditorRow(label: "Behavior", control: behavior, to: stack)
         addRuleEditorRow(label: "Width Ratio", control: width, to: stack)
         addRuleEditorRow(label: "Workspace", control: workspace, to: stack)
 
-        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 230))
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 290))
         accessory.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: accessory.topAnchor),
@@ -446,6 +459,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         rule.bundleID = bundle.stringValue.isEmpty ? nil : bundle.stringValue
         rule.appName = app.stringValue.isEmpty ? nil : app.stringValue
         rule.titleContains = title.stringValue.isEmpty ? nil : title.stringValue
+        rule.titleExactMatch = rule.titleContains != nil && exactTitleMatch.state == .on ? true : nil
         switch behavior.titleOfSelectedItem {
         case "Tile": rule.behavior = .tile
         case "Float": rule.behavior = .float
@@ -456,6 +470,18 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         rule.workspace = Int(workspace.stringValue)
         draft.rules[index] = rule
         rulesTable.reloadData()
+        ruleTitleMatchHelpLabel = nil
+    }
+
+    @objc private func ruleTitleMatchChanged(_ sender: NSButton) {
+        ruleTitleMatchHelpLabel?.stringValue = titleMatchHelpText(exact: sender.state == .on)
+    }
+
+    private func titleMatchHelpText(exact: Bool) -> String {
+        if exact {
+            return "Matches only when the whole window title is the same as the title text."
+        }
+        return "Matches any window whose title contains the title text."
     }
 
     private func addRuleEditorRow(label: String, control: NSView, to stack: NSStackView) {

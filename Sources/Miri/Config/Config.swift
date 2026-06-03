@@ -399,6 +399,7 @@ struct WindowRule: Codable {
     var bundleID: String?
     var appName: String?
     var titleContains: String?
+    var titleExactMatch: Bool?
     var behavior: WindowBehavior?
     var widthRatio: CGFloat?
     var workspace: Int?
@@ -410,6 +411,7 @@ struct WindowRule: Codable {
         bundleID: String? = nil,
         appName: String? = nil,
         titleContains: String? = nil,
+        titleExactMatch: Bool? = nil,
         behavior: WindowBehavior? = nil,
         widthRatio: CGFloat? = nil,
         workspace: Int? = nil,
@@ -420,6 +422,7 @@ struct WindowRule: Codable {
         self.bundleID = bundleID
         self.appName = appName
         self.titleContains = titleContains
+        self.titleExactMatch = titleExactMatch
         self.behavior = behavior
         self.widthRatio = widthRatio
         self.workspace = workspace
@@ -435,10 +438,14 @@ struct WindowRule: Codable {
         if let appName, window.appName != appName {
             return false
         }
-        if let titleContains,
-           window.title.range(of: titleContains, options: [.caseInsensitive, .diacriticInsensitive]) == nil
-        {
-            return false
+        if let titleContains {
+            if titleExactMatch == true {
+                if window.title.compare(titleContains, options: [.caseInsensitive, .diacriticInsensitive]) != .orderedSame {
+                    return false
+                }
+            } else if window.title.range(of: titleContains, options: [.caseInsensitive, .diacriticInsensitive]) == nil {
+                return false
+            }
         }
         return bundleID != nil || appName != nil || titleContains != nil
     }
@@ -447,6 +454,7 @@ struct WindowRule: Codable {
         case bundleID = "bundle_id"
         case appName = "app_name"
         case titleContains = "title_contains"
+        case titleExactMatch = "title_exact_match"
         case behavior
         case widthRatio = "width_ratio"
         case workspace

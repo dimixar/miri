@@ -317,6 +317,8 @@ Rules can match on `bundle_id`, `app_name`, or `title_contains`.
 - `behavior: "ignore"`: leave matching windows alone.
 - `behavior: "float"`: keep matching windows visible but untiled.
 - `behavior: "tile"`: force matching windows into the tiled model.
+- `title_exact_match: true`: make `title_contains` match the whole window title
+  instead of any contained text.
 - `width_ratio`: override the default column width.
 - `workspace`: open on a specific Miri workspace.
 - `open_position`: choose where matching windows are inserted.
