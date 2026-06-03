@@ -255,12 +255,36 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func ruleSummary(_ rule: WindowRule) -> String {
-        let title = rule.titleContains.map { rule.titleExactMatch == true ? "title='\($0)'" : "title contains '\($0)'" }
-        let match = rule.bundleID ?? rule.appName ?? title ?? "manual"
-        let behavior = rule.behavior?.rawValue ?? "default"
-        let width = rule.widthRatio.map { " width=\($0)" } ?? ""
-        let workspace = rule.workspace.map { " workspace=\($0)" } ?? ""
-        return "\(match) → \(behavior)\(width)\(workspace)"
+        var matchParts: [String] = []
+        if let bundleID = rule.bundleID, !bundleID.isEmpty {
+            matchParts.append(bundleID)
+        }
+        if let appName = rule.appName, !appName.isEmpty {
+            matchParts.append("app='\(appName)'")
+        }
+        if let titleContains = rule.titleContains, !titleContains.isEmpty {
+            let label = rule.titleExactMatch == true ? "title='\(titleContains)'" : "title contains '\(titleContains)'"
+            matchParts.append(label)
+        }
+        let match = matchParts.isEmpty ? "manual" : matchParts.joined(separator: " · ")
+
+        var detailParts: [String] = [rule.behavior?.rawValue ?? "default"]
+        if let widthRatio = rule.widthRatio {
+            detailParts.append("width=\(widthRatio)")
+        }
+        if let workspace = rule.workspace {
+            detailParts.append("workspace=\(workspace)")
+        }
+        if let openPosition = rule.openPosition {
+            detailParts.append("open=\(openPosition.rawValue)")
+        }
+        if let trackpadNavigation = rule.trackpadNavigation {
+            detailParts.append("trackpad=\(trackpadNavigation ? "on" : "off")")
+        }
+        if let hoverToFocus = rule.hoverToFocus {
+            detailParts.append("hover=\(hoverToFocus ? "on" : "off")")
+        }
+        return "\(match) -> \(detailParts.joined(separator: " · "))"
     }
 
     private func readControlsIntoDraft() {
