@@ -197,18 +197,21 @@ extension Miri {
         snapshotHiddenWindows = windows
         for window in windows {
             let id = ObjectIdentifier(window)
-            setWindowAlpha(0, for: window.windowID)
             appliedVisibility[id] = false
             if let viewport {
-                let frame = axFrame(window.element) ?? CGRect(x: viewport.maxX + 8192, y: viewport.minY, width: 320, height: 240)
-                let parked = CGRect(
+                let frame = axFrame(window.element) ?? CGRect(
                     x: viewport.maxX + 8192,
                     y: viewport.minY,
-                    width: max(frame.width, 320),
-                    height: max(frame.height, 240)
+                    width: 320,
+                    height: 240
+                )
+                let parked = CGRect(
+                    x: viewport.maxX + 8192,
+                    y: frame.minY,
+                    width: frame.width,
+                    height: frame.height
                 )
                 setAXFrame(parked, for: window)
-                setWindowAlpha(0, for: window.windowID)
             }
         }
     }
@@ -426,7 +429,7 @@ extension Miri {
                 guard let self, snapshotAnimationSession === session, !session.cancelled else {
                     return
                 }
-                hideSnapshotWindows(snapshotMotions.map { $0.0.window }, parkIn: nil)
+                hideSnapshotWindows(snapshotMotions.map { $0.0.window }, parkIn: overlay.axViewport)
                 for item in snapshotLayers {
                     overlay.animateSnapshotLayer(item.layer, to: item.motion.endFrame, duration: duration, timing: timing)
                 }
