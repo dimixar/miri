@@ -44,53 +44,71 @@ use the Swift commands or local packaging scripts below.
 
 ## Features
 
-### Window layout
+Core ideas:
 
-- Niri-like horizontal columns grouped into virtual workspaces.
-- Configurable default column width and width presets.
-- Focus alignment modes: `left`, `center`, and `smart`.
-- New-window placement before the active column, after it, or at the end.
-- Optional hover-to-focus with edge and visible-area controls.
-- App/window rules for tiled, floating, and ignored windows.
+- **Niri-like columns.** A keyboard-first horizontal column layout for macOS.
+- **Virtual workspaces.** Independent Miri workspaces with per-workspace focus
+  and scroll state.
+- **macOS state recovery.** Defensive handling for fullscreen, hiding,
+  minimizing, app churn, and native Space switching.
+- **Logical Space contexts.** Separate Miri state per inferred macOS Space,
+  without depending on private Space IDs.
+- **Persistent layout state.** Saved column positions, manual widths, focus, and
+  logical Space state across restarts.
+- **Snapshot transitions.** Window movement and resizing animations using
+  captured snapshots and final Accessibility placement.
+- **Precise window rules.** Rule matching and behavior overrides for apps and
+  individual window titles.
+- **Small private API surface.** Core window management stays Accessibility-led,
+  with private APIs reserved for narrow macOS gaps.
 
-### Input
+### Niri-Like Layout
 
-- Keyboard-first defaults using **left Option** (`lalt`) instead of `cmd`, so
-  common macOS shortcuts keep working.
-- Side-specific keybinding support for `lalt`/`ralt` plus common modifier and
-  key aliases.
-- `excluded_keybindings` for shortcuts that miri should leave to macOS or other
-  apps.
-- Three-finger trackpad navigation using Apple's private MultitouchSupport
-  framework, with configurable sensitivity, momentum, snapping, and inversion.
+miri arranges tiled windows into horizontal columns grouped by virtual
+workspaces. Column width, width presets, focus alignment, new-window placement,
+and hover-to-focus are configurable.
 
-### Animation and resizing
+### macOS Recovery
 
-- Snapshot animation backend: captures tiled windows, animates snapshots in a
-  transparent overlay, parks real windows underneath, and applies final
-  Accessibility frames at the end.
-- Retargetable keyboard animations for repeated commands during an active
-  snapshot session.
-- Optional no-animation mode with `animation_strategy: "off"`.
-- Animation throttling through `animation_fps` and
-  `animation_pixel_threshold`.
-- Optional `width_resize_mode: "intelligent"` that chooses resize direction and
-  scroll offset so the active column stays visually stable and visible.
+miri tracks app launches/exits, Cmd+Tab focus changes, manual resizes,
+minimized and hidden apps, destroyed windows, fullscreen transitions, and
+transient overlays. It freezes or restores layout state during common native
+fullscreen and Space transitions to avoid destructive rescans.
 
-### macOS integration and recovery
+### Logical Spaces
 
-- Tracks app launches/exits, Cmd+Tab focus changes, manual resizes, minimized
-  and hidden apps, destroyed windows, fullscreen transitions, and transient
-  overlays.
-- Protects native fullscreen Spaces from destructive rescans while macOS is
-  entering, using, or leaving fullscreen.
-- Infers separate logical macOS Space contexts without private Spaces APIs.
-- Persists layout, manual widths, active columns, focus context, and inferred
-  Space contexts across restarts.
-- Restores tiled/floating windows on normal exit and uses cleanup snapshots for
-  crash or kill recovery.
-- Parks off-workspace windows near the side edge so inactive workspaces do not
-  overlap the active workspace.
+miri infers native macOS Space contexts from visible/manageable windows instead
+of asking macOS for private Space IDs. Each context keeps its own Miri
+workspaces, columns, floating windows, active workspace, scroll offsets, and
+visible window signature.
+
+### Persistence
+
+With persistence enabled, miri saves layout state, manual widths, active
+columns, focus context, and inferred Space contexts. On normal exit or cleanup
+after a crash/kill, it attempts to restore tiled and floating windows to sane
+positions and levels.
+
+### Animation and Resizing
+
+The snapshot animation backend captures tiled windows, animates snapshots in a
+transparent overlay, parks the real windows underneath, and applies final
+Accessibility frames at the end. Repeated keyboard commands can retarget an
+active animation, and animations can be throttled or disabled.
+
+### Input and Rules
+
+Defaults use **left Option** (`lalt`) so common macOS shortcuts keep working.
+Keybindings support side-specific modifiers, excluded shortcuts, and optional
+three-finger trackpad navigation. Rules can match apps and title text, including
+exact title matches, and can control tiling, floating, ignoring, workspace
+placement, width, open position, trackpad navigation, and hover-to-focus.
+
+### Private API Scope
+
+Moving, resizing, focusing, discovering, and observing normal app windows are
+Accessibility/AppKit-led. Private APIs are limited to window ID lookup,
+floating-window levels, and optional raw trackpad contact frames.
 
 ## Requirements and permissions
 
