@@ -80,7 +80,7 @@ Extracted small status and internal state structs used by menus, workspace bar, 
 
 - `Sources/Miri/Config/MiriEffectiveSettings.swift`
 
-Extracted computed config-derived settings such as animation duration, hover focus settings, trackpad settings, gaps, width presets, hide method, and debug logging.
+Extracted computed config-derived settings such as animation duration, hover focus settings, trackpad settings, gaps, width presets, and debug logging.
 
 ### Debug logging
 

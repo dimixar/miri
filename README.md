@@ -24,6 +24,7 @@ minimize, native fullscreen, Space switching, and process/window churn.
 - [Status](#status)
 - [Features](#features)
 - [Requirements and permissions](#requirements-and-permissions)
+- [Private API usage](#private-api-usage)
 - [Install and run](#install-and-run)
 - [Packaging locally](#packaging-locally)
 - [Default shortcuts](#default-shortcuts)
@@ -66,7 +67,7 @@ use the Swift commands or local packaging scripts below.
 ### Animation and resizing
 
 - Snapshot animation backend: captures tiled windows, animates snapshots in a
-  transparent overlay, hides real windows underneath, and applies final
+  transparent overlay, parks real windows underneath, and applies final
   Accessibility frames at the end.
 - Retargetable keyboard animations for repeated commands during an active
   snapshot session.
@@ -88,8 +89,8 @@ use the Swift commands or local packaging scripts below.
   Space contexts across restarts.
 - Restores tiled/floating windows on normal exit and uses cleanup snapshots for
   crash or kill recovery.
-- Parks off-workspace windows near the side edge, with optional private
-  SkyLight alpha hiding when available.
+- Parks off-workspace windows near the side edge so inactive workspaces do not
+  overlap the active workspace.
 
 ## Requirements and permissions
 
@@ -101,6 +102,62 @@ use the Swift commands or local packaging scripts below.
 
 If you run miri from a terminal, macOS may request permissions for that terminal
 app rather than for a packaged `Miri.app`.
+
+## Private API usage
+
+miri's core window management is Accessibility-based. Moving, resizing,
+focusing, discovering, and observing normal app windows are done through public
+macOS Accessibility/AppKit APIs where possible.
+
+The project still uses a small private API surface for things macOS does not
+expose publicly:
+
+### Window IDs
+
+`Sources/Miri/System/SkyLight.swift` loads HIServices and resolves:
+
+```text
+_AXUIElementGetWindow
+```
+
+This maps an `AXUIElement` to a `CGWindowID`. miri uses that ID to persist and
+match windows more reliably across rescans, Space-context changes, fullscreen
+recovery, debug logging, and cleanup snapshots. The main call sites are window
+discovery, fullscreen/manual-resize matching, logical Space persistence, and
+exit/crash restoration.
+
+### Floating window levels
+
+`Sources/Miri/System/SkyLight.swift` also loads SkyLight and resolves:
+
+```text
+SLSMainConnectionID
+SLSSetWindowLevel
+```
+
+`SLSSetWindowLevel` is used only for windows that miri treats as floating. When
+floating windows are restored or raised, miri attempts to put them at macOS's
+floating-window level. During cleanup/restoration, miri resets tracked windows
+back to the normal window level so a managed app window is not left above other
+apps after miri exits.
+
+There is no public macOS API for changing another application's window level.
+The public fallback is only raise/focus ordering, which is not the same thing as
+a real WindowServer level change.
+
+### Trackpad contact frames
+
+`Sources/Miri/Trackpad/ThreeFingerTrackpadNavigation.swift` loads Apple's
+private MultitouchSupport framework and resolves:
+
+```text
+MTDeviceCreateList
+MTRegisterContactFrameCallback
+MTDeviceStart
+```
+
+This powers raw multi-finger trackpad navigation for columns/workspaces. It is
+independent from SkyLight and can be disabled with `trackpad_navigation: false`.
 
 ## Install and run
 
@@ -215,7 +272,6 @@ A compact example:
   "trackpad_navigation": true,
   "restore_on_exit": true,
   "persist_layout": true,
-  "hide_method": "skylight_alpha",
   "width_resize_mode": "default",
   "workspace_bar_highlight_color": "#FFD60A",
   "workspace_bar_visible_icon_count": 3,
@@ -250,7 +306,6 @@ default command list.
 - `new_window_position` / rule `open_position`: `before_active`,
   `after_active`, or `end`
 - `trackpad_navigation_snap`: `nearest_column`, `nearest_visible`, or `none`
-- `hide_method`: `skylight_alpha` or `park_only`
 - `width_resize_mode`: `default` or `intelligent`
 - `workspace_bar_overflow_style`: `plus_count`, `dots_count`, `chevron`, or
   `none`
@@ -324,9 +379,8 @@ Sources/Miri/System/        Accessibility and SkyLight wrappers
 - miri uses public Accessibility APIs for core window control.
 - Snapshot animations need Screen Recording permission because they capture
   window images.
-- SkyLight hiding/floating behavior is optional and private; when unavailable,
-  hidden windows stay parked as side-edge slivers and floating level changes may
-  fall back to normal behavior.
+- SkyLight floating-window level changes are private; when unavailable, floating
+  windows may fall back to normal raise/focus behavior.
 - Trackpad navigation uses Apple's private MultitouchSupport framework and may
   need updates across macOS releases.
 - Native macOS Space handling is inferred from visible windows. If two Spaces
