@@ -149,7 +149,6 @@ extension Miri {
 
         let visibilityChanged = wasVisible != item.visible
         if visibilityChanged && !item.visible {
-            setWindowAlpha(0, for: item.window.windowID)
             appliedVisibility[id] = false
         }
 
@@ -159,14 +158,12 @@ extension Miri {
         }
 
         if visibilityChanged && item.visible {
-            setWindowAlpha(1, for: item.window.windowID)
             appliedVisibility[id] = true
         }
     }
 
     func restoreFloatingVisibility(raise: Bool = false, deferred: Bool = false) {
         for window in floatingWindows {
-            setWindowAlpha(1, for: window.windowID)
             if raise {
                 setWindowLevel(floatingWindowLevel, for: window.windowID)
             }
@@ -196,10 +193,7 @@ extension Miri {
         }
     }
 
-    func focus(_ window: ManagedWindow, reveal: Bool = true) {
-        if reveal {
-            setWindowAlpha(1, for: window.windowID)
-        }
+    func focus(_ window: ManagedWindow) {
         focusRequestGeneration &+= 1
         let generation = focusRequestGeneration
         suppressFocusedWindowNotificationsUntil = CFAbsoluteTimeGetCurrent() + 1.0

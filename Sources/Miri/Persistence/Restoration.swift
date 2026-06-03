@@ -12,7 +12,6 @@ enum WindowRestoration {
         }
 
         for windowID in restoreWindowIDs {
-            SkyLight.shared.setAlpha(1, for: windowID)
             SkyLight.shared.setLevel(Int32(CGWindowLevelForKey(.normalWindow)), for: windowID)
         }
 
@@ -36,7 +35,6 @@ enum WindowRestoration {
                 }
 
                 setAXFrame(viewport, for: element)
-                SkyLight.shared.setAlpha(1, for: windowID)
             }
         }
     }

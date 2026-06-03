@@ -19,11 +19,6 @@ enum NewWindowPosition: String, Codable {
     case end
 }
 
-enum HideMethod: String, Codable {
-    case skyLightAlpha = "skylight_alpha"
-    case parkOnly = "park_only"
-}
-
 enum AnimationCurve: String, Codable {
     case smooth
     case snappy
@@ -124,7 +119,6 @@ struct MiriConfig: Codable {
     var restoreOnExit: Bool?
     var persistLayout: Bool?
     var statePath: String?
-    var hideMethod: HideMethod?
     var debugLogging: Bool?
     var widthResizeMode: WidthResizeMode?
     var workspaceBarHighlightColor: String?
@@ -179,7 +173,6 @@ struct MiriConfig: Codable {
         restoreOnExit: true,
         persistLayout: true,
         statePath: nil,
-        hideMethod: .skyLightAlpha,
         debugLogging: false,
         widthResizeMode: .default,
         workspaceBarHighlightColor: "yellow",
@@ -393,7 +386,6 @@ struct MiriConfig: Codable {
         case restoreOnExit = "restore_on_exit"
         case persistLayout = "persist_layout"
         case statePath = "state_path"
-        case hideMethod = "hide_method"
         case debugLogging = "debug_logging"
         case widthResizeMode = "width_resize_mode"
         case workspaceBarHighlightColor = "workspace_bar_highlight_color"

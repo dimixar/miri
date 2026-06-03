@@ -60,7 +60,6 @@ extension Miri {
             }
 
             nextPresentationFrames[id] = frame
-            applyAnimationVisibility(for: motion, progress: progress)
             if motion.sizeStable || !shouldApplyAnimatedSize(for: motion, profile: profile) {
                 setAXPosition(frame.origin, for: motion.window.element)
             } else {
@@ -69,20 +68,6 @@ extension Miri {
         }
 
         presentationFrames = nextPresentationFrames
-    }
-
-    func applyAnimationVisibility(for motion: WindowMotion, progress: CGFloat) {
-        guard motion.participates else {
-            return
-        }
-
-        if motion.startsVisible {
-            setWindowAlpha(1, for: motion.window.windowID)
-            return
-        }
-
-        let shouldReveal = motion.endsVisible && progress >= 0.08
-        setWindowAlpha(shouldReveal ? 1 : 0, for: motion.window.windowID)
     }
 
     func frameDelta(from oldFrame: CGRect, to newFrame: CGRect) -> CGFloat {

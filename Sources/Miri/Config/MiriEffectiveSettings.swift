@@ -208,10 +208,6 @@ extension Miri {
         config.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true
     }
 
-    var hideMethod: HideMethod {
-        config.hideMethod ?? MiriConfig.fallback.hideMethod ?? .skyLightAlpha
-    }
-
     var debugLogging: Bool {
         config.debugLogging ?? MiriConfig.fallback.debugLogging ?? false
     }

@@ -13,7 +13,6 @@ extension Miri {
         for (workspaceIndex, workspace) in workspaces.enumerated() where workspaceIndex != activeIndex {
             for window in workspace.columns {
                 let id = ObjectIdentifier(window)
-                setWindowAlpha(0, for: window.windowID)
                 appliedVisibility[id] = false
                 hiddenWorkspaceWindowIDs.insert(id)
             }

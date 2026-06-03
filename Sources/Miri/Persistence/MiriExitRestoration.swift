@@ -10,7 +10,6 @@ extension Miri {
 
         let viewport = currentViewport()
         for window in tiledWindows() {
-            setWindowAlpha(1, for: window.windowID)
             setAXFrame(viewport, for: window)
         }
         restoreFloatingVisibility(raise: true)

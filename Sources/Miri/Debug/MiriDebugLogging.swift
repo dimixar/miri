@@ -115,12 +115,11 @@ extension Miri {
               let info = list.first
         else { return nil }
         let layer = info[kCGWindowLayer as String] ?? "nil"
-        let alpha = info[kCGWindowAlpha as String] ?? "nil"
         let onscreen = info[kCGWindowIsOnscreen as String] ?? "nil"
         let owner = info[kCGWindowOwnerName as String] ?? "nil"
         let name = info[kCGWindowName as String] ?? "nil"
         let bounds = info[kCGWindowBounds as String] ?? "nil"
-        return "cg(layer=\(layer) alpha=\(alpha) onscreen=\(onscreen) owner='\(owner)' name='\(name)' bounds=\(bounds))"
+        return "cg(layer=\(layer) onscreen=\(onscreen) owner='\(owner)' name='\(name)' bounds=\(bounds))"
     }
 
 }

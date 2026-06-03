@@ -51,13 +51,9 @@ Niri commit inspected: `1f07cffa`
 - The current workspace and column projects to the visible macOS frame.
 - Other windows remain physically parked just past a side edge so Cmd-Tab can
   still find them and macOS does not relocate fully offscreen windows.
-- On macOS, those parked windows are additionally hidden with
-  `SLSSetWindowAlpha(0)` when SkyLight is available. The active window is
-  restored to `SLSSetWindowAlpha(1)` before focus/raise, which avoids visible
-  parked borders and reduces the brief horizontal flash when switching columns.
 - Cmd-Tab is not intercepted. When macOS activates a window, the daemon adopts
   that window's stored row/column and reprojects.
 - The daemon writes a restore snapshot and spawns `miri --cleanup-watch`.
-  Normal signal exits restore every managed window to alpha `1` and the visible
-  maximized frame directly. If the main process dies unexpectedly, the watcher
-  uses the snapshot to do the same cleanup.
+  Normal signal exits restore every managed window to the visible maximized
+  frame directly. If the main process dies unexpectedly, the watcher uses the
+  snapshot to do the same cleanup.

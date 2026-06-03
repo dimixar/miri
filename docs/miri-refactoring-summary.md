@@ -232,7 +232,7 @@ This added:
 - floating-window level restoration/raising
 - delayed floating-window raise after layout/focus changes
 - floating-window IDs in exit/crash restore snapshots
-- cleanup restoration that resets alpha and window level
+- cleanup restoration that resets window level
 
 ### Layout animation visibility
 

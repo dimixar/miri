@@ -122,9 +122,6 @@ extension Miri {
                     shouldSaveLogicalSpaceContext = false
                     continue
                 }
-                if behavior(for: window) == .ignore {
-                    setWindowAlpha(1, for: window.windowID)
-                }
                 if temporarilyHidden {
                     rememberMinimizedWindowState(window)
                 }
@@ -243,17 +240,14 @@ extension Miri {
                 )
                 if !isKnownWindow(element), isLikelyTransientPopup(window, app: app) {
                     logTransientPopupIfNeeded(window, app: app)
-                    setWindowAlpha(1, for: window.windowID)
                     continue
                 }
                 if !isKnownWindow(element), isPictureInPictureWindow(window) {
                     logIgnoredPictureInPictureIfNeeded(window, app: app)
-                    setWindowAlpha(1, for: window.windowID)
                     continue
                 }
                 logDiscoveredWindowIfNeeded(window, app: app)
                 guard behavior(for: window) != .ignore else {
-                    setWindowAlpha(1, for: window.windowID)
                     continue
                 }
                 windows.append(window)

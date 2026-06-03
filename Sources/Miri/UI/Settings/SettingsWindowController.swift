@@ -142,7 +142,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
         ("Fullscreen Space guard", secondsSlider("fullscreenSpaceChangeGuardSeconds", Double(draft.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000, min: 0.1, max: 3.0)),
         ("Logical Space autosave", minutesSlider("logicalSpaceAutosaveIntervalMinutes", draft.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30, min: 1, max: 60)),
-        ("Hide method", popup("hideMethod", HideMethod.allCasesStrings, draft.hideMethod?.rawValue ?? MiriConfig.fallback.hideMethod?.rawValue ?? "skylight_alpha")),
         ("Debug logging", checkbox("debugLogging", draft.debugLogging ?? MiriConfig.fallback.debugLogging ?? false)),
     ]) }
 
@@ -269,7 +268,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
         draft.fullscreenSpaceChangeGuardMS = Int((double("fullscreenSpaceChangeGuardSeconds") * 1000).rounded())
         draft.logicalSpaceAutosaveIntervalMinutes = max(1, min(int("logicalSpaceAutosaveIntervalMinutes"), 60))
-        draft.hideMethod = HideMethod(rawValue: string("hideMethod"))
         draft.debugLogging = bool("debugLogging")
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))
         draft.presetWidthRatios = string("presetWidthRatios").split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? .nan) }
@@ -644,7 +642,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 }
 
-extension HideMethod { static let allCasesStrings = ["skylight_alpha", "park_only"] }
 extension FocusAlignment { static let allCasesStrings = ["left", "center", "smart"] }
 extension NewWindowPosition { static let allCasesStrings = ["before_active", "after_active", "end"] }
 extension HoverFocusMode { static let allCasesStrings = ["off", "visible_only", "edge_or_visible"] }

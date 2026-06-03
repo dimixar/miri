@@ -110,9 +110,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
             }
         }
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
-        if hideMethod == .skyLightAlpha && !SkyLight.shared.canSetAlpha {
-            print("miri: SkyLight alpha support unavailable; parked windows will remain as edge slivers")
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

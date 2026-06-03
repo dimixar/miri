@@ -36,7 +36,6 @@ extension Miri {
         let viewport = currentViewport()
         var moved = false
         for transient in windows {
-            setWindowAlpha(1, for: SkyLight.shared.windowID(for: transient.element))
             if let frame = axFrame(transient.element), transientFrameNeedsRecovery(frame, viewport: viewport) {
                 setAXPosition(centeredOrigin(for: frame, in: viewport), for: transient.element)
                 moved = true
@@ -201,13 +200,6 @@ extension Miri {
             || bundleID == "com.operasoftware.Opera"
             || bundleID == "net.imput.helium"
             || bundleID.hasPrefix("org.chromium.")
-    }
-
-    func setWindowAlpha(_ alpha: Float, for windowID: UInt32?) {
-        guard hideMethod == .skyLightAlpha else {
-            return
-        }
-        SkyLight.shared.setAlpha(alpha, for: windowID)
     }
 
 }

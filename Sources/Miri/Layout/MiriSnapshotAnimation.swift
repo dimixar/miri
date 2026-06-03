@@ -225,7 +225,6 @@ extension Miri {
                 continue
             }
             let id = ObjectIdentifier(window)
-            setWindowAlpha(1, for: window.windowID)
             appliedVisibility[id] = true
         }
         snapshotHiddenWindows.removeAll()
@@ -249,7 +248,6 @@ extension Miri {
                 continue
             }
             setAXFrame(frame, for: window)
-            setWindowAlpha(1, for: window.windowID)
             appliedFrames[id] = frame
             appliedVisibility[id] = true
             presentationFrames[id] = frame
@@ -259,7 +257,6 @@ extension Miri {
                 continue
             }
             let id = ObjectIdentifier(window)
-            setWindowAlpha(1, for: window.windowID)
             appliedVisibility[id] = true
         }
     }
@@ -288,7 +285,7 @@ extension Miri {
         isApplyingLayout = true
         let requestGeneration = layoutRequestGeneration
         if focusActiveWindow, let activeWindow = activeWindow() {
-            focus(activeWindow, reveal: false)
+            focus(activeWindow)
         }
 
         let startLayout = layoutItems(viewport: viewport, state: previousState, parkHidden: false)
@@ -364,7 +361,6 @@ extension Miri {
             if !motion.startsVisible {
                 setAXFrame(motion.startFrame, for: motion.window)
             }
-            setWindowAlpha(1, for: motion.window.windowID)
         }
         CATransaction.flush()
 
