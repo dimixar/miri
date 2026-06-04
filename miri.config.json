@@ -92,6 +92,7 @@
   "workspace_bar_visible_icon_count": 3,
   "workspace_bar_overflow_style": "plus_count",
   "workspace_bar_show_fullscreen": true,
+  "workspace_bar_active_style": "braces",
   "rules": [
     {
       "bundle_id": "com.apple.finder",

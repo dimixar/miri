@@ -246,6 +246,8 @@ The menu bar item shows the workspace strip and exposes:
 
 - current workspace, focused window, and active width;
 - occupied workspace summaries with app names/icons;
+- selectable active workspace styling such as `{1}`, `▶1`, `●1`, `[1]`,
+  `<1>`, bold `1`, or underlined `1`;
 - optional fullscreen app indicators, grouped by source workspace, shown as a
   compact `| ⛶ 1[apps] 2[apps]` segment;
 - **Settings…** for the GUI config editor;
@@ -297,6 +299,7 @@ A compact example:
   "workspace_bar_visible_icon_count": 3,
   "workspace_bar_overflow_style": "plus_count",
   "workspace_bar_show_fullscreen": true,
+  "workspace_bar_active_style": "braces",
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -332,6 +335,8 @@ default command list.
   `none`
 - `workspace_bar_show_fullscreen`: `true` to show remembered fullscreen app
   icons in the menu bar, grouped by their original Miri workspace
+- `workspace_bar_active_style`: `braces`, `filled_pointer`, `filled_dot`,
+  `square_brackets`, `angle_brackets`, `bold`, or `underline`
 
 ### Rules
 

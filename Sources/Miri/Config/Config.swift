@@ -61,6 +61,16 @@ enum WorkspaceBarOverflowStyle: String, Codable {
     case none
 }
 
+enum WorkspaceBarActiveStyle: String, Codable {
+    case braces
+    case filledPointer = "filled_pointer"
+    case filledDot = "filled_dot"
+    case squareBrackets = "square_brackets"
+    case angleBrackets = "angle_brackets"
+    case bold
+    case underline
+}
+
 enum WidthResizeMode: String, Codable {
     case `default`
     case intelligent
@@ -125,6 +135,7 @@ struct MiriConfig: Codable {
     var workspaceBarVisibleIconCount: Int?
     var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
     var workspaceBarShowFullscreen: Bool?
+    var workspaceBarActiveStyle: WorkspaceBarActiveStyle?
     var rules: [WindowRule]
 
     static let fallback = MiriConfig(
@@ -180,6 +191,7 @@ struct MiriConfig: Codable {
         workspaceBarVisibleIconCount: 3,
         workspaceBarOverflowStyle: .plusCount,
         workspaceBarShowFullscreen: true,
+        workspaceBarActiveStyle: .braces,
         rules: [
             WindowRule(bundleID: "com.apple.finder", behavior: .ignore),
         ]
@@ -394,6 +406,7 @@ struct MiriConfig: Codable {
         case workspaceBarVisibleIconCount = "workspace_bar_visible_icon_count"
         case workspaceBarOverflowStyle = "workspace_bar_overflow_style"
         case workspaceBarShowFullscreen = "workspace_bar_show_fullscreen"
+        case workspaceBarActiveStyle = "workspace_bar_active_style"
         case rules
     }
 }

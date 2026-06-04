@@ -195,6 +195,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func workspaceBarView() -> NSView { form([
         ("Show fullscreen apps", checkbox("workspaceBarShowFullscreen", draft.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true)),
+        ("Active workspace style", popup("workspaceBarActiveStyle", WorkspaceBarActiveStyle.allCasesStrings, draft.workspaceBarActiveStyle?.rawValue ?? MiriConfig.fallback.workspaceBarActiveStyle?.rawValue ?? "braces")),
         ("Highlight color", colorWell("workspaceBarHighlightColor", draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "yellow")),
         ("Visible app window icons", slider("workspaceBarVisibleIconCount", draft.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3, min: 1, max: 6)),
         ("Overflow style", popup("workspaceBarOverflowStyle", WorkspaceBarOverflowStyle.allCasesStrings, draft.workspaceBarOverflowStyle?.rawValue ?? MiriConfig.fallback.workspaceBarOverflowStyle?.rawValue ?? "plus_count")),
@@ -332,6 +333,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadNavigationInvertX = bool("trackpadNavigationInvertX")
         draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
         draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
+        draft.workspaceBarActiveStyle = WorkspaceBarActiveStyle(rawValue: string("workspaceBarActiveStyle"))
         draft.workspaceBarHighlightColor = colorHex("workspaceBarHighlightColor")
         draft.workspaceBarVisibleIconCount = max(1, min(int("workspaceBarVisibleIconCount"), 6))
         draft.workspaceBarOverflowStyle = WorkspaceBarOverflowStyle(rawValue: string("workspaceBarOverflowStyle"))
@@ -701,4 +703,5 @@ extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "li
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
+extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "bold", "underline"] }
 extension WidthResizeMode { static let allCasesStrings = ["default", "intelligent"] }

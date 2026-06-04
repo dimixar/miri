@@ -105,14 +105,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let maxIcons = config.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3
         let iconSize: CGFloat = 16
         let iconBox: CGFloat = 20
+        let iconInset = (iconBox - iconSize) / 2
         let height: CGFloat = 22
         let paddingX: CGFloat = 5
         let textGap: CGFloat = 5
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let font = Self.workspaceLabelFont(weight: .semibold)
         let textAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.labelColor,
         ]
+        let activeStyle = config.workspaceBarActiveStyle ?? MiriConfig.fallback.workspaceBarActiveStyle ?? .braces
+        let activeTextRun = workspaceLabelRun(workspace: status.workspace, isActive: true, style: activeStyle)
 
         let count = status.windows.count
         let focused = status.focusedIndex.flatMap { count.indicesContains($0) ? $0 : nil }
@@ -130,7 +133,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let rightOverflow = max(0, count - range.upperBound)
         let workspaceSummaries = status.occupiedWorkspaces.prefix(9)
         let separatorText = workspaceSummaries.isEmpty ? nil : "|"
-        let workspaceText = workspaceSummaries.isEmpty ? "{\(status.workspace)}" : nil
+        let workspaceTextRun = workspaceSummaries.isEmpty ? activeTextRun : nil
         let overflowStyle = config.workspaceBarOverflowStyle ?? MiriConfig.fallback.workspaceBarOverflowStyle ?? .plusCount
         let leftText = overflowText(count: leftOverflow, side: .left, style: overflowStyle)
         let rightText = overflowText(count: rightOverflow, side: .right, style: overflowStyle)
@@ -144,19 +147,24 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return ceil((text as NSString).size(withAttributes: textAttrs).width)
         }
 
+        func runWidth(_ run: WorkspaceLabelRun?) -> CGFloat {
+            guard let run else { return 0 }
+            return ceil((run.text as NSString).size(withAttributes: run.attributes).width)
+        }
+
         let iconCount = CGFloat(range.count)
         let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
-            let label = summary.isActive ? "{\(summary.workspace)}" : "\(summary.workspace)"
-            let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : 14
-            return total + (total == 0 ? 0 : textGap) + textWidth(label) + iconWidth
+            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
+            let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : iconBox
+            return total + (total == 0 ? 0 : textGap) + runWidth(label) + iconWidth
         }
         let fullscreenStripWidth = fullscreenGroups.reduce(CGFloat(0)) { total, group in
             let label = "\(group.workspace)"
-            let entryWidth = textWidth(label) + CGFloat(group.windows.count) * iconSize + 2
+            let entryWidth = textWidth(label) + CGFloat(group.windows.count) * iconBox + 2
             return total + (total == 0 ? 0 : textGap) + entryWidth
         }
         let width = paddingX * 2
-            + (workspaceText == nil ? workspaceStripWidth : textWidth(workspaceText))
+            + (workspaceTextRun == nil ? workspaceStripWidth : runWidth(workspaceTextRun))
             + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
             + (leftText == nil ? 0 : textGap + textWidth(leftText))
             + (range.isEmpty ? 0 : textGap + iconCount * iconBox)
@@ -171,21 +179,23 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         defer { image.unlockFocus() }
 
         var x = paddingX
-        let yText: CGFloat = 3
-        if let workspaceText {
-            (workspaceText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
-            x += textWidth(workspaceText)
+        let yText: CGFloat = 2
+        let yIcon: CGFloat = (height - iconSize) / 2
+        let yIconBox: CGFloat = (height - iconBox) / 2
+        if let workspaceTextRun {
+            (workspaceTextRun.text as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: workspaceTextRun.attributes)
+            x += runWidth(workspaceTextRun)
         } else {
             var first = true
             for summary in workspaceSummaries {
                 if !first { x += textGap }
                 first = false
-                let label = summary.isActive ? "{\(summary.workspace)}" : "\(summary.workspace)"
-                (label as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
-                x += textWidth(label)
+                let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
+                (label.text as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: label.attributes)
+                x += runWidth(label)
                 if !summary.isActive, let window = summary.lastFocusedWindow {
-                    icon(for: window).draw(in: NSRect(x: x + 1, y: 5, width: 12, height: 12), from: .zero, operation: .sourceOver, fraction: 1)
-                    x += 14
+                    icon(for: window).draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
+                    x += iconBox
                 }
             }
         }
@@ -209,14 +219,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         for index in range {
             let window = status.windows[index]
             let isFocused = index == focused
-            let box = NSRect(x: x, y: 1, width: iconBox, height: iconBox)
+            let box = NSRect(x: x, y: yIconBox, width: iconBox, height: iconBox)
             if isFocused {
                 highlightColor(config.workspaceBarHighlightColor).withAlphaComponent(0.55).setFill()
                 NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
             }
 
             let icon = icon(for: window)
-            icon.draw(in: NSRect(x: x + 2, y: 3, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
+            icon.draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
             x += iconBox
         }
 
@@ -252,21 +262,61 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             x += 2
             for window in group.windows {
                 icon(for: window).draw(
-                    in: NSRect(x: x, y: 3, width: iconSize, height: iconSize),
+                    in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize),
                     from: .zero,
                     operation: .sourceOver,
                     fraction: 1
                 )
-                x += iconSize
+                x += iconBox
             }
         }
 
         return image
     }
 
+    private struct WorkspaceLabelRun {
+        let text: String
+        let attributes: [NSAttributedString.Key: Any]
+    }
+
     private struct FullscreenWorkspaceGroup {
         let workspace: Int
         var windows: [MiriWorkspaceBarWindow]
+    }
+
+    private static func workspaceLabelFont(weight: NSFont.Weight) -> NSFont {
+        NSFont.monospacedDigitSystemFont(ofSize: 14, weight: weight)
+    }
+
+    private func workspaceLabelRun(workspace: Int, isActive: Bool, style: WorkspaceBarActiveStyle) -> WorkspaceLabelRun {
+        let baseFont = Self.workspaceLabelFont(weight: .semibold)
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+        ]
+
+        guard isActive else {
+            return WorkspaceLabelRun(text: "\(workspace)", attributes: attributes)
+        }
+
+        switch style {
+        case .braces:
+            return WorkspaceLabelRun(text: "{\(workspace)}", attributes: attributes)
+        case .filledPointer:
+            return WorkspaceLabelRun(text: "▶\(workspace)", attributes: attributes)
+        case .filledDot:
+            return WorkspaceLabelRun(text: "●\(workspace)", attributes: attributes)
+        case .squareBrackets:
+            return WorkspaceLabelRun(text: "[\(workspace)]", attributes: attributes)
+        case .angleBrackets:
+            return WorkspaceLabelRun(text: "<\(workspace)>", attributes: attributes)
+        case .bold:
+            attributes[.font] = Self.workspaceLabelFont(weight: .bold)
+            return WorkspaceLabelRun(text: "\(workspace)", attributes: attributes)
+        case .underline:
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            return WorkspaceLabelRun(text: "\(workspace)", attributes: attributes)
+        }
     }
 
     private func groupedFullscreenWindows(_ windows: [MiriWorkspaceBarFullscreenWindow]) -> [FullscreenWorkspaceGroup] {
