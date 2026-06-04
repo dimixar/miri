@@ -67,8 +67,32 @@ enum WorkspaceBarActiveStyle: String, Codable {
     case filledDot = "filled_dot"
     case squareBrackets = "square_brackets"
     case angleBrackets = "angle_brackets"
-    case bold
-    case underline
+    case outline
+    case filledOutline = "filled_outline"
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "braces":
+            self = .braces
+        case "filled_pointer":
+            self = .filledPointer
+        case "filled_dot":
+            self = .filledDot
+        case "square_brackets":
+            self = .squareBrackets
+        case "angle_brackets":
+            self = .angleBrackets
+        case "outline":
+            self = .outline
+        case "filled_outline":
+            self = .filledOutline
+        case "bold", "underline":
+            self = .braces
+        default:
+            self = .braces
+        }
+    }
 }
 
 enum WorkspaceBarCenterStyle: String, Codable {
@@ -197,14 +221,14 @@ struct MiriConfig: Codable {
         statePath: nil,
         debugLogging: false,
         widthResizeMode: .default,
-        workspaceBarHighlightColor: "yellow",
-        workspaceBarVisibleIconCount: 3,
-        workspaceBarOverflowStyle: .plusCount,
+        workspaceBarHighlightColor: "#5FFF84",
+        workspaceBarVisibleIconCount: 6,
+        workspaceBarOverflowStyle: .chevron,
         workspaceBarShowFullscreen: true,
-        workspaceBarActiveStyle: .braces,
-        workspaceBarCenterStyle: .delimiter,
-        workspaceBarDelimiterColor: "#FFD60A",
-        workspaceBarCenterBorderOutset: 0,
+        workspaceBarActiveStyle: .outline,
+        workspaceBarCenterStyle: .filledBorder,
+        workspaceBarDelimiterColor: "#D7D4D8",
+        workspaceBarCenterBorderOutset: 5,
         workspaceBarCenterBorderThickness: 1,
         rules: [
             WindowRule(bundleID: "com.apple.finder", behavior: .ignore),

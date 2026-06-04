@@ -107,10 +107,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let iconBox: CGFloat = 20
         let iconInset = (iconBox - iconSize) / 2
         let centerStyle = config.workspaceBarCenterStyle ?? MiriConfig.fallback.workspaceBarCenterStyle ?? .delimiter
+        let activeStyle = config.workspaceBarActiveStyle ?? MiriConfig.fallback.workspaceBarActiveStyle ?? .braces
         let configuredBorderOutset = CGFloat(config.workspaceBarCenterBorderOutset ?? MiriConfig.fallback.workspaceBarCenterBorderOutset ?? 0)
         let centerBorderOutset = centerStyle == .delimiter ? 0 : configuredBorderOutset
+        let activeBorderOutset = activeStyle.hasBorder ? configuredBorderOutset : 0
+        let verticalOutset = max(centerBorderOutset, activeBorderOutset)
         let centerBorderThickness = CGFloat(config.workspaceBarCenterBorderThickness ?? MiriConfig.fallback.workspaceBarCenterBorderThickness ?? 1)
-        let height: CGFloat = 22 + centerBorderOutset * 2
+        let height: CGFloat = 22 + verticalOutset * 2
         let paddingX: CGFloat = 5
         let textGap: CGFloat = 5
         let font = Self.workspaceLabelFont(weight: .semibold)
@@ -123,7 +126,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             .font: font,
             .foregroundColor: delimiterColor,
         ]
-        let activeStyle = config.workspaceBarActiveStyle ?? MiriConfig.fallback.workspaceBarActiveStyle ?? .braces
         let activeTextRun = workspaceLabelRun(workspace: status.workspace, isActive: true, style: activeStyle)
 
         let count = status.windows.count
@@ -163,13 +165,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return ceil((run.text as NSString).size(withAttributes: run.attributes).width)
         }
 
+        func workspaceLabelWidth(_ run: WorkspaceLabelRun, style: WorkspaceBarActiveStyle, isActive: Bool) -> CGFloat {
+            let borderPadding: CGFloat = isActive && style.hasBorder ? 4 + configuredBorderOutset : 0
+            return runWidth(run) + borderPadding * 2
+        }
+
         let iconCount = CGFloat(range.count)
         let centerPadding: CGFloat = centerStyle == .delimiter ? 0 : 3 + centerBorderOutset
         let centerStripWidth = iconCount * iconBox + (range.isEmpty ? 0 : centerPadding * 2)
         let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
             let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
             let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : iconBox
-            return total + (total == 0 ? 0 : textGap) + runWidth(label) + iconWidth
+            return total + (total == 0 ? 0 : textGap) + workspaceLabelWidth(label, style: activeStyle, isActive: summary.isActive) + iconWidth
         }
         let fullscreenStripWidth = fullscreenGroups.reduce(CGFloat(0)) { total, group in
             let label = "\(group.workspace)"
@@ -177,7 +184,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return total + (total == 0 ? 0 : textGap) + entryWidth
         }
         let width = paddingX * 2
-            + (workspaceTextRun == nil ? workspaceStripWidth : runWidth(workspaceTextRun))
+            + (workspaceTextRun == nil ? workspaceStripWidth : workspaceLabelWidth(workspaceTextRun!, style: activeStyle, isActive: true))
             + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
             + (leftText == nil ? 0 : textGap + textWidth(leftText))
             + (range.isEmpty ? 0 : textGap + centerStripWidth)
@@ -192,20 +199,38 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         defer { image.unlockFocus() }
 
         var x = paddingX
-        let yText: CGFloat = 2 + centerBorderOutset
+        let yText: CGFloat = 2 + verticalOutset
         let yIcon: CGFloat = (height - iconSize) / 2
         let yIconBox: CGFloat = (height - iconBox) / 2
         if let workspaceTextRun {
-            (workspaceTextRun.text as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: workspaceTextRun.attributes)
-            x += runWidth(workspaceTextRun)
+            drawWorkspaceLabel(
+                workspaceTextRun,
+                at: &x,
+                yText: yText,
+                yIconBox: yIconBox,
+                style: activeStyle,
+                isActive: true,
+                borderOutset: configuredBorderOutset,
+                borderThickness: centerBorderThickness,
+                color: delimiterColor
+            )
         } else {
             var first = true
             for summary in workspaceSummaries {
                 if !first { x += textGap }
                 first = false
                 let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
-                (label.text as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: label.attributes)
-                x += runWidth(label)
+                drawWorkspaceLabel(
+                    label,
+                    at: &x,
+                    yText: yText,
+                    yIconBox: yIconBox,
+                    style: activeStyle,
+                    isActive: summary.isActive,
+                    borderOutset: configuredBorderOutset,
+                    borderThickness: centerBorderThickness,
+                    color: delimiterColor
+                )
                 if !summary.isActive, let window = summary.lastFocusedWindow {
                     icon(for: window).draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
                     x += iconBox
@@ -327,9 +352,45 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         NSFont.monospacedDigitSystemFont(ofSize: 14, weight: weight)
     }
 
+    private func drawWorkspaceLabel(
+        _ run: WorkspaceLabelRun,
+        at x: inout CGFloat,
+        yText: CGFloat,
+        yIconBox: CGFloat,
+        style: WorkspaceBarActiveStyle,
+        isActive: Bool,
+        borderOutset: CGFloat,
+        borderThickness: CGFloat,
+        color: NSColor
+    ) {
+        let textWidth = ceil((run.text as NSString).size(withAttributes: run.attributes).width)
+        let borderPadding: CGFloat = isActive && style.hasBorder ? 4 + borderOutset : 0
+        let labelWidth = textWidth + borderPadding * 2
+
+        if isActive && style.hasBorder {
+            let rect = NSRect(
+                x: x + borderThickness / 2,
+                y: yIconBox - borderOutset + borderThickness / 2,
+                width: labelWidth - borderThickness,
+                height: 20 + borderOutset * 2 - borderThickness
+            )
+            let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+            if style == .filledOutline {
+                centerFillColor(color).setFill()
+                path.fill()
+            }
+            color.withAlphaComponent(style == .filledOutline ? 0.65 : 0.85).setStroke()
+            path.lineWidth = borderThickness
+            path.stroke()
+        }
+
+        (run.text as NSString).draw(at: CGPoint(x: x + borderPadding, y: yText), withAttributes: run.attributes)
+        x += labelWidth
+    }
+
     private func workspaceLabelRun(workspace: Int, isActive: Bool, style: WorkspaceBarActiveStyle) -> WorkspaceLabelRun {
         let baseFont = Self.workspaceLabelFont(weight: .semibold)
-        var attributes: [NSAttributedString.Key: Any] = [
+        let attributes: [NSAttributedString.Key: Any] = [
             .font: baseFont,
             .foregroundColor: NSColor.labelColor,
         ]
@@ -349,11 +410,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return WorkspaceLabelRun(text: "[\(workspace)]", attributes: attributes)
         case .angleBrackets:
             return WorkspaceLabelRun(text: "<\(workspace)>", attributes: attributes)
-        case .bold:
-            attributes[.font] = Self.workspaceLabelFont(weight: .bold)
-            return WorkspaceLabelRun(text: "\(workspace)", attributes: attributes)
-        case .underline:
-            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        case .outline, .filledOutline:
             return WorkspaceLabelRun(text: "\(workspace)", attributes: attributes)
         }
     }
@@ -464,5 +521,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 private extension Int {
     func indicesContains(_ index: Int) -> Bool {
         index >= 0 && index < self
+    }
+}
+
+private extension WorkspaceBarActiveStyle {
+    var hasBorder: Bool {
+        self == .outline || self == .filledOutline
     }
 }

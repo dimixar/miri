@@ -711,6 +711,6 @@ extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "li
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
-extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "bold", "underline"] }
+extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "outline", "filled_outline"] }
 extension WorkspaceBarCenterStyle { static let allCasesStrings = ["delimiter", "border", "filled_border"] }
 extension WidthResizeMode { static let allCasesStrings = ["default", "intelligent"] }

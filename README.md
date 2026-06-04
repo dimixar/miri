@@ -247,7 +247,7 @@ The menu bar item shows the workspace strip and exposes:
 - current workspace, focused window, and active width;
 - occupied workspace summaries with app names/icons;
 - selectable active workspace styling such as `{1}`, `▶1`, `●1`, `[1]`,
-  `<1>`, bold `1`, or underlined `1`;
+  `<1>`, outline `1`, or filled outline `1`;
 - configurable center app-strip separators, outline, or tinted outline;
 - optional fullscreen app indicators, grouped by source workspace, shown as a
   compact `| ⛶ 1[apps] 2[apps]` segment;
@@ -296,14 +296,14 @@ A compact example:
   "restore_on_exit": true,
   "persist_layout": true,
   "width_resize_mode": "default",
-  "workspace_bar_highlight_color": "#FFD60A",
-  "workspace_bar_visible_icon_count": 3,
-  "workspace_bar_overflow_style": "plus_count",
+  "workspace_bar_highlight_color": "#5FFF84",
+  "workspace_bar_visible_icon_count": 6,
+  "workspace_bar_overflow_style": "chevron",
   "workspace_bar_show_fullscreen": true,
-  "workspace_bar_active_style": "braces",
-  "workspace_bar_center_style": "delimiter",
-  "workspace_bar_delimiter_color": "#FFD60A",
-  "workspace_bar_center_border_outset": 0,
+  "workspace_bar_active_style": "outline",
+  "workspace_bar_center_style": "filled_border",
+  "workspace_bar_delimiter_color": "#D7D4D8",
+  "workspace_bar_center_border_outset": 5,
   "workspace_bar_center_border_thickness": 1,
   "rules": [
     {
@@ -341,7 +341,7 @@ default command list.
 - `workspace_bar_show_fullscreen`: `true` to show remembered fullscreen app
   icons in the menu bar, grouped by their original Miri workspace
 - `workspace_bar_active_style`: `braces`, `filled_pointer`, `filled_dot`,
-  `square_brackets`, `angle_brackets`, `bold`, or `underline`
+  `square_brackets`, `angle_brackets`, `outline`, or `filled_outline`
 - `workspace_bar_center_style`: `delimiter`, `border`, or `filled_border`
 - `workspace_bar_delimiter_color`: named color or `#RRGGBB` color for center
   delimiters, border, and filled border tint
