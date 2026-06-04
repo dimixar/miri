@@ -8,7 +8,13 @@ extension Miri {
 
     func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
         guard workspaces.indices.contains(activeWorkspace) else {
-            return MiriWorkspaceBarStatus(workspace: activeWorkspace + 1, focusedIndex: nil, windows: [], occupiedWorkspaces: [])
+            return MiriWorkspaceBarStatus(
+                workspace: activeWorkspace + 1,
+                focusedIndex: nil,
+                windows: [],
+                occupiedWorkspaces: [],
+                fullscreenWindows: fullscreenWorkspaceBarWindows()
+            )
         }
 
         let workspace = workspaces[activeWorkspace]
@@ -16,7 +22,8 @@ extension Miri {
             workspace: activeWorkspace + 1,
             focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
             windows: workspace.columns.map(workspaceBarWindow),
-            occupiedWorkspaces: occupiedWorkspaceSummaries()
+            occupiedWorkspaces: occupiedWorkspaceSummaries(),
+            fullscreenWindows: fullscreenWorkspaceBarWindows()
         )
     }
 
@@ -37,6 +44,32 @@ extension Miri {
 
     func workspaceBarWindow(_ window: ManagedWindow) -> MiriWorkspaceBarWindow {
         MiriWorkspaceBarWindow(bundleID: window.bundleID, appName: window.appName, title: window.title)
+    }
+
+    func fullscreenWorkspaceBarWindows() -> [MiriWorkspaceBarFullscreenWindow] {
+        fullscreenWindowStates.values
+            .sorted {
+                if $0.workspace != $1.workspace {
+                    return $0.workspace < $1.workspace
+                }
+                if $0.column != $1.column {
+                    return $0.column < $1.column
+                }
+                if $0.appName != $1.appName {
+                    return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+                }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+            .map { state in
+                MiriWorkspaceBarFullscreenWindow(
+                    workspace: state.workspace + 1,
+                    window: MiriWorkspaceBarWindow(
+                        bundleID: state.bundleID,
+                        appName: state.appName,
+                        title: state.title
+                    )
+                )
+            }
     }
 
     func currentStatus() -> MiriStatus {

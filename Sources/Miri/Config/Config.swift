@@ -124,6 +124,7 @@ struct MiriConfig: Codable {
     var workspaceBarHighlightColor: String?
     var workspaceBarVisibleIconCount: Int?
     var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
+    var workspaceBarShowFullscreen: Bool?
     var rules: [WindowRule]
 
     static let fallback = MiriConfig(
@@ -178,6 +179,7 @@ struct MiriConfig: Codable {
         workspaceBarHighlightColor: "yellow",
         workspaceBarVisibleIconCount: 3,
         workspaceBarOverflowStyle: .plusCount,
+        workspaceBarShowFullscreen: true,
         rules: [
             WindowRule(bundleID: "com.apple.finder", behavior: .ignore),
         ]
@@ -391,6 +393,7 @@ struct MiriConfig: Codable {
         case workspaceBarHighlightColor = "workspace_bar_highlight_color"
         case workspaceBarVisibleIconCount = "workspace_bar_visible_icon_count"
         case workspaceBarOverflowStyle = "workspace_bar_overflow_style"
+        case workspaceBarShowFullscreen = "workspace_bar_show_fullscreen"
         case rules
     }
 }

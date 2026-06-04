@@ -194,6 +194,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     ]) }
 
     private func workspaceBarView() -> NSView { form([
+        ("Show fullscreen apps", checkbox("workspaceBarShowFullscreen", draft.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true)),
         ("Highlight color", colorWell("workspaceBarHighlightColor", draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "yellow")),
         ("Visible app window icons", slider("workspaceBarVisibleIconCount", draft.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3, min: 1, max: 6)),
         ("Overflow style", popup("workspaceBarOverflowStyle", WorkspaceBarOverflowStyle.allCasesStrings, draft.workspaceBarOverflowStyle?.rawValue ?? MiriConfig.fallback.workspaceBarOverflowStyle?.rawValue ?? "plus_count")),
@@ -330,6 +331,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadNavigationSnap = TrackpadNavigationSnap(rawValue: string("trackpadNavigationSnap"))
         draft.trackpadNavigationInvertX = bool("trackpadNavigationInvertX")
         draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
+        draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
         draft.workspaceBarHighlightColor = colorHex("workspaceBarHighlightColor")
         draft.workspaceBarVisibleIconCount = max(1, min(int("workspaceBarVisibleIconCount"), 6))
         draft.workspaceBarOverflowStyle = WorkspaceBarOverflowStyle(rawValue: string("workspaceBarOverflowStyle"))

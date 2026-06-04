@@ -26,12 +26,18 @@ struct MiriWorkspaceBarStatus {
     let focusedIndex: Int?
     let windows: [MiriWorkspaceBarWindow]
     let occupiedWorkspaces: [MiriWorkspaceSummary]
+    let fullscreenWindows: [MiriWorkspaceBarFullscreenWindow]
 }
 
 struct MiriWorkspaceBarWindow {
     let bundleID: String?
     let appName: String
     let title: String
+}
+
+struct MiriWorkspaceBarFullscreenWindow {
+    let workspace: Int
+    let window: MiriWorkspaceBarWindow
 }
 
 struct TransientSystemWindow {

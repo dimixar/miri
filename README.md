@@ -246,6 +246,8 @@ The menu bar item shows the workspace strip and exposes:
 
 - current workspace, focused window, and active width;
 - occupied workspace summaries with app names/icons;
+- optional fullscreen app indicators, grouped by source workspace, shown as a
+  compact `| ⛶ 1[apps] 2[apps]` segment;
 - **Settings…** for the GUI config editor;
 - **Open Config**, **Reload Config**, and **Rescan Windows**;
 - **Quit Miri**, which performs normal window restoration.
@@ -294,6 +296,7 @@ A compact example:
   "workspace_bar_highlight_color": "#FFD60A",
   "workspace_bar_visible_icon_count": 3,
   "workspace_bar_overflow_style": "plus_count",
+  "workspace_bar_show_fullscreen": true,
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -327,6 +330,8 @@ default command list.
 - `width_resize_mode`: `default` or `intelligent`
 - `workspace_bar_overflow_style`: `plus_count`, `dots_count`, `chevron`, or
   `none`
+- `workspace_bar_show_fullscreen`: `true` to show remembered fullscreen app
+  icons in the menu bar, grouped by their original Miri workspace
 
 ### Rules
 

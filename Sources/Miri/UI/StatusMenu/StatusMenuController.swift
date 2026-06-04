@@ -134,6 +134,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let overflowStyle = config.workspaceBarOverflowStyle ?? MiriConfig.fallback.workspaceBarOverflowStyle ?? .plusCount
         let leftText = overflowText(count: leftOverflow, side: .left, style: overflowStyle)
         let rightText = overflowText(count: rightOverflow, side: .right, style: overflowStyle)
+        let showFullscreen = config.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true
+        let fullscreenGroups = showFullscreen ? groupedFullscreenWindows(status.fullscreenWindows) : []
+        let fullscreenSeparatorText = fullscreenGroups.isEmpty ? nil : "|"
+        let fullscreenMarkerText = fullscreenGroups.isEmpty ? nil : "⛶"
 
         func textWidth(_ text: String?) -> CGFloat {
             guard let text else { return 0 }
@@ -146,12 +150,20 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : 14
             return total + (total == 0 ? 0 : textGap) + textWidth(label) + iconWidth
         }
+        let fullscreenStripWidth = fullscreenGroups.reduce(CGFloat(0)) { total, group in
+            let label = "\(group.workspace)"
+            let entryWidth = textWidth(label) + CGFloat(group.windows.count) * iconSize + 2
+            return total + (total == 0 ? 0 : textGap) + entryWidth
+        }
         let width = paddingX * 2
             + (workspaceText == nil ? workspaceStripWidth : textWidth(workspaceText))
             + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
             + (leftText == nil ? 0 : textGap + textWidth(leftText))
             + (range.isEmpty ? 0 : textGap + iconCount * iconBox)
             + (rightText == nil ? 0 : textGap + textWidth(rightText))
+            + (fullscreenSeparatorText == nil ? 0 : textGap + textWidth(fullscreenSeparatorText))
+            + (fullscreenMarkerText == nil ? 0 : textGap + textWidth(fullscreenMarkerText))
+            + (fullscreenStripWidth == 0 ? 0 : textGap + fullscreenStripWidth)
 
         let image = NSImage(size: NSSize(width: width, height: height))
         image.isTemplate = false
@@ -211,9 +223,62 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         if let rightText {
             x += textGap
             (rightText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(rightText)
+        }
+
+        if let fullscreenSeparatorText {
+            x += textGap
+            (fullscreenSeparatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(fullscreenSeparatorText)
+        }
+
+        if let fullscreenMarkerText {
+            x += textGap
+            (fullscreenMarkerText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(fullscreenMarkerText)
+        }
+
+        if !fullscreenGroups.isEmpty {
+            x += textGap
+        }
+
+        var firstFullscreenGroup = true
+        for group in fullscreenGroups {
+            if !firstFullscreenGroup { x += textGap }
+            firstFullscreenGroup = false
+            let label = "\(group.workspace)"
+            (label as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            x += textWidth(label)
+            x += 2
+            for window in group.windows {
+                icon(for: window).draw(
+                    in: NSRect(x: x, y: 3, width: iconSize, height: iconSize),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1
+                )
+                x += iconSize
+            }
         }
 
         return image
+    }
+
+    private struct FullscreenWorkspaceGroup {
+        let workspace: Int
+        var windows: [MiriWorkspaceBarWindow]
+    }
+
+    private func groupedFullscreenWindows(_ windows: [MiriWorkspaceBarFullscreenWindow]) -> [FullscreenWorkspaceGroup] {
+        var groups: [FullscreenWorkspaceGroup] = []
+        for fullscreen in windows {
+            if let index = groups.firstIndex(where: { $0.workspace == fullscreen.workspace }) {
+                groups[index].windows.append(fullscreen.window)
+            } else {
+                groups.append(FullscreenWorkspaceGroup(workspace: fullscreen.workspace, windows: [fullscreen.window]))
+            }
+        }
+        return groups
     }
 
     private enum OverflowSide {

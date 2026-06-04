@@ -91,6 +91,7 @@
   "workspace_bar_highlight_color": "#FFD60A",
   "workspace_bar_visible_icon_count": 3,
   "workspace_bar_overflow_style": "plus_count",
+  "workspace_bar_show_fullscreen": true,
   "rules": [
     {
       "bundle_id": "com.apple.finder",
