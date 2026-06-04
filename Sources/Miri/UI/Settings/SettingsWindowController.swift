@@ -196,6 +196,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func workspaceBarView() -> NSView { form([
         ("Show fullscreen apps", checkbox("workspaceBarShowFullscreen", draft.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true)),
         ("Active workspace style", popup("workspaceBarActiveStyle", WorkspaceBarActiveStyle.allCasesStrings, draft.workspaceBarActiveStyle?.rawValue ?? MiriConfig.fallback.workspaceBarActiveStyle?.rawValue ?? "braces")),
+        ("Center app strip style", popup("workspaceBarCenterStyle", WorkspaceBarCenterStyle.allCasesStrings, draft.workspaceBarCenterStyle?.rawValue ?? MiriConfig.fallback.workspaceBarCenterStyle?.rawValue ?? "delimiter")),
+        ("Delimiter/border color", colorWell("workspaceBarDelimiterColor", draft.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor ?? "#FFD60A")),
+        ("Center border size", slider("workspaceBarCenterBorderOutset", draft.workspaceBarCenterBorderOutset ?? MiriConfig.fallback.workspaceBarCenterBorderOutset ?? 0, min: 0, max: 5)),
+        ("Center border thickness", slider("workspaceBarCenterBorderThickness", draft.workspaceBarCenterBorderThickness ?? MiriConfig.fallback.workspaceBarCenterBorderThickness ?? 1, min: 1, max: 3)),
         ("Highlight color", colorWell("workspaceBarHighlightColor", draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "yellow")),
         ("Visible app window icons", slider("workspaceBarVisibleIconCount", draft.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3, min: 1, max: 6)),
         ("Overflow style", popup("workspaceBarOverflowStyle", WorkspaceBarOverflowStyle.allCasesStrings, draft.workspaceBarOverflowStyle?.rawValue ?? MiriConfig.fallback.workspaceBarOverflowStyle?.rawValue ?? "plus_count")),
@@ -334,6 +338,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
         draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
         draft.workspaceBarActiveStyle = WorkspaceBarActiveStyle(rawValue: string("workspaceBarActiveStyle"))
+        draft.workspaceBarCenterStyle = WorkspaceBarCenterStyle(rawValue: string("workspaceBarCenterStyle"))
+        draft.workspaceBarDelimiterColor = colorHex("workspaceBarDelimiterColor")
+        draft.workspaceBarCenterBorderOutset = max(0, min(int("workspaceBarCenterBorderOutset"), 5))
+        draft.workspaceBarCenterBorderThickness = max(1, min(int("workspaceBarCenterBorderThickness"), 3))
         draft.workspaceBarHighlightColor = colorHex("workspaceBarHighlightColor")
         draft.workspaceBarVisibleIconCount = max(1, min(int("workspaceBarVisibleIconCount"), 6))
         draft.workspaceBarOverflowStyle = WorkspaceBarOverflowStyle(rawValue: string("workspaceBarOverflowStyle"))
@@ -704,4 +712,5 @@ extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
 extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
 extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "bold", "underline"] }
+extension WorkspaceBarCenterStyle { static let allCasesStrings = ["delimiter", "border", "filled_border"] }
 extension WidthResizeMode { static let allCasesStrings = ["default", "intelligent"] }

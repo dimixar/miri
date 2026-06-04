@@ -106,13 +106,22 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let iconSize: CGFloat = 16
         let iconBox: CGFloat = 20
         let iconInset = (iconBox - iconSize) / 2
-        let height: CGFloat = 22
+        let centerStyle = config.workspaceBarCenterStyle ?? MiriConfig.fallback.workspaceBarCenterStyle ?? .delimiter
+        let configuredBorderOutset = CGFloat(config.workspaceBarCenterBorderOutset ?? MiriConfig.fallback.workspaceBarCenterBorderOutset ?? 0)
+        let centerBorderOutset = centerStyle == .delimiter ? 0 : configuredBorderOutset
+        let centerBorderThickness = CGFloat(config.workspaceBarCenterBorderThickness ?? MiriConfig.fallback.workspaceBarCenterBorderThickness ?? 1)
+        let height: CGFloat = 22 + centerBorderOutset * 2
         let paddingX: CGFloat = 5
         let textGap: CGFloat = 5
         let font = Self.workspaceLabelFont(weight: .semibold)
         let textAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.labelColor,
+        ]
+        let delimiterColor = highlightColor(config.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor)
+        let separatorAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: delimiterColor,
         ]
         let activeStyle = config.workspaceBarActiveStyle ?? MiriConfig.fallback.workspaceBarActiveStyle ?? .braces
         let activeTextRun = workspaceLabelRun(workspace: status.workspace, isActive: true, style: activeStyle)
@@ -132,14 +141,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let leftOverflow = range.lowerBound
         let rightOverflow = max(0, count - range.upperBound)
         let workspaceSummaries = status.occupiedWorkspaces.prefix(9)
-        let separatorText = workspaceSummaries.isEmpty ? nil : "|"
+        let usesDelimiters = centerStyle == .delimiter
+        let hasCenterStrip = !range.isEmpty
+        let separatorText = usesDelimiters && !workspaceSummaries.isEmpty && hasCenterStrip ? "|" : nil
         let workspaceTextRun = workspaceSummaries.isEmpty ? activeTextRun : nil
         let overflowStyle = config.workspaceBarOverflowStyle ?? MiriConfig.fallback.workspaceBarOverflowStyle ?? .plusCount
         let leftText = overflowText(count: leftOverflow, side: .left, style: overflowStyle)
         let rightText = overflowText(count: rightOverflow, side: .right, style: overflowStyle)
         let showFullscreen = config.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true
         let fullscreenGroups = showFullscreen ? groupedFullscreenWindows(status.fullscreenWindows) : []
-        let fullscreenSeparatorText = fullscreenGroups.isEmpty ? nil : "|"
+        let fullscreenSeparatorText = usesDelimiters && !fullscreenGroups.isEmpty && hasCenterStrip ? "|" : nil
         let fullscreenMarkerText = fullscreenGroups.isEmpty ? nil : "⛶"
 
         func textWidth(_ text: String?) -> CGFloat {
@@ -153,6 +164,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
 
         let iconCount = CGFloat(range.count)
+        let centerPadding: CGFloat = centerStyle == .delimiter ? 0 : 3 + centerBorderOutset
+        let centerStripWidth = iconCount * iconBox + (range.isEmpty ? 0 : centerPadding * 2)
         let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
             let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
             let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : iconBox
@@ -167,7 +180,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             + (workspaceTextRun == nil ? workspaceStripWidth : runWidth(workspaceTextRun))
             + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
             + (leftText == nil ? 0 : textGap + textWidth(leftText))
-            + (range.isEmpty ? 0 : textGap + iconCount * iconBox)
+            + (range.isEmpty ? 0 : textGap + centerStripWidth)
             + (rightText == nil ? 0 : textGap + textWidth(rightText))
             + (fullscreenSeparatorText == nil ? 0 : textGap + textWidth(fullscreenSeparatorText))
             + (fullscreenMarkerText == nil ? 0 : textGap + textWidth(fullscreenMarkerText))
@@ -179,7 +192,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         defer { image.unlockFocus() }
 
         var x = paddingX
-        let yText: CGFloat = 2
+        let yText: CGFloat = 2 + centerBorderOutset
         let yIcon: CGFloat = (height - iconSize) / 2
         let yIconBox: CGFloat = (height - iconBox) / 2
         if let workspaceTextRun {
@@ -202,7 +215,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         if let separatorText {
             x += textGap
-            (separatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            (separatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: separatorAttrs)
             x += textWidth(separatorText)
         }
 
@@ -214,6 +227,29 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         if !range.isEmpty {
             x += textGap
+            let centerRect = NSRect(
+                x: x + centerBorderThickness / 2,
+                y: yIconBox - centerBorderOutset + centerBorderThickness / 2,
+                width: centerStripWidth - centerBorderThickness,
+                height: iconBox + centerBorderOutset * 2 - centerBorderThickness
+            )
+            switch centerStyle {
+            case .delimiter:
+                break
+            case .border:
+                delimiterColor.withAlphaComponent(0.85).setStroke()
+                let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
+                path.lineWidth = centerBorderThickness
+                path.stroke()
+            case .filledBorder:
+                centerFillColor(delimiterColor).setFill()
+                let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
+                path.fill()
+                delimiterColor.withAlphaComponent(0.65).setStroke()
+                path.lineWidth = centerBorderThickness
+                path.stroke()
+            }
+            x += centerPadding
         }
 
         for index in range {
@@ -229,6 +265,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             icon.draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
             x += iconBox
         }
+        if !range.isEmpty {
+            x += centerPadding
+        }
 
         if let rightText {
             x += textGap
@@ -238,7 +277,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         if let fullscreenSeparatorText {
             x += textGap
-            (fullscreenSeparatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            (fullscreenSeparatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: separatorAttrs)
             x += textWidth(fullscreenSeparatorText)
         }
 
@@ -368,6 +407,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         default:
             return .systemYellow
         }
+    }
+
+    private func centerFillColor(_ color: NSColor) -> NSColor {
+        let base = color.usingColorSpace(.sRGB) ?? color
+        return (base.blended(withFraction: 0.45, of: .black) ?? base).withAlphaComponent(0.28)
     }
 
     private func colorFromHex(_ hex: String) -> NSColor? {

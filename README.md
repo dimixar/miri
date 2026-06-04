@@ -248,6 +248,7 @@ The menu bar item shows the workspace strip and exposes:
 - occupied workspace summaries with app names/icons;
 - selectable active workspace styling such as `{1}`, `▶1`, `●1`, `[1]`,
   `<1>`, bold `1`, or underlined `1`;
+- configurable center app-strip separators, outline, or tinted outline;
 - optional fullscreen app indicators, grouped by source workspace, shown as a
   compact `| ⛶ 1[apps] 2[apps]` segment;
 - **Settings…** for the GUI config editor;
@@ -300,6 +301,10 @@ A compact example:
   "workspace_bar_overflow_style": "plus_count",
   "workspace_bar_show_fullscreen": true,
   "workspace_bar_active_style": "braces",
+  "workspace_bar_center_style": "delimiter",
+  "workspace_bar_delimiter_color": "#FFD60A",
+  "workspace_bar_center_border_outset": 0,
+  "workspace_bar_center_border_thickness": 1,
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -337,6 +342,11 @@ default command list.
   icons in the menu bar, grouped by their original Miri workspace
 - `workspace_bar_active_style`: `braces`, `filled_pointer`, `filled_dot`,
   `square_brackets`, `angle_brackets`, `bold`, or `underline`
+- `workspace_bar_center_style`: `delimiter`, `border`, or `filled_border`
+- `workspace_bar_delimiter_color`: named color or `#RRGGBB` color for center
+  delimiters, border, and filled border tint
+- `workspace_bar_center_border_outset`: `0` to `5` px extra center border size
+- `workspace_bar_center_border_thickness`: `1` to `3` px center border stroke
 
 ### Rules
 

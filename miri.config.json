@@ -93,6 +93,10 @@
   "workspace_bar_overflow_style": "plus_count",
   "workspace_bar_show_fullscreen": true,
   "workspace_bar_active_style": "braces",
+  "workspace_bar_center_style": "delimiter",
+  "workspace_bar_delimiter_color": "#FFD60A",
+  "workspace_bar_center_border_outset": 0,
+  "workspace_bar_center_border_thickness": 1,
   "rules": [
     {
       "bundle_id": "com.apple.finder",

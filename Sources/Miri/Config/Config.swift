@@ -71,6 +71,12 @@ enum WorkspaceBarActiveStyle: String, Codable {
     case underline
 }
 
+enum WorkspaceBarCenterStyle: String, Codable {
+    case delimiter
+    case border
+    case filledBorder = "filled_border"
+}
+
 enum WidthResizeMode: String, Codable {
     case `default`
     case intelligent
@@ -136,6 +142,10 @@ struct MiriConfig: Codable {
     var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
     var workspaceBarShowFullscreen: Bool?
     var workspaceBarActiveStyle: WorkspaceBarActiveStyle?
+    var workspaceBarCenterStyle: WorkspaceBarCenterStyle?
+    var workspaceBarDelimiterColor: String?
+    var workspaceBarCenterBorderOutset: Int?
+    var workspaceBarCenterBorderThickness: Int?
     var rules: [WindowRule]
 
     static let fallback = MiriConfig(
@@ -192,6 +202,10 @@ struct MiriConfig: Codable {
         workspaceBarOverflowStyle: .plusCount,
         workspaceBarShowFullscreen: true,
         workspaceBarActiveStyle: .braces,
+        workspaceBarCenterStyle: .delimiter,
+        workspaceBarDelimiterColor: "#FFD60A",
+        workspaceBarCenterBorderOutset: 0,
+        workspaceBarCenterBorderThickness: 1,
         rules: [
             WindowRule(bundleID: "com.apple.finder", behavior: .ignore),
         ]
@@ -311,6 +325,8 @@ struct MiriConfig: Codable {
         config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
         config.logicalSpaceAutosaveIntervalMinutes = config.logicalSpaceAutosaveIntervalMinutes.map { min(max($0, 1), 60) }
         config.workspaceBarVisibleIconCount = config.workspaceBarVisibleIconCount.map { min(max($0, 1), 6) }
+        config.workspaceBarCenterBorderOutset = config.workspaceBarCenterBorderOutset.map { min(max($0, 0), 5) }
+        config.workspaceBarCenterBorderThickness = config.workspaceBarCenterBorderThickness.map { min(max($0, 1), 3) }
         config.rules = config.rules.map { rule in
             var rule = rule
             rule.widthRatio = rule.widthRatio.map(\.clampedWidthRatio)
@@ -407,6 +423,10 @@ struct MiriConfig: Codable {
         case workspaceBarOverflowStyle = "workspace_bar_overflow_style"
         case workspaceBarShowFullscreen = "workspace_bar_show_fullscreen"
         case workspaceBarActiveStyle = "workspace_bar_active_style"
+        case workspaceBarCenterStyle = "workspace_bar_center_style"
+        case workspaceBarDelimiterColor = "workspace_bar_delimiter_color"
+        case workspaceBarCenterBorderOutset = "workspace_bar_center_border_outset"
+        case workspaceBarCenterBorderThickness = "workspace_bar_center_border_thickness"
         case rules
     }
 }
