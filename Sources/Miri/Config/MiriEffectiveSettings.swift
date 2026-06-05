@@ -77,8 +77,8 @@ extension Miri {
         config.presetWidthRatios ?? MiriConfig.fallback.presetWidthRatios ?? [0.5, 0.67, 0.8, 1.0]
     }
 
-    var rescanInterval: TimeInterval {
-        TimeInterval(config.rescanIntervalMS ?? MiriConfig.fallback.rescanIntervalMS ?? 1000) / 1000
+    var windowReconciliationInterval: TimeInterval {
+        TimeInterval(config.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000) / 1000
     }
 
     var fullscreenTransitionGrace: TimeInterval {

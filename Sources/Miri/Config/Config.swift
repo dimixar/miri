@@ -120,7 +120,7 @@ struct MiriConfig: Codable {
     var parkedSliverWidth: CGFloat?
     var excludedKeybindings: [String]?
     var keybindings: [String: [String]]?
-    var rescanIntervalMS: Int?
+    var windowReconciliationIntervalMS: Int?
     var likelyFullscreenTransitionGraceMS: Int?
     var fullscreenSpaceChangeGuardMS: Int?
     var logicalSpaceAutosaveIntervalMinutes: Int?
@@ -160,7 +160,7 @@ struct MiriConfig: Codable {
         parkedSliverWidth: 1,
         excludedKeybindings: ["lalt+shift+5"],
         keybindings: defaultKeybindings,
-        rescanIntervalMS: 1000,
+        windowReconciliationIntervalMS: 60000,
         likelyFullscreenTransitionGraceMS: 1500,
         fullscreenSpaceChangeGuardMS: 1500,
         logicalSpaceAutosaveIntervalMinutes: 30,
@@ -278,7 +278,7 @@ struct MiriConfig: Codable {
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
-        config.rescanIntervalMS = config.rescanIntervalMS.map { min(max($0, 100), 5000) }
+        config.windowReconciliationIntervalMS = config.windowReconciliationIntervalMS.map { min(max($0, 5000), 300000) }
         config.likelyFullscreenTransitionGraceMS = config.likelyFullscreenTransitionGraceMS.map { min(max($0, 100), 2000) }
         config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
         config.logicalSpaceAutosaveIntervalMinutes = config.logicalSpaceAutosaveIntervalMinutes.map { min(max($0, 1), 60) }
@@ -347,7 +347,7 @@ struct MiriConfig: Codable {
         case parkedSliverWidth = "parked_sliver_width"
         case excludedKeybindings = "excluded_keybindings"
         case keybindings
-        case rescanIntervalMS = "rescan_interval_ms"
+        case windowReconciliationIntervalMS = "window_reconciliation_interval_ms"
         case likelyFullscreenTransitionGraceMS = "likely_fullscreen_transition_grace_ms"
         case fullscreenSpaceChangeGuardMS = "fullscreen_space_change_guard_ms"
         case logicalSpaceAutosaveIntervalMinutes = "logical_space_autosave_interval_minutes"

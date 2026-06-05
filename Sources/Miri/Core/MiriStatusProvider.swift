@@ -179,9 +179,9 @@ extension Miri {
         NSApp.terminate(nil)
     }
 
-    func scheduleRescanTimer() {
-        rescanTimer?.invalidate()
-        rescanTimer = Timer.scheduledTimer(withTimeInterval: rescanInterval, repeats: true) { [weak self] _ in
+    func scheduleReconciliationTimer() {
+        reconciliationTimer?.invalidate()
+        reconciliationTimer = Timer.scheduledTimer(withTimeInterval: windowReconciliationInterval, repeats: true) { [weak self] _ in
             self?.handlePeriodicTick()
         }
     }
@@ -211,7 +211,7 @@ extension Miri {
             loadedConfig.sourceModificationDate = currentModificationDate
         }
 
-        let previousRescanInterval = rescanInterval
+        let previousReconciliationInterval = windowReconciliationInterval
         let previousLogicalSpaceAutosaveInterval = logicalSpaceAutosaveInterval
         let previousRestoreOnExit = restoreOnExit
         let reloaded = MiriConfig.loadWithMetadata(logLoaded: false)
@@ -226,8 +226,8 @@ extension Miri {
         loadedConfig = reloaded
         configureInput()
 
-        if rescanInterval != previousRescanInterval {
-            scheduleRescanTimer()
+        if windowReconciliationInterval != previousReconciliationInterval {
+            scheduleReconciliationTimer()
         }
         if logicalSpaceAutosaveInterval != previousLogicalSpaceAutosaveInterval {
             schedulePeriodicLogicalSpaceSnapshotWrite()

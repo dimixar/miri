@@ -108,12 +108,12 @@ extension Miri {
             adoptFocusedWindow(pid: pid)
         case kAXUIElementDestroyedNotification:
             if removeDestroyedWindowImmediately(element) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.rescanWindows(adoptFocused: false)
-                }
+                saveActiveLogicalSpaceContext()
             } else {
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.rescanWindows(adoptFocused: true)
+                    self?.reconcileWindows(forPID: pid, adoptFocused: true)
                 }
             }
         case kAXCreatedNotification,
@@ -121,8 +121,10 @@ extension Miri {
              kAXWindowDeminiaturizedNotification,
              kAXApplicationHiddenNotification,
              kAXApplicationShownNotification:
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                self?.rescanWindows(adoptFocused: true)
+                self?.reconcileWindows(forPID: pid, adoptFocused: true)
             }
         case kAXWindowResizedNotification:
             if handleFullscreenTransitionIfNeeded(element) {

@@ -58,7 +58,7 @@
     "nudge_all_widths_narrower": ["lalt+ctrl+shift+-"],
     "nudge_all_widths_wider": ["lalt+ctrl+shift+="]
   },
-  "rescan_interval_ms": 1000,
+  "window_reconciliation_interval_ms": 60000,
   "likely_fullscreen_transition_grace_ms": 1500,
   "fullscreen_space_change_guard_ms": 1500,
   "logical_space_autosave_interval_minutes": 30,

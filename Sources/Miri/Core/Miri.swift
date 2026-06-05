@@ -38,7 +38,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var logicalSpaceSnapshotTimer: DispatchSourceTimer?
     @MainActor var settingsWindowController: SettingsWindowController?
     var excludedKeybindingSet = Set<String>()
-    var rescanTimer: Timer?
+    var reconciliationTimer: Timer?
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
     var animationTimer: AnimationTimer?
@@ -84,7 +84,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         configureInput()
         installEventTap()
         rescanWindows(adoptFocused: true)
-        scheduleRescanTimer()
+        scheduleReconciliationTimer()
         schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")

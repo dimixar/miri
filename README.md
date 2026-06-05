@@ -72,8 +72,8 @@ and keyboard navigation are configurable.
 
 miri tracks app launches/exits, Cmd+Tab focus changes, manual resizes,
 minimized and hidden apps, destroyed windows, fullscreen transitions, and
-transient overlays. It freezes or restores layout state during common native
-fullscreen and Space transitions to avoid destructive rescans.
+transient overlays. Window discovery is event-driven after startup, with a slow
+full reconciliation pass as a safety net for missed Accessibility notifications.
 
 ### Logical Spaces
 
@@ -139,10 +139,10 @@ _AXUIElementGetWindow
 ```
 
 This maps an `AXUIElement` to a `CGWindowID`. miri uses that ID to persist and
-match windows more reliably across rescans, Space-context changes, fullscreen
-recovery, debug logging, and cleanup snapshots. The main call sites are window
-discovery, fullscreen/manual-resize matching, logical Space persistence, and
-exit/crash restoration.
+match windows more reliably across reconciliation passes, Space-context changes,
+fullscreen recovery, debug logging, and cleanup snapshots. The main call sites
+are window discovery, fullscreen/manual-resize matching, logical Space
+persistence, and exit/crash restoration.
 
 ### Floating window levels
 
@@ -278,6 +278,7 @@ A compact example:
   },
   "restore_on_exit": true,
   "persist_layout": true,
+  "window_reconciliation_interval_ms": 60000,
   "width_resize_mode": "default",
   "workspace_bar_highlight_color": "#5FFF84",
   "workspace_bar_visible_icon_count": 6,
@@ -404,7 +405,7 @@ Sources/Miri/System/        Accessibility and SkyLight wrappers
   apart without private Space IDs.
 - Mission Control, Exposé-like transitions, and fullscreen enter/exit can expose
   partial Accessibility snapshots. miri freezes during common cases, but unusual
-  transitions may still need a later rescan.
+  transitions may still need a later reconciliation pass.
 
 ## Related documentation
 
