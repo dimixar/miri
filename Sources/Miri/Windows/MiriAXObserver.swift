@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -76,6 +77,14 @@ extension Miri {
     func scheduleAXCreationReconciliation(pid: pid_t, adoptFocused: Bool, reason: String) {
         guard pid != 0 else {
             deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, needsFullRescan: true, reason: reason)
+            return
+        }
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            debugLog("ax creation reconciliation skipped reason=no-running-app source=\(reason) pid=\(pid)")
+            return
+        }
+        guard app.activationPolicy == .regular else {
+            debugLog("ax creation reconciliation skipped reason=non-regular-app source=\(reason) app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) activationPolicy=\(app.activationPolicy.rawValue)")
             return
         }
 

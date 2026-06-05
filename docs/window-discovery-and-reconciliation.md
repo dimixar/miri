@@ -53,11 +53,16 @@ Some apps emit `AXCreated` before the real window is manageable. Electron,
 Chromium-based apps, JetBrains IDEs, and terminal apps often emit small
 placeholder windows such as `64x64` title-empty AX windows.
 
-miri treats every `AXCreated` as a process-level hint and schedules a coalesced
-settle sequence for that PID. New PIDs get a longer backoff window because apps
-such as JetBrains IDEs can expose only placeholder AX windows for several
-seconds before their real window is manageable. PIDs that already have managed
-windows use a shorter sequence.
+miri treats every `AXCreated` from a regular app as a process-level hint and
+schedules a coalesced settle sequence for that PID. New PIDs get a longer
+backoff window because apps such as JetBrains IDEs can expose only placeholder
+AX windows for several seconds before their real window is manageable. PIDs that
+already have managed windows use a shorter sequence.
+
+Non-regular apps and helper processes are logged but do not enter the settle
+retry path. This avoids spending background work on menu-bar helpers, text input
+services, launchers, and other AX-noisy processes that are not tileable app
+windows.
 
 If a focused-window notification points at an unknown but manageable window,
 miri treats that as another creation hint. This catches apps where focus becomes
