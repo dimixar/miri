@@ -205,11 +205,18 @@ extension Miri {
 
         ensureTrailingEmptyWorkspace()
         if adoptFocused {
-            _ = adoptFocusedWindow(
+            let previousWorkspace = activeWorkspace
+            let previousActiveColumn = workspaces[activeWorkspace].activeColumn
+            let adoptedFocusedWindow = adoptFocusedWindow(
                 pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
                 applyLayout: false
             )
-            projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
+            let focusChanged = adoptedFocusedWindow
+                && (activeWorkspace != previousWorkspace
+                    || workspaces[activeWorkspace].activeColumn != previousActiveColumn)
+            if changed || focusChanged {
+                projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
+            }
         } else if changed {
             projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
         }
