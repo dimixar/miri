@@ -28,13 +28,11 @@ extension Miri {
             return
         }
         startObservingApp(pid: app.processIdentifier)
-        guard !axReconciliationShouldDefer else {
-            deferAXReconciliation(pid: app.processIdentifier, adoptFocused: true, reason: "NSWorkspaceDidLaunch")
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.reconcileWindows(for: app, adoptFocused: true)
-        }
+        scheduleAXCreationReconciliation(
+            pid: app.processIdentifier,
+            adoptFocused: true,
+            reason: "NSWorkspaceDidLaunch"
+        )
     }
 
     @objc func applicationTerminated(_ notification: Notification) {
@@ -73,29 +71,38 @@ extension Miri {
         var pid: pid_t = 0
         guard AXUIElementGetPid(element, &pid) == .success,
               pid != 0
-        else { return }
+        else {
+            debugLog("reconcile skipped reason=missing-pid")
+            return
+        }
         reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
     }
 
     func reconcileWindows(forPID pid: pid_t, adoptFocused: Bool) {
         guard let app = NSRunningApplication(processIdentifier: pid) else {
+            debugLog("reconcile skipped reason=no-running-app pid=\(pid)")
             return
         }
         reconcileWindows(for: app, adoptFocused: adoptFocused)
     }
 
     func reconcileWindows(for app: NSRunningApplication, adoptFocused: Bool) {
-        guard app.activationPolicy == .regular,
-              app.processIdentifier != ProcessInfo.processInfo.processIdentifier
-        else {
+        guard app.activationPolicy == .regular else {
+            debugLog("reconcile skipped reason=non-regular-app app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier) activationPolicy=\(app.activationPolicy.rawValue)")
+            return
+        }
+        guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            debugLog("reconcile skipped reason=self pid=\(app.processIdentifier)")
             return
         }
         guard !transientSystemWindowIsActive() else {
+            debugLog("reconcile skipped reason=transient-system-window-active app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
             return
         }
 
         startObservingApp(pid: app.processIdentifier)
         guard let discovered = discoverWindows(for: app) else {
+            debugLog("reconcile ax-windows unavailable app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
             removeVanishedWindows(
                 forPID: app.processIdentifier,
                 adoptFocused: adoptFocused,

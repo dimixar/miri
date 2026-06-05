@@ -83,8 +83,10 @@ extension Miri {
         axCreationSettleGeneration &+= 1
         let generation = axCreationSettleGeneration
         pendingAXCreationSettleGenerations[pid] = generation
-        let delays: [TimeInterval] = [0.12, 0.45, 1.0]
-        debugLog("ax creation reconciliation scheduled reason=\(reason) pid=\(pid) attempts=\(delays.count)")
+        let delays: [TimeInterval] = originalWindowCount == 0
+            ? [0.12, 0.45, 1.0, 2.5, 5.0, 10.0, 20.0, 35.0]
+            : [0.12, 0.45, 1.0, 2.5]
+        debugLog("ax creation reconciliation scheduled reason=\(reason) pid=\(pid) knownWindows=\(originalWindowCount) attempts=\(delays.count)")
 
         for (index, delay) in delays.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -95,11 +97,14 @@ extension Miri {
                 }
 
                 if self.axReconciliationShouldDefer {
+                    self.debugLog("ax creation reconciliation attempt deferred reason=\(reason) pid=\(pid) attempt=\(index + 1)/\(delays.count)")
                     self.deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, reason: "\(reason):settle")
                 } else {
+                    self.debugLog("ax creation reconciliation attempt reason=\(reason) pid=\(pid) attempt=\(index + 1)/\(delays.count)")
                     self.reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
                     let currentWindowCount = self.allWindows().filter { $0.pid == pid }.count
                     if currentWindowCount > originalWindowCount {
+                        self.debugLog("ax creation reconciliation completed reason=\(reason) pid=\(pid) windows=\(currentWindowCount)")
                         self.pendingAXCreationSettleGenerations.removeValue(forKey: pid)
                         return
                     }
@@ -206,6 +211,11 @@ extension Miri {
 
         switch name {
         case kAXFocusedWindowChangedNotification:
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            if !isKnownWindow(element), isManageableWindow(element) {
+                scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
+            }
             guard !isApplyingLayout,
                   snapshotAnimationSession == nil,
                   !snapshotAnimationPreparing,
@@ -214,8 +224,6 @@ extension Miri {
             else {
                 return
             }
-            var pid: pid_t = 0
-            AXUIElementGetPid(element, &pid)
             adoptFocusedWindow(pid: pid)
         case kAXUIElementDestroyedNotification:
             var pid: pid_t = 0
