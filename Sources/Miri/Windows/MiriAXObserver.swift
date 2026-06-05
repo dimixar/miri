@@ -151,7 +151,12 @@ extension Miri {
     }
 
     @discardableResult
-    func adoptFocusedWindow(pid: pid_t?, applyLayout: Bool = true) -> Bool {
+    func adoptFocusedWindow(
+        pid: pid_t?,
+        applyLayout: Bool = true,
+        animateIfSameWorkspace: Bool = false,
+        reason: String = "focus-adoption"
+    ) -> Bool {
         guard let pid else {
             return false
         }
@@ -187,6 +192,8 @@ extension Miri {
             {
                 return false
             }
+            let previousState = captureLayoutState()
+            let previousWorkspace = activeWorkspace
             let workspace = workspaces[loc.workspace]
             let changedFocus = activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
             setActiveWorkspace(loc.workspace)
@@ -195,7 +202,18 @@ extension Miri {
                 revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             }
             if applyLayout {
-                projectLayout(focusActiveWindow: false)
+                let shouldAnimate = animateIfSameWorkspace
+                    && changedFocus
+                    && previousWorkspace == loc.workspace
+                debugLog(
+                    "focus adopted reason=\(reason) animated=\(shouldAnimate) workspace=\(loc.workspace + 1) column=\(loc.column + 1)"
+                )
+                projectLayout(
+                    focusActiveWindow: false,
+                    animated: shouldAnimate,
+                    from: shouldAnimate ? previousState : nil,
+                    animationDuration: keyboardAnimationDuration
+                )
             }
             return true
         }
@@ -257,7 +275,11 @@ extension Miri {
             else {
                 return
             }
-            adoptFocusedWindow(pid: pid)
+            adoptFocusedWindow(
+                pid: pid,
+                animateIfSameWorkspace: true,
+                reason: "AXFocusedWindowChanged"
+            )
         case kAXUIElementDestroyedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)

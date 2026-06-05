@@ -23,10 +23,32 @@ extension Miri {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.reconcileWindows(for: app, adoptFocused: false)
-            self?.adoptFocusedWindow(pid: app.processIdentifier)
+            guard let self else {
+                return
+            }
+            guard !axReconciliationShouldDefer else {
+                deferAXReconciliation(
+                    pid: app.processIdentifier,
+                    adoptFocused: true,
+                    reason: "NSWorkspaceDidActivate"
+                )
+                return
+            }
+            reconcileWindows(for: app, adoptFocused: false)
+            adoptFocusedWindow(
+                pid: app.processIdentifier,
+                animateIfSameWorkspace: true,
+                reason: "NSWorkspaceDidActivate:settle"
+            )
         }
-        adoptFocusedWindow(pid: app.processIdentifier)
+        guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
+            return
+        }
+        adoptFocusedWindow(
+            pid: app.processIdentifier,
+            animateIfSameWorkspace: true,
+            reason: "NSWorkspaceDidActivate"
+        )
     }
 
     @objc func applicationLaunched(_ notification: Notification) {
