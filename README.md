@@ -34,6 +34,10 @@ use the Swift commands or local packaging scripts below.
   without depending on private Space IDs.
 - **Event-driven discovery.** Startup does a full scan; normal updates are
   driven by NSWorkspace and AX events with a long safety reconciliation timer.
+- **Active stale-window recovery.** Known problematic apps can be targeted for
+  extra rescans while tiled, improving UX when they miss Accessibility events.
+  This is a mitigation for broken app behavior, not a guarantee that those apps
+  will tile predictably.
 - **Persistent layout state.** Saved column positions, manual widths, focus, and
   logical Space state across restarts.
 - **Snapshot transitions.** Window movement and resizing animations using
@@ -133,7 +137,8 @@ The menu bar item shows the workspace strip and exposes:
 
 The settings editor writes to the active JSON config and reloads miri in place.
 It covers layout, animation, fullscreen/Space recovery, logical Space autosave,
-window rules, excluded shortcuts, and command keybindings.
+active rescans for problematic apps, window rules, excluded shortcuts, and
+command keybindings.
 
 ## Configuration
 
@@ -146,7 +151,8 @@ miri loads the first readable config from:
 
 The repository includes a complete default [`miri.config.json`](miri.config.json).
 See [Configuration](docs/configuration.md) for setting descriptions, shortcut
-backend tradeoffs, rule syntax, and menu bar options.
+backend tradeoffs, active-rescan reliability settings, rule syntax, and menu bar
+options.
 
 ## Architecture
 
@@ -211,5 +217,13 @@ raise/focus behavior.
   window images.
 - Mission Control-style transitions, fullscreen enter/exit, and unusual
   app-specific AX behavior may still need a later reconciliation pass.
+- Active rescans are enabled by default for known problematic apps such as
+  Notion. They help recover stale windows when apps miss Accessibility events,
+  but apps that report stale/contradictory AX frames can still behave
+  unpredictably while tiled, especially during rapid focus movement or multiple
+  window changes.
+- Disabling active rescans can reduce idle CPU and battery use. Apps that keep
+  missing events or reporting bad AX frames should usually be added to window
+  rules with `behavior: "ignore"` instead of being tiled.
 - Debug logging is verbose and should usually stay disabled outside
   investigation sessions.

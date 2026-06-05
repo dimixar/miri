@@ -89,12 +89,29 @@ PID by CG window ID and removes any whose CG window no longer exists.
 Notion is known to be inconsistent here. Closing its last window without
 quitting the app may produce no useful Accessibility event for the tracked
 window: no destroyed, minimized, deminimized, hidden, shown, focused-window, or
-main-window change notification. When a tracked window reaches snapshot
+main-window change notification. It can also report stale or contradictory AX
+frames for multiple real windows, for example distinct windows temporarily
+claiming the same position and size. When a tracked window reaches snapshot
 animation but CoreGraphics can no longer produce an image for its window ID,
 miri treats that missing snapshot image as a stale-window hint and queues a
 targeted reconciliation for that PID after layout and snapshot animation are
 safe. This keeps the fallback event-driven and avoids reintroducing frequent
 global scans.
+
+For apps with this class of missing notifications, `active_rescan_enabled` is
+enabled by default with matching `active_rescan_bundle_ids`. While any listed
+bundle is present in the tiled layout, miri runs targeted per-PID rescans once
+per second and on user input. This redundant work has a small CPU/battery cost,
+but it improves UX for apps such as Notion that can otherwise leave stale
+windows behind until another event happens.
+
+Active rescans are a mitigation, not a guarantee that a broken Accessibility
+implementation becomes well behaved. If an app lies about AX frames, misses
+window lifecycle events, or changes several windows while the user rapidly moves
+focus, miri may still show unpredictable layout or animation behavior. Users who
+want lower idle CPU and battery use can disable active rescans; for problematic
+apps, the recommended fallback is adding a window rule with
+`behavior: "ignore"` so miri does not tile those windows.
 
 ## Full Rescans
 
@@ -119,5 +136,7 @@ Useful log lines in `~/.config/miri/debug.log`:
 - `ax reconciliation draining`: queued PID reconciliation begins.
 - `snapshot missing image`: snapshot capture failed for a tracked window and
   queued targeted PID reconciliation.
+- `active rescan reason=...`: optional active rescan ran for a configured
+  bundle currently present in the tiled layout.
 - `removing vanished window`: CG fallback removed a stale tracked window.
 - `layout workspace=...`: layout projection and application happened.

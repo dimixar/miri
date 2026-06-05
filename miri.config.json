@@ -61,6 +61,9 @@
     "nudge_all_widths_wider": ["lalt+ctrl+shift+="]
   },
   "window_reconciliation_interval_ms": 60000,
+  "ax_created_placeholder_probe_cooldown_ms": 1000,
+  "active_rescan_enabled": true,
+  "active_rescan_bundle_ids": ["notion.id"],
   "likely_fullscreen_transition_grace_ms": 1500,
   "fullscreen_space_change_guard_ms": 1500,
   "logical_space_autosave_interval_minutes": 30,

@@ -238,6 +238,7 @@ extension Miri {
         if windowReconciliationInterval != previousReconciliationInterval {
             scheduleReconciliationTimer()
         }
+        syncActiveRescanTimer()
         if logicalSpaceAutosaveInterval != previousLogicalSpaceAutosaveInterval {
             schedulePeriodicLogicalSpaceSnapshotWrite()
         }

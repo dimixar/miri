@@ -92,6 +92,14 @@ extension Miri {
         return TimeInterval(max(0, milliseconds)) / 1000
     }
 
+    var activeRescanEnabled: Bool {
+        config.activeRescanEnabled ?? MiriConfig.fallback.activeRescanEnabled ?? false
+    }
+
+    var activeRescanBundleIDs: Set<String> {
+        Set(config.activeRescanBundleIDs ?? MiriConfig.fallback.activeRescanBundleIDs ?? [])
+    }
+
     var fullscreenTransitionGrace: TimeInterval {
         TimeInterval(config.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000
     }

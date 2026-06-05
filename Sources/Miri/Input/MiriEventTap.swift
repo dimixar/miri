@@ -92,6 +92,8 @@ extension Miri {
     }
 
     func handleKeyEvent(_ event: CGEvent) -> Bool {
+        scheduleActiveRescanForUserInput()
+
         let modifiers = event.flags
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)

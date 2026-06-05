@@ -43,6 +43,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @MainActor var settingsWindowController: SettingsWindowController?
     var excludedKeybindingSet = Set<String>()
     var reconciliationTimer: Timer?
+    var activeRescanTimer: Timer?
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
     var animationTimer: AnimationTimer?
@@ -100,6 +101,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         installInputBackend()
         rescanWindows(adoptFocused: true)
         scheduleReconciliationTimer()
+        syncActiveRescanTimer()
         schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")
@@ -110,6 +112,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     func applicationWillTerminate(_ notification: Notification) {
         snapshotWriteTimer?.cancel()
         logicalSpaceSnapshotTimer?.cancel()
+        activeRescanTimer?.invalidate()
         uninstallEventTap()
         uninstallCarbonHotKeys()
         writePersistentLayoutSnapshot()

@@ -67,6 +67,21 @@ Some apps do not emit useful destroy events for their real windows. miri uses
 per-PID reconciliation and a CoreGraphics fallback to remove tracked windows
 whose CG window ID no longer exists.
 
+## Problematic App Accessibility Behavior
+
+Some apps expose incomplete or contradictory Accessibility state. Notion is a
+known example: it may miss close, minimize, hide, show, focused-window, or
+main-window notifications, and it can report stale AX frames for multiple
+distinct windows. Active rescans are enabled by default for configured bundles
+such as `notion.id`; they rescan the app once per second and on user input while
+one of its windows is tiled.
+
+Active rescans are only a recovery aid. They can remove stale windows sooner,
+but they cannot make an app's Accessibility frame data correct. If a problematic
+app still behaves unpredictably while tiled, especially during rapid focus
+movement or multiple window changes, add a window rule with
+`behavior: "ignore"` for that app.
+
 ## High CPU Or Battery Usage
 
 First check whether debug logging is enabled. Debug logging is intentionally

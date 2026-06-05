@@ -95,6 +95,7 @@ extension Miri {
         }
 
         DispatchQueue.main.async { [weak self] in
+            self?.scheduleActiveRescanForUserInput()
             self?.submit(command)
         }
         return noErr

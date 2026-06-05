@@ -34,6 +34,8 @@ The repository includes a complete default config at
   "persist_layout": true,
   "window_reconciliation_interval_ms": 60000,
   "ax_created_placeholder_probe_cooldown_ms": 1000,
+  "active_rescan_enabled": true,
+  "active_rescan_bundle_ids": ["notion.id"],
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -60,6 +62,18 @@ The repository includes a complete default config at
 - `ax_created_placeholder_probe_cooldown_ms`: per-app cooldown for short
   placeholder-window probes after an already-tracked app emits a tiny
   `AXCreated` placeholder. `0` disables this rate limit.
+- `active_rescan_enabled`: reliability mode for apps that miss useful
+  Accessibility window events. When enabled and a listed bundle is present in
+  the tiled layout, miri runs targeted per-PID rescans once per second and on
+  user input until that bundle is gone. It is enabled by default for better
+  stale-window recovery. This is only a mitigation for broken app Accessibility
+  behavior; apps that miss lifecycle events or report stale AX frames can still
+  behave unpredictably while tiled.
+- `active_rescan_bundle_ids`: bundle IDs that trigger active rescans. The
+  default list includes `notion.id`. Disable active rescans to reduce idle CPU
+  and battery use; if a disabled app still causes stale-window trouble, prefer
+  adding that app to window rules with `behavior: "ignore"` so miri does not
+  tile it.
 
 ## Animation
 

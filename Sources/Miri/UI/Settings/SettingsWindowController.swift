@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private var availableApps: [RuleAppInfo]
     private let tabView = NSTabView()
     private let rulesTable = NSTableView()
+    private let activeRescanBundleTable = NSTableView()
     private weak var ruleTitleMatchHelpLabel: NSTextField?
     private weak var keyboardShortcutBackendHelpLabel: NSTextField?
 
@@ -80,6 +81,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         tabView.addTabViewItem(tab("Animations", animationsView()))
         tabView.addTabViewItem(tab("Keybindings", keybindingsView()))
         tabView.addTabViewItem(tab("Workspace Bar", workspaceBarView()))
+        tabView.addTabViewItem(tab("Reliability", reliabilityView()))
         tabView.addTabViewItem(tab("Rules", rulesView()))
     }
 
@@ -196,6 +198,52 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return form(rows)
     }
 
+    private func reliabilityView() -> NSView {
+        let root = NSStackView()
+        root.orientation = .vertical
+        root.spacing = 10
+        root.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+
+        let toggleRow = NSStackView()
+        toggleRow.orientation = .horizontal
+        toggleRow.spacing = 12
+        toggleRow.alignment = .centerY
+        let toggleLabel = NSTextField(labelWithString: "Active rescans")
+        toggleLabel.alignment = .right
+        toggleLabel.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        toggleRow.addArrangedSubview(toggleLabel)
+        toggleRow.addArrangedSubview(checkbox("activeRescanEnabled", draft.activeRescanEnabled ?? MiriConfig.fallback.activeRescanEnabled ?? false))
+        root.addArrangedSubview(toggleRow)
+
+        let description = helpLabel("When enabled, Miri rescans listed tiled apps once per second and on user input. Use this for apps that miss Accessibility close, minimize, hide, or show events.")
+        description.widthAnchor.constraint(equalToConstant: 620).isActive = true
+        root.addArrangedSubview(description)
+
+        let buttons = NSStackView()
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        buttons.addArrangedSubview(button("Add Manual Bundle", #selector(addManualActiveRescanBundle)))
+        buttons.addArrangedSubview(button("Add From Open App…", #selector(addActiveRescanBundleFromOpenApp)))
+        buttons.addArrangedSubview(button("Delete", #selector(deleteActiveRescanBundle)))
+        root.addArrangedSubview(buttons)
+
+        activeRescanBundleTable.dataSource = self
+        activeRescanBundleTable.delegate = self
+        activeRescanBundleTable.target = self
+        activeRescanBundleTable.doubleAction = #selector(editSelectedActiveRescanBundle)
+        activeRescanBundleTable.usesAlternatingRowBackgroundColors = true
+        activeRescanBundleTable.headerView = nil
+        if activeRescanBundleTable.tableColumns.isEmpty {
+            activeRescanBundleTable.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("activeRescanBundle")))
+        }
+        let scroll = NSScrollView()
+        scroll.documentView = activeRescanBundleTable
+        scroll.hasVerticalScroller = true
+        root.addArrangedSubview(scroll)
+        activeRescanBundleTable.reloadData()
+        return root
+    }
+
     private func rulesView() -> NSView {
         let root = NSStackView()
         root.orientation = .vertical
@@ -219,7 +267,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         rulesTable.doubleAction = #selector(editSelectedRule)
         rulesTable.usesAlternatingRowBackgroundColors = true
         rulesTable.headerView = nil
-        rulesTable.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("rule")))
+        if rulesTable.tableColumns.isEmpty {
+            rulesTable.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("rule")))
+        }
         let scroll = NSScrollView()
         scroll.documentView = rulesTable
         scroll.hasVerticalScroller = true
@@ -228,12 +278,29 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         return root
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { draft.rules.count }
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        if tableView === rulesTable {
+            return draft.rules.count
+        }
+        if tableView === activeRescanBundleTable {
+            return draftActiveRescanBundleIDs().count
+        }
+        return 0
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard draft.rules.indices.contains(row) else { return nil }
-        let rule = draft.rules[row]
-        let text = NSTextField(labelWithString: ruleSummary(rule))
+        let label: String
+        if tableView === rulesTable {
+            guard draft.rules.indices.contains(row) else { return nil }
+            label = ruleSummary(draft.rules[row])
+        } else if tableView === activeRescanBundleTable {
+            let bundleIDs = draftActiveRescanBundleIDs()
+            guard bundleIDs.indices.contains(row) else { return nil }
+            label = bundleIDs[row]
+        } else {
+            return nil
+        }
+        let text = NSTextField(labelWithString: label)
         text.lineBreakMode = .byTruncatingTail
         return text
     }
@@ -301,6 +368,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.workspaceBarHighlightColor = colorHex("workspaceBarHighlightColor")
         draft.workspaceBarVisibleIconCount = max(1, min(int("workspaceBarVisibleIconCount"), 6))
         draft.workspaceBarOverflowStyle = WorkspaceBarOverflowStyle(rawValue: string("workspaceBarOverflowStyle"))
+        draft.activeRescanEnabled = bool("activeRescanEnabled")
+        draft.activeRescanBundleIDs = MiriConfig.normalizeBundleIDs(draft.activeRescanBundleIDs)
 
         draft.excludedKeybindings = csv("excludedKeybindings")
         var keybindings: [String: [String]] = [:]
@@ -324,6 +393,95 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             }
         }
         return nil
+    }
+
+    @objc private func addManualActiveRescanBundle() {
+        let bundleID = promptForBundleID(title: "Add Active Rescan Bundle", value: "")
+        guard let bundleID else {
+            return
+        }
+        addActiveRescanBundleID(bundleID)
+    }
+
+    @objc private func addActiveRescanBundleFromOpenApp() {
+        let alert = NSAlert()
+        alert.messageText = "Add Active Rescan Bundle"
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
+        popup.addItem(withTitle: "Manual bundle id…")
+        for app in availableApps {
+            popup.addItem(withTitle: "\(app.appName) — \(app.bundleID)")
+        }
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if popup.indexOfSelectedItem == 0 {
+            addManualActiveRescanBundle()
+        } else {
+            addActiveRescanBundleID(availableApps[popup.indexOfSelectedItem - 1].bundleID)
+        }
+    }
+
+    @objc private func editSelectedActiveRescanBundle() {
+        let row = activeRescanBundleTable.selectedRow
+        var bundleIDs = draftActiveRescanBundleIDs()
+        guard bundleIDs.indices.contains(row) else {
+            return
+        }
+        guard let bundleID = promptForBundleID(title: "Edit Active Rescan Bundle", value: bundleIDs[row]) else {
+            return
+        }
+        bundleIDs[row] = bundleID
+        setDraftActiveRescanBundleIDs(bundleIDs)
+        activeRescanBundleTable.reloadData()
+        if draftActiveRescanBundleIDs().indices.contains(row) {
+            activeRescanBundleTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+    }
+
+    @objc private func deleteActiveRescanBundle() {
+        let row = activeRescanBundleTable.selectedRow
+        var bundleIDs = draftActiveRescanBundleIDs()
+        guard bundleIDs.indices.contains(row) else {
+            return
+        }
+        bundleIDs.remove(at: row)
+        setDraftActiveRescanBundleIDs(bundleIDs)
+        activeRescanBundleTable.reloadData()
+    }
+
+    private func addActiveRescanBundleID(_ bundleID: String) {
+        var bundleIDs = draftActiveRescanBundleIDs()
+        bundleIDs.append(bundleID)
+        setDraftActiveRescanBundleIDs(bundleIDs)
+        activeRescanBundleTable.reloadData()
+        let row = draftActiveRescanBundleIDs().firstIndex(of: bundleID.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let row {
+            activeRescanBundleTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+    }
+
+    private func draftActiveRescanBundleIDs() -> [String] {
+        draft.activeRescanBundleIDs ?? MiriConfig.fallback.activeRescanBundleIDs ?? []
+    }
+
+    private func setDraftActiveRescanBundleIDs(_ bundleIDs: [String]) {
+        draft.activeRescanBundleIDs = MiriConfig.normalizeBundleIDs(bundleIDs)
+    }
+
+    private func promptForBundleID(title: String, value: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        let field = NSTextField(string: value)
+        field.widthAnchor.constraint(equalToConstant: 340).isActive = true
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+        let bundleID = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return bundleID.isEmpty ? nil : bundleID
     }
 
     @objc private func addManualRule() {
@@ -520,6 +678,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func button(_ title: String, _ action: Selector) -> NSButton { let b = NSButton(title: title, target: self, action: action); return b }
+    private func helpLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 4
+        label.textColor = .secondaryLabelColor
+        return label
+    }
     private func checkbox(_ key: String, _ value: Bool) -> NSButton { let b = NSButton(checkboxWithTitle: "", target: nil, action: nil); b.state = value ? .on : .off; controls[key] = b; return b }
     private func textField(_ key: String, _ value: String) -> NSTextField { let f = NSTextField(string: value); f.widthAnchor.constraint(equalToConstant: 220).isActive = true; controls[key] = f; return f }
     private func intField(_ key: String, _ value: Int) -> NSTextField { textField(key, String(value)) }

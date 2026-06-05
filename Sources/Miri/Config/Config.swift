@@ -126,6 +126,8 @@ struct MiriConfig: Codable {
     var parkedSliverWidth: CGFloat?
     var keyboardShortcutBackend: KeyboardShortcutBackend?
     var axCreatedPlaceholderProbeCooldownMS: Int?
+    var activeRescanEnabled: Bool?
+    var activeRescanBundleIDs: [String]?
     var excludedKeybindings: [String]?
     var keybindings: [String: [String]]?
     var windowReconciliationIntervalMS: Int?
@@ -169,6 +171,8 @@ struct MiriConfig: Codable {
         parkedSliverWidth: 1,
         keyboardShortcutBackend: .eventTap,
         axCreatedPlaceholderProbeCooldownMS: 1000,
+        activeRescanEnabled: true,
+        activeRescanBundleIDs: ["notion.id"],
         excludedKeybindings: ["lalt+shift+5"],
         keybindings: defaultKeybindings,
         windowReconciliationIntervalMS: 60000,
@@ -291,6 +295,7 @@ struct MiriConfig: Codable {
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
         config.windowReconciliationIntervalMS = config.windowReconciliationIntervalMS.map { min(max($0, 5000), 300000) }
+        config.activeRescanBundleIDs = normalizeBundleIDs(config.activeRescanBundleIDs)
         config.likelyFullscreenTransitionGraceMS = config.likelyFullscreenTransitionGraceMS.map { min(max($0, 100), 2000) }
         config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
         config.logicalSpaceAutosaveIntervalMinutes = config.logicalSpaceAutosaveIntervalMinutes.map { min(max($0, 1), 60) }
@@ -320,6 +325,22 @@ struct MiriConfig: Codable {
             unique.append(preset)
         }
         return unique.isEmpty ? nil : unique
+    }
+
+    static func normalizeBundleIDs(_ bundleIDs: [String]?) -> [String]? {
+        guard let bundleIDs else {
+            return nil
+        }
+
+        var unique: [String] = []
+        for bundleID in bundleIDs {
+            let normalized = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, !unique.contains(normalized) else {
+                continue
+            }
+            unique.append(normalized)
+        }
+        return unique
     }
 
     private static func configCandidates() -> [URL] {
@@ -360,6 +381,8 @@ struct MiriConfig: Codable {
         case parkedSliverWidth = "parked_sliver_width"
         case keyboardShortcutBackend = "keyboard_shortcut_backend"
         case axCreatedPlaceholderProbeCooldownMS = "ax_created_placeholder_probe_cooldown_ms"
+        case activeRescanEnabled = "active_rescan_enabled"
+        case activeRescanBundleIDs = "active_rescan_bundle_ids"
         case excludedKeybindings = "excluded_keybindings"
         case keybindings
         case windowReconciliationIntervalMS = "window_reconciliation_interval_ms"
