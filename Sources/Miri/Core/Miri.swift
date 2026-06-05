@@ -64,6 +64,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var transientWindowActive = false
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0
+    var lastActivatedApplicationPID: pid_t?
     var pendingFocusCommands: [Command] = []
     var keyboardFocusAuthorityUntil: CFAbsoluteTime = 0
     var layoutRequestGeneration: UInt64 = 0
@@ -99,6 +100,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         configureInput()
         installInputBackend()
+        lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         rescanWindows(adoptFocused: true)
         scheduleReconciliationTimer()
         syncActiveRescanTimer()

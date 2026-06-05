@@ -151,6 +151,23 @@ extension Miri {
     }
 
     @discardableResult
+    func removeMiniaturizedWindowImmediately(_ element: AXUIElement, pid: pid_t, reason: String) -> Bool {
+        guard let window = tiledWindow(for: element) else {
+            return false
+        }
+
+        let wasActiveWindow = activeWindow().map { $0 === window } == true
+        debugLog(
+            "removing miniaturized window reason=\(reason) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil")"
+        )
+        rememberMinimizedWindowState(window)
+        removeWindow(window, preferRightFocus: true)
+        projectLayout(focusActiveWindow: wasActiveWindow, layoutLockDelay: 0.02)
+        saveActiveLogicalSpaceContext()
+        return true
+    }
+
+    @discardableResult
     func adoptFocusedWindow(
         pid: pid_t?,
         applyLayout: Bool = true,
@@ -321,6 +338,19 @@ extension Miri {
                         reason: "\(name):placeholder-probe",
                         delays: [0.12, 0.45]
                     )
+                }
+                return
+            }
+            if name == kAXWindowMiniaturizedNotification {
+                guard !axReconciliationShouldDefer else {
+                    deferAXReconciliation(pid: pid, adoptFocused: true, reason: name)
+                    return
+                }
+                if removeMiniaturizedWindowImmediately(element, pid: pid, reason: name) {
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                    self?.reconcileWindows(forPID: pid, adoptFocused: true)
                 }
                 return
             }

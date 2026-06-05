@@ -21,6 +21,20 @@ extension Miri {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
+        let previousPID = lastActivatedApplicationPID
+        lastActivatedApplicationPID = app.processIdentifier
+
+        if let previousPID, previousPID != app.processIdentifier {
+            if axReconciliationShouldDefer {
+                deferAXReconciliation(
+                    pid: previousPID,
+                    adoptFocused: false,
+                    reason: "NSWorkspaceDidActivate:previous-app"
+                )
+            } else {
+                reconcileWindows(forPID: previousPID, adoptFocused: false)
+            }
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             guard let self else {
