@@ -33,6 +33,7 @@ The repository includes a complete default config at
   "restore_on_exit": true,
   "persist_layout": true,
   "window_reconciliation_interval_ms": 60000,
+  "ax_created_placeholder_probe_cooldown_ms": 1000,
   "rules": [
     {
       "bundle_id": "com.apple.finder",
@@ -56,6 +57,9 @@ The repository includes a complete default config at
 - `parked_sliver_width`: number of pixels left visible when real windows are
   parked offscreen during snapshot animation or hidden-workspace staging.
 - `width_resize_mode`: `default` or `intelligent`.
+- `ax_created_placeholder_probe_cooldown_ms`: per-app cooldown for short
+  placeholder-window probes after an already-tracked app emits a tiny
+  `AXCreated` placeholder. `0` disables this rate limit.
 
 ## Animation
 

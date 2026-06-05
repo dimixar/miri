@@ -85,6 +85,13 @@ extension Miri {
         TimeInterval(config.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000) / 1000
     }
 
+    var axCreatedPlaceholderProbeCooldown: TimeInterval {
+        let milliseconds = config.axCreatedPlaceholderProbeCooldownMS
+            ?? MiriConfig.fallback.axCreatedPlaceholderProbeCooldownMS
+            ?? 1000
+        return TimeInterval(max(0, milliseconds)) / 1000
+    }
+
     var fullscreenTransitionGrace: TimeInterval {
         TimeInterval(config.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000
     }

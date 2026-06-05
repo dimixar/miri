@@ -125,6 +125,7 @@ struct MiriConfig: Codable {
     var outerGap: CGFloat?
     var parkedSliverWidth: CGFloat?
     var keyboardShortcutBackend: KeyboardShortcutBackend?
+    var axCreatedPlaceholderProbeCooldownMS: Int?
     var excludedKeybindings: [String]?
     var keybindings: [String: [String]]?
     var windowReconciliationIntervalMS: Int?
@@ -167,6 +168,7 @@ struct MiriConfig: Codable {
         outerGap: 0,
         parkedSliverWidth: 1,
         keyboardShortcutBackend: .eventTap,
+        axCreatedPlaceholderProbeCooldownMS: 1000,
         excludedKeybindings: ["lalt+shift+5"],
         keybindings: defaultKeybindings,
         windowReconciliationIntervalMS: 60000,
@@ -357,6 +359,7 @@ struct MiriConfig: Codable {
         case outerGap = "outer_gap"
         case parkedSliverWidth = "parked_sliver_width"
         case keyboardShortcutBackend = "keyboard_shortcut_backend"
+        case axCreatedPlaceholderProbeCooldownMS = "ax_created_placeholder_probe_cooldown_ms"
         case excludedKeybindings = "excluded_keybindings"
         case keybindings
         case windowReconciliationIntervalMS = "window_reconciliation_interval_ms"

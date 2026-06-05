@@ -348,7 +348,7 @@ extension Miri {
                 [.bestResolution, .boundsIgnoreFraming]
               )
         else {
-            debugLog("snapshot missing image app=\(motion.window.appName) title=\(motion.window.title)")
+            handleMissingSnapshotImage(for: motion.window)
             return nil
         }
 
@@ -356,6 +356,17 @@ extension Miri {
         session.layersByWindowID[id] = layer
         hideSnapshotWindows([motion.window], parkIn: session.overlay.axViewport)
         return layer
+    }
+
+    func handleMissingSnapshotImage(for window: ManagedWindow) {
+        debugLog(
+            "snapshot missing image app=\(window.appName) title=\(window.title) pid=\(window.pid) id=\(window.windowID.map(String.init) ?? "nil")"
+        )
+        deferAXReconciliation(
+            pid: window.pid,
+            adoptFocused: true,
+            reason: "snapshot-missing-image"
+        )
     }
 
     func snapshotDebugFrame(_ frame: CGRect) -> String {
@@ -642,6 +653,7 @@ extension Miri {
                         [.bestResolution, .boundsIgnoreFraming]
                       )
                 else {
+                    handleMissingSnapshotImage(for: motion.window)
                     return nil
                 }
                 return (motion, image)

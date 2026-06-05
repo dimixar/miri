@@ -74,6 +74,25 @@ extension Miri {
         }
     }
 
+    func shouldRateLimitAXCreatedPlaceholderProbe(pid: pid_t) -> Bool {
+        let cooldown = axCreatedPlaceholderProbeCooldown
+        guard cooldown > 0 else {
+            return false
+        }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        if let lastProbeAt = lastAXCreatedPlaceholderProbeAt[pid],
+           now - lastProbeAt < cooldown {
+            debugLog(
+                "ax created placeholder probe skipped reason=rate-limited pid=\(pid) cooldown=\(String(format: "%.1f", cooldown))s elapsed=\(String(format: "%.2f", now - lastProbeAt))s"
+            )
+            return true
+        }
+
+        lastAXCreatedPlaceholderProbeAt[pid] = now
+        return false
+    }
+
     func scheduleAXCreationReconciliation(
         pid: pid_t,
         adoptFocused: Bool,
@@ -271,6 +290,9 @@ extension Miri {
                 case .normal:
                     scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
                 case .shortProbe:
+                    guard !shouldRateLimitAXCreatedPlaceholderProbe(pid: pid) else {
+                        return
+                    }
                     scheduleAXCreationReconciliation(
                         pid: pid,
                         adoptFocused: true,

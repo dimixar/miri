@@ -141,6 +141,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Shortcut handling", keyboardShortcutBackendPopup()),
         ("", keyboardShortcutBackendHelp()),
         ("Reconciliation interval ms", intField("windowReconciliationIntervalMS", draft.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000)),
+        ("Placeholder probe cooldown", secondsSlider("axCreatedPlaceholderProbeCooldownSeconds", Double(draft.axCreatedPlaceholderProbeCooldownMS ?? MiriConfig.fallback.axCreatedPlaceholderProbeCooldownMS ?? 1000) / 1000, min: 0.0, max: 5.0)),
         ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
         ("Fullscreen Space guard", secondsSlider("fullscreenSpaceChangeGuardSeconds", Double(draft.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000, min: 0.1, max: 3.0)),
         ("Logical Space autosave", minutesSlider("logicalSpaceAutosaveIntervalMinutes", draft.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30, min: 1, max: 60)),
@@ -269,6 +270,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.persistLayout = bool("persistLayout")
         draft.keyboardShortcutBackend = KeyboardShortcutBackend(rawValue: string("keyboardShortcutBackend"))
         draft.windowReconciliationIntervalMS = int("windowReconciliationIntervalMS")
+        draft.axCreatedPlaceholderProbeCooldownMS = max(0, Int((double("axCreatedPlaceholderProbeCooldownSeconds") * 1000).rounded()))
         draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
         draft.fullscreenSpaceChangeGuardMS = Int((double("fullscreenSpaceChangeGuardSeconds") * 1000).rounded())
         draft.logicalSpaceAutosaveIntervalMinutes = max(1, min(int("logicalSpaceAutosaveIntervalMinutes"), 60))

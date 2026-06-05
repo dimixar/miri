@@ -53,11 +53,14 @@ Some apps emit `AXCreated` before the real window is manageable. Electron,
 Chromium-based apps, JetBrains IDEs, and terminal apps often emit small
 placeholder windows such as `64x64` title-empty AX windows.
 
-miri treats every `AXCreated` from a regular app as a process-level hint and
-schedules a coalesced settle sequence for that PID. New PIDs get a longer
-backoff window because apps such as JetBrains IDEs can expose only placeholder
-AX windows for several seconds before their real window is manageable. PIDs that
-already have managed windows use a shorter sequence.
+miri treats real, manageable, or plausible first-window `AXCreated` events from
+regular apps as process-level hints and schedules a coalesced settle sequence
+for that PID. New PIDs get a longer backoff window because apps such as
+JetBrains IDEs can expose only placeholder AX windows for several seconds before
+their real window is manageable. PIDs that already have managed windows use a
+short placeholder probe, rate-limited by
+`ax_created_placeholder_probe_cooldown_ms`, so bursts during focus movement do
+not build a large reconciliation backlog.
 
 Non-regular apps and helper processes are logged but do not enter the settle
 retry path. This avoids spending background work on menu-bar helpers, text input
@@ -83,6 +86,16 @@ case, per-app reconciliation has a CoreGraphics fallback: when AX window
 discovery for a PID becomes unavailable, miri checks tracked windows for that
 PID by CG window ID and removes any whose CG window no longer exists.
 
+Notion is known to be inconsistent here. Closing its last window without
+quitting the app may produce no useful Accessibility event for the tracked
+window: no destroyed, minimized, deminimized, hidden, shown, focused-window, or
+main-window change notification. When a tracked window reaches snapshot
+animation but CoreGraphics can no longer produce an image for its window ID,
+miri treats that missing snapshot image as a stale-window hint and queues a
+targeted reconciliation for that PID after layout and snapshot animation are
+safe. This keeps the fallback event-driven and avoids reintroducing frequent
+global scans.
+
 ## Full Rescans
 
 Full rescans are still used for startup, native Space changes, config reloads,
@@ -104,5 +117,7 @@ Useful log lines in `~/.config/miri/debug.log`:
   transient system state.
 - `ax reconciliation deferred`: event queued while layout/animation is busy.
 - `ax reconciliation draining`: queued PID reconciliation begins.
+- `snapshot missing image`: snapshot capture failed for a tracked window and
+  queued targeted PID reconciliation.
 - `removing vanished window`: CG fallback removed a stale tracked window.
 - `layout workspace=...`: layout projection and application happened.
