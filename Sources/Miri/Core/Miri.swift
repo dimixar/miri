@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Darwin
 import Foundation
@@ -21,6 +22,9 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var observers: [pid_t: AXObserver] = [:]
     var eventTap: CFMachPort?
     var eventTapSource: CFRunLoopSource?
+    var carbonHotKeys: [EventHotKeyRef] = []
+    var carbonEventHandler: EventHandlerRef?
+    var carbonCommandByID: [UInt32: Command] = [:]
     var commandByKeybinding: [String: Command] = [:]
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
@@ -82,7 +86,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
             startCleanupWatcher()
         }
         configureInput()
-        installEventTap()
+        installInputBackend()
         rescanWindows(adoptFocused: true)
         scheduleReconciliationTimer()
         schedulePeriodicLogicalSpaceSnapshotWrite()
@@ -95,6 +99,8 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     func applicationWillTerminate(_ notification: Notification) {
         snapshotWriteTimer?.cancel()
         logicalSpaceSnapshotTimer?.cancel()
+        uninstallEventTap()
+        uninstallCarbonHotKeys()
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
         if restoreOnExit {

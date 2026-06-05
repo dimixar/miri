@@ -1,9 +1,29 @@
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
 extension Miri {
+    var keyboardShortcutBackend: KeyboardShortcutBackend {
+        config.keyboardShortcutBackend ?? MiriConfig.fallback.keyboardShortcutBackend ?? .eventTap
+    }
+
+    func installInputBackend() {
+        switch keyboardShortcutBackend {
+        case .eventTap:
+            uninstallCarbonHotKeys()
+            installEventTap()
+        case .registeredHotKeys:
+            uninstallEventTap()
+            installCarbonHotKeys()
+        }
+    }
+
     func installEventTap() {
+        guard eventTap == nil else {
+            return
+        }
+
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
@@ -28,6 +48,18 @@ extension Miri {
         eventTapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    func uninstallEventTap() {
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
+        }
+        if let eventTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+        }
+        eventTap = nil
+        eventTapSource = nil
     }
 
     func updateCleanupWatcher(previousRestoreOnExit: Bool) {
@@ -60,10 +92,6 @@ extension Miri {
     }
 
     func handleKeyEvent(_ event: CGEvent) -> Bool {
-        guard !transientSystemWindowIsActive() else {
-            return false
-        }
-
         let modifiers = event.flags
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -83,6 +111,10 @@ extension Miri {
             keyText: keyText,
             commandByKeybinding: commandByKeybinding
         ) else {
+            return false
+        }
+
+        guard !transientSystemWindowIsActive() else {
             return false
         }
 

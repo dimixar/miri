@@ -233,6 +233,7 @@ extension Miri {
 
         loadedConfig = reloaded
         configureInput()
+        installInputBackend()
 
         if windowReconciliationInterval != previousReconciliationInterval {
             scheduleReconciliationTimer()

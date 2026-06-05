@@ -8,6 +8,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let tabView = NSTabView()
     private let rulesTable = NSTableView()
     private weak var ruleTitleMatchHelpLabel: NSTextField?
+    private weak var keyboardShortcutBackendHelpLabel: NSTextField?
 
     private var controls: [String: NSControl] = [:]
 
@@ -137,6 +138,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func generalView() -> NSView { form([
         ("Restore windows on quit", checkbox("restoreOnExit", draft.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true)),
         ("Persist layout", checkbox("persistLayout", draft.persistLayout ?? MiriConfig.fallback.persistLayout ?? true)),
+        ("Shortcut handling", keyboardShortcutBackendPopup()),
+        ("", keyboardShortcutBackendHelp()),
         ("Reconciliation interval ms", intField("windowReconciliationIntervalMS", draft.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000)),
         ("Fullscreen transition grace", secondsSlider("likelyFullscreenTransitionGraceSeconds", Double(draft.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000, min: 0.1, max: 2.0)),
         ("Fullscreen Space guard", secondsSlider("fullscreenSpaceChangeGuardSeconds", Double(draft.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000, min: 0.1, max: 3.0)),
@@ -263,6 +266,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func readControlsIntoDraft() {
         draft.restoreOnExit = bool("restoreOnExit")
         draft.persistLayout = bool("persistLayout")
+        draft.keyboardShortcutBackend = KeyboardShortcutBackend(rawValue: string("keyboardShortcutBackend"))
         draft.windowReconciliationIntervalMS = int("windowReconciliationIntervalMS")
         draft.likelyFullscreenTransitionGraceMS = Int((double("likelyFullscreenTransitionGraceSeconds") * 1000).rounded())
         draft.fullscreenSpaceChangeGuardMS = Int((double("fullscreenSpaceChangeGuardSeconds") * 1000).rounded())
@@ -518,6 +522,48 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func doubleField(_ key: String, _ value: Double) -> NSTextField { textField(key, String(value)) }
     private func popup(_ key: String, _ values: [String], _ selected: String) -> NSPopUpButton { let p = NSPopUpButton(); p.addItems(withTitles: values); p.selectItem(withTitle: selected); controls[key] = p; return p }
 
+    private func keyboardShortcutBackendPopup() -> NSPopUpButton {
+        let selected = draft.keyboardShortcutBackend ?? MiriConfig.fallback.keyboardShortcutBackend ?? .eventTap
+        let popup = NSPopUpButton()
+        for option in KeyboardShortcutBackend.guiOptions {
+            popup.addItem(withTitle: option.title)
+            popup.lastItem?.representedObject = option.backend.rawValue
+        }
+        if let item = popup.itemArray.first(where: { ($0.representedObject as? String) == selected.rawValue }) {
+            popup.select(item)
+        }
+        popup.target = self
+        popup.action = #selector(keyboardShortcutBackendChanged(_:))
+        controls["keyboardShortcutBackend"] = popup
+        return popup
+    }
+
+    private func keyboardShortcutBackendHelp() -> NSTextField {
+        let backend = draft.keyboardShortcutBackend ?? MiriConfig.fallback.keyboardShortcutBackend ?? .eventTap
+        let label = NSTextField(labelWithString: keyboardShortcutBackendHelpText(backend))
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 4
+        label.textColor = .secondaryLabelColor
+        label.widthAnchor.constraint(equalToConstant: 390).isActive = true
+        keyboardShortcutBackendHelpLabel = label
+        return label
+    }
+
+    @objc private func keyboardShortcutBackendChanged(_ sender: NSPopUpButton) {
+        let rawValue = (sender.selectedItem?.representedObject as? String) ?? KeyboardShortcutBackend.eventTap.rawValue
+        let backend = KeyboardShortcutBackend(rawValue: rawValue) ?? .eventTap
+        keyboardShortcutBackendHelpLabel?.stringValue = keyboardShortcutBackendHelpText(backend)
+    }
+
+    private func keyboardShortcutBackendHelpText(_ backend: KeyboardShortcutBackend) -> String {
+        switch backend {
+        case .eventTap:
+            return "Full compatibility. Uses the existing event tap, supports left/right Option shortcuts and excluded shortcuts, and can consume matching keys. It still sees every keyDown, though normal typing should do very little work."
+        case .registeredHotKeys:
+            return "Lower idle/typing overhead. Registers only Miri shortcuts with macOS, so Miri wakes only for those shortcuts. Carbon registered shortcuts cannot distinguish left vs right Option/Alt and do not support fn/globe bindings."
+        }
+    }
+
     private func slider(_ key: String, _ value: Int, min: Int, max: Int) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .horizontal
@@ -609,7 +655,12 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func bool(_ key: String) -> Bool { (controls[key] as? NSButton)?.state == .on }
-    private func string(_ key: String) -> String { if let p = controls[key] as? NSPopUpButton { return p.titleOfSelectedItem ?? "" }; return (controls[key] as? NSTextField)?.stringValue ?? "" }
+    private func string(_ key: String) -> String {
+        if let p = controls[key] as? NSPopUpButton {
+            return (p.selectedItem?.representedObject as? String) ?? p.titleOfSelectedItem ?? ""
+        }
+        return (controls[key] as? NSTextField)?.stringValue ?? ""
+    }
     private func csv(_ key: String) -> [String] { string(key).split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
     private func int(_ key: String) -> Int { if let s = controls[key] as? NSSlider { return s.integerValue }; return Int(string(key)) ?? 0 }
     private func double(_ key: String) -> Double { if let s = controls[key] as? NSSlider { return s.doubleValue }; return Double(string(key)) ?? 0 }
@@ -660,3 +711,10 @@ extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count"
 extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "outline", "filled_outline"] }
 extension WorkspaceBarCenterStyle { static let allCasesStrings = ["delimiter", "border", "filled_border"] }
 extension WidthResizeMode { static let allCasesStrings = ["default", "intelligent"] }
+
+extension KeyboardShortcutBackend {
+    static let guiOptions: [(backend: KeyboardShortcutBackend, title: String)] = [
+        (.eventTap, "Full Compatibility"),
+        (.registeredHotKeys, "Registered Shortcuts"),
+    ]
+}

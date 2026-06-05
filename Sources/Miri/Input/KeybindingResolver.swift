@@ -1,5 +1,13 @@
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+
+struct CarbonHotKey {
+    var keyCode: Int64
+    var modifiers: Int
+    var usesSideSpecificOption: Bool
+    var usesUnsupportedFn: Bool
+}
 
 struct KeybindingResolver {
     static func makeCommandByKeybinding(config: MiriConfig) -> [String: Command] {
@@ -111,6 +119,49 @@ struct KeybindingResolver {
         }
 
         return (orderedModifierParts(from: modifiers) + [key]).joined(separator: "+")
+    }
+
+    static func carbonHotKey(forNormalizedKeybinding binding: String) -> CarbonHotKey? {
+        let parts = binding
+            .split(separator: "+")
+            .map(String.init)
+
+        guard let keyName = parts.last,
+              let keyCode = keyCode(forNormalizedKeyName: keyName)
+        else {
+            return nil
+        }
+
+        var modifiers = 0
+        var usesSideSpecificOption = false
+        var usesUnsupportedFn = false
+
+        for part in parts.dropLast() {
+            switch part {
+            case "cmd":
+                modifiers |= cmdKey
+            case "ctrl":
+                modifiers |= controlKey
+            case "shift":
+                modifiers |= shiftKey
+            case "alt":
+                modifiers |= optionKey
+            case "lalt", "ralt":
+                modifiers |= optionKey
+                usesSideSpecificOption = true
+            case "fn":
+                usesUnsupportedFn = true
+            default:
+                return nil
+            }
+        }
+
+        return CarbonHotKey(
+            keyCode: keyCode,
+            modifiers: modifiers,
+            usesSideSpecificOption: usesSideSpecificOption,
+            usesUnsupportedFn: usesUnsupportedFn
+        )
     }
 
     private static func command(named name: String) -> Command? {
@@ -241,6 +292,15 @@ struct KeybindingResolver {
 
     private static func normalizedKeyName(_ key: String) -> String {
         keyNameAliases[key.lowercased()] ?? key
+    }
+
+    private static func keyCode(forNormalizedKeyName keyName: String) -> Int64? {
+        for (keyCode, names) in keyNamesByCode {
+            if names.map(normalizedKeyName).contains(keyName) {
+                return keyCode
+            }
+        }
+        return nil
     }
 
     private static let keyNamesByCode: [Int64: [String]] = [

@@ -94,6 +94,11 @@ enum WidthResizeMode: String, Codable {
     case intelligent
 }
 
+enum KeyboardShortcutBackend: String, Codable {
+    case eventTap = "event_tap"
+    case registeredHotKeys = "registered_hot_keys"
+}
+
 struct LoadedMiriConfig {
     var config: MiriConfig
     var sourceURL: URL?
@@ -118,6 +123,7 @@ struct MiriConfig: Codable {
     var innerGap: CGFloat?
     var outerGap: CGFloat?
     var parkedSliverWidth: CGFloat?
+    var keyboardShortcutBackend: KeyboardShortcutBackend?
     var excludedKeybindings: [String]?
     var keybindings: [String: [String]]?
     var windowReconciliationIntervalMS: Int?
@@ -158,6 +164,7 @@ struct MiriConfig: Codable {
         innerGap: 0,
         outerGap: 0,
         parkedSliverWidth: 1,
+        keyboardShortcutBackend: .eventTap,
         excludedKeybindings: ["lalt+shift+5"],
         keybindings: defaultKeybindings,
         windowReconciliationIntervalMS: 60000,
@@ -345,6 +352,7 @@ struct MiriConfig: Codable {
         case innerGap = "inner_gap"
         case outerGap = "outer_gap"
         case parkedSliverWidth = "parked_sliver_width"
+        case keyboardShortcutBackend = "keyboard_shortcut_backend"
         case excludedKeybindings = "excluded_keybindings"
         case keybindings
         case windowReconciliationIntervalMS = "window_reconciliation_interval_ms"

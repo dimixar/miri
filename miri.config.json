@@ -16,6 +16,7 @@
   "inner_gap": 0,
   "outer_gap": 0,
   "parked_sliver_width": 1,
+  "keyboard_shortcut_backend": "event_tap",
   "excluded_keybindings": ["cmd+shift+5"],
   "keybindings": {
     "focus_workspace_1": ["lalt+1"],

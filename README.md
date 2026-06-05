@@ -243,7 +243,7 @@ The menu bar item shows the workspace strip and exposes:
 The settings editor writes to the active JSON config and reloads miri in place.
 It covers layout, animation options, fullscreen/Space recovery,
 logical Space autosave, window rules, excluded shortcuts, and
-command keybindings.
+command keybindings, including the shortcut handling backend.
 
 ## Configuration
 
@@ -269,6 +269,7 @@ A compact example:
   "focus_alignment": "smart",
   "new_window_position": "after_active",
   "workspace_auto_back_and_forth": true,
+  "keyboard_shortcut_backend": "event_tap",
   "excluded_keybindings": ["cmd+shift+5"],
   "keybindings": {
     "column_left": ["lalt+h"],
@@ -299,6 +300,18 @@ A compact example:
 ```
 
 ### Keybindings
+
+`keyboard_shortcut_backend` controls how global Miri shortcuts are captured:
+
+- `event_tap`: full compatibility. Miri uses a CG event tap, supports
+  side-specific `lalt`/`ralt`, supports excluded shortcuts, and can consume
+  matching keys. The tap receives every `keyDown`, so this is the most flexible
+  route but has more per-keystroke wakeups.
+- `registered_hot_keys`: lower typing overhead. Miri registers its configured
+  shortcuts with macOS using Carbon `RegisterEventHotKey`, so Miri is called
+  only for those shortcuts. This route cannot distinguish left vs right
+  Option/Alt, treats `lalt` and `ralt` as generic `alt`, and does not support
+  `fn`/Globe bindings.
 
 `keybindings` is merged with built-in defaults by action name, so a config can
 override only selected actions. Set an action to `[]` to disable it.
