@@ -4,6 +4,12 @@ import CoreGraphics
 import Darwin
 import Foundation
 
+enum AXCreatedReconciliationAction {
+    case ignore
+    case normal
+    case shortProbe
+}
+
 extension Miri {
     @objc func applicationActivated(_ notification: Notification) {
         guard !isApplyingLayout else {
@@ -534,17 +540,22 @@ extension Miri {
         return positionError == .success && sizeError == .success && positionSettable.boolValue && sizeSettable.boolValue
     }
 
-    func shouldScheduleAXCreatedReconciliation(for element: AXUIElement, pid: pid_t) -> Bool {
-        if pid == 0 || isKnownWindow(element) || isManageableWindow(element) || isLikelyAXCreatedWindowPlaceholder(element) {
-            return true
+    func axCreatedReconciliationAction(for element: AXUIElement, pid: pid_t) -> AXCreatedReconciliationAction {
+        if pid == 0 || isKnownWindow(element) || isManageableWindow(element) {
+            return .normal
+        }
+
+        let knownWindowCount = allWindows().filter { $0.pid == pid }.count
+        if isLikelyAXCreatedWindowPlaceholder(element) {
+            return knownWindowCount == 0 ? .normal : .shortProbe
         }
 
         let role = axString(element, kAXRoleAttribute) ?? "nil"
         let subrole = axString(element, kAXSubroleAttribute) ?? "nil"
         let frameDescription = axFrame(element).map { String(describing: $0) } ?? "nil"
         let title = axString(element, kAXTitleAttribute) ?? ""
-        debugLog("ax created ignored reason=unmanageable-created pid=\(pid) title='\(title)' role=\(role) subrole=\(subrole) frame=\(frameDescription)")
-        return false
+        debugLog("ax created ignored reason=unmanageable-created pid=\(pid) knownWindows=\(knownWindowCount) title='\(title)' role=\(role) subrole=\(subrole) frame=\(frameDescription)")
+        return .ignore
     }
 
     func isLikelyAXCreatedWindowPlaceholder(_ element: AXUIElement) -> Bool {

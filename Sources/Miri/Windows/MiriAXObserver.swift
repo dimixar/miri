@@ -74,7 +74,12 @@ extension Miri {
         }
     }
 
-    func scheduleAXCreationReconciliation(pid: pid_t, adoptFocused: Bool, reason: String) {
+    func scheduleAXCreationReconciliation(
+        pid: pid_t,
+        adoptFocused: Bool,
+        reason: String,
+        delays overrideDelays: [TimeInterval]? = nil
+    ) {
         guard pid != 0 else {
             deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, needsFullRescan: true, reason: reason)
             return
@@ -92,9 +97,9 @@ extension Miri {
         axCreationSettleGeneration &+= 1
         let generation = axCreationSettleGeneration
         pendingAXCreationSettleGenerations[pid] = generation
-        let delays: [TimeInterval] = originalWindowCount == 0
+        let delays: [TimeInterval] = overrideDelays ?? (originalWindowCount == 0
             ? [0.12, 0.45, 1.0, 2.5, 5.0, 10.0, 20.0, 35.0]
-            : [0.12, 0.45, 1.0, 2.5]
+            : [0.12, 0.45, 1.0, 2.5])
         debugLog("ax creation reconciliation scheduled reason=\(reason) pid=\(pid) knownWindows=\(originalWindowCount) attempts=\(delays.count)")
 
         for (index, delay) in delays.enumerated() {
@@ -260,10 +265,19 @@ extension Miri {
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
             if name == kAXCreatedNotification {
-                guard shouldScheduleAXCreatedReconciliation(for: element, pid: pid) else {
+                switch axCreatedReconciliationAction(for: element, pid: pid) {
+                case .ignore:
                     return
+                case .normal:
+                    scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
+                case .shortProbe:
+                    scheduleAXCreationReconciliation(
+                        pid: pid,
+                        adoptFocused: true,
+                        reason: "\(name):placeholder-probe",
+                        delays: [0.12, 0.45]
+                    )
                 }
-                scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
                 return
             }
             guard !axReconciliationShouldDefer else {
