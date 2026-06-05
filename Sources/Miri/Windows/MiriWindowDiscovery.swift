@@ -96,6 +96,11 @@ extension Miri {
 
         startObservingApp(pid: app.processIdentifier)
         guard let discovered = discoverWindows(for: app) else {
+            removeVanishedWindows(
+                forPID: app.processIdentifier,
+                adoptFocused: adoptFocused,
+                reason: "reconcile AXWindows unavailable"
+            )
             return
         }
         reconcileDiscoveredWindows(
@@ -104,6 +109,32 @@ extension Miri {
             adoptFocused: adoptFocused,
             layoutLockDelay: 0.08
         )
+    }
+
+    @discardableResult
+    func removeVanishedWindows(forPID pid: pid_t, adoptFocused: Bool, reason: String) -> Bool {
+        var changed = false
+        var removedActive = false
+
+        for window in allWindows().filter({ $0.pid == pid }) {
+            guard !windowHasCGInfo(window) else {
+                continue
+            }
+
+            let wasActiveWindow = activeWindow().map { $0 === window } == true
+            debugLog(
+                "removing vanished window reason=\(reason) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil")"
+            )
+            removeWindow(window, preferRightFocus: true)
+            changed = true
+            removedActive = removedActive || wasActiveWindow
+        }
+
+        if changed {
+            projectLayout(focusActiveWindow: adoptFocused || removedActive, layoutLockDelay: 0.02)
+            saveActiveLogicalSpaceContext()
+        }
+        return changed
     }
 
     func reconcileDiscoveredWindows(

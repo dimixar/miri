@@ -57,6 +57,8 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingAXReconciliationAdoptFocused = false
     var pendingAXReconciliationNeedsFullRescan = false
     var pendingAXReconciliationDrainScheduled = false
+    var pendingAXCreationSettleGenerations: [pid_t: UInt64] = [:]
+    var axCreationSettleGeneration: UInt64 = 0
     var transientWindowActive = false
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0

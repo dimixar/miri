@@ -55,7 +55,7 @@ extension Miri {
 
         let pids = pendingAXReconciliationPIDs
         let adoptFocused = pendingAXReconciliationAdoptFocused
-        let needsFullRescan = pendingAXReconciliationNeedsFullRescan || pids.count > 1
+        let needsFullRescan = pendingAXReconciliationNeedsFullRescan
         pendingAXReconciliationPIDs.removeAll()
         pendingAXReconciliationAdoptFocused = false
         pendingAXReconciliationNeedsFullRescan = false
@@ -68,8 +68,47 @@ extension Miri {
             return
         }
 
-        if let pid = pids.first {
+        for pid in pids {
             reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
+        }
+    }
+
+    func scheduleAXCreationReconciliation(pid: pid_t, adoptFocused: Bool, reason: String) {
+        guard pid != 0 else {
+            deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, needsFullRescan: true, reason: reason)
+            return
+        }
+
+        let originalWindowCount = allWindows().filter { $0.pid == pid }.count
+        axCreationSettleGeneration &+= 1
+        let generation = axCreationSettleGeneration
+        pendingAXCreationSettleGenerations[pid] = generation
+        let delays: [TimeInterval] = [0.12, 0.45, 1.0]
+        debugLog("ax creation reconciliation scheduled reason=\(reason) pid=\(pid) attempts=\(delays.count)")
+
+        for (index, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      self.pendingAXCreationSettleGenerations[pid] == generation
+                else {
+                    return
+                }
+
+                if self.axReconciliationShouldDefer {
+                    self.deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, reason: "\(reason):settle")
+                } else {
+                    self.reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
+                    let currentWindowCount = self.allWindows().filter { $0.pid == pid }.count
+                    if currentWindowCount > originalWindowCount {
+                        self.pendingAXCreationSettleGenerations.removeValue(forKey: pid)
+                        return
+                    }
+                }
+
+                if index == delays.indices.last {
+                    self.pendingAXCreationSettleGenerations.removeValue(forKey: pid)
+                }
+            }
         }
     }
 
@@ -203,6 +242,10 @@ extension Miri {
              kAXApplicationShownNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
+            if name == kAXCreatedNotification {
+                scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
+                return
+            }
             guard !axReconciliationShouldDefer else {
                 guard isKnownWindow(element) || isManageableWindow(element) else {
                     debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) manageable=false known=false")
