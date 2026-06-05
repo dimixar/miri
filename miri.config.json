@@ -7,6 +7,7 @@
   "width_animation_ms": 0,
   "animation_curve": "smooth",
   "animation_strategy": "snapshot",
+  "snapshot_animation_speed": 50,
   "animation_fps": 60,
   "animation_pixel_threshold": 0.5,
   "workspace_auto_back_and_forth": true,

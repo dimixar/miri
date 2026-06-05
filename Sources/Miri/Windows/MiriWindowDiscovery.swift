@@ -28,6 +28,10 @@ extension Miri {
             return
         }
         startObservingApp(pid: app.processIdentifier)
+        guard !axReconciliationShouldDefer else {
+            deferAXReconciliation(pid: app.processIdentifier, adoptFocused: true, reason: "NSWorkspaceDidLaunch")
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.reconcileWindows(for: app, adoptFocused: true)
         }
@@ -35,6 +39,15 @@ extension Miri {
 
     @objc func applicationTerminated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+            return
+        }
+        guard !axReconciliationShouldDefer else {
+            deferAXReconciliation(
+                pid: app.processIdentifier,
+                adoptFocused: true,
+                needsFullRescan: true,
+                reason: "NSWorkspaceDidTerminate"
+            )
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in

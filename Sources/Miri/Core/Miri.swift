@@ -49,6 +49,14 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var snapshotAnimationSession: SnapshotAnimationSession?
     var snapshotOverlayWindow: SnapshotOverlayWindow?
     var snapshotHiddenWindows: [ManagedWindow] = []
+    var snapshotAnimationPreparing = false
+    var pendingSnapshotDeferredLayout = false
+    var pendingSnapshotDeferredFocusActiveWindow = false
+    var pendingSnapshotDeferredLayoutLockDelay: TimeInterval = 0.08
+    var pendingAXReconciliationPIDs = Set<pid_t>()
+    var pendingAXReconciliationAdoptFocused = false
+    var pendingAXReconciliationNeedsFullRescan = false
+    var pendingAXReconciliationDrainScheduled = false
     var transientWindowActive = false
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0

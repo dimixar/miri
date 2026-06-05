@@ -32,6 +32,10 @@ extension Miri {
         config.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snapshot
     }
 
+    var snapshotAnimationSpeed: Int {
+        config.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50
+    }
+
     var animationFPS: Int {
         config.animationFPS ?? MiriConfig.fallback.animationFPS ?? 30
     }

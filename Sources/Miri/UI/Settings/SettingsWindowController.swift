@@ -159,9 +159,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     ]) }
 
     private func animationsView() -> NSView { form([
-        ("Animation duration ms", intField("animationDurationMS", draft.animationDurationMS ?? 0)),
-        ("Keyboard animation ms", intField("keyboardAnimationMS", draft.keyboardAnimationMS ?? 0)),
-        ("Move column animation ms", intField("moveColumnAnimationMS", draft.moveColumnAnimationMS ?? 0)),
+        ("Snapshot speed", slider("snapshotAnimationSpeed", draft.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50, min: 1, max: 100)),
+        ("Fallback AX duration ms", intField("animationDurationMS", draft.animationDurationMS ?? 0)),
+        ("Keyboard AX duration ms", intField("keyboardAnimationMS", draft.keyboardAnimationMS ?? 0)),
+        ("Move column AX duration ms", intField("moveColumnAnimationMS", draft.moveColumnAnimationMS ?? 0)),
         ("Width animation ms", intField("widthAnimationMS", draft.widthAnimationMS ?? 0)),
         ("Strategy", popup("animationStrategy", AnimationStrategy.allCasesStrings, draft.animationStrategy?.rawValue ?? MiriConfig.fallback.animationStrategy?.rawValue ?? "snapshot")),
         ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 60)),
@@ -285,6 +286,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.moveColumnAnimationMS = int("moveColumnAnimationMS")
         draft.widthAnimationMS = int("widthAnimationMS")
         draft.animationStrategy = AnimationStrategy(rawValue: string("animationStrategy"))
+        draft.snapshotAnimationSpeed = max(1, min(int("snapshotAnimationSpeed"), 100))
         draft.animationFPS = int("animationFPS")
         draft.animationPixelThreshold = CGFloat(double("animationPixelThreshold"))
         draft.animationCurve = AnimationCurve(rawValue: string("animationCurve"))

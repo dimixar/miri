@@ -114,6 +114,7 @@ struct MiriConfig: Codable {
     var widthAnimationMS: Int?
     var animationCurve: AnimationCurve?
     var animationStrategy: AnimationStrategy?
+    var snapshotAnimationSpeed: Int?
     var animationFPS: Int?
     var animationPixelThreshold: CGFloat?
     var workspaceAutoBackAndForth: Bool?
@@ -155,6 +156,7 @@ struct MiriConfig: Codable {
         widthAnimationMS: 280,
         animationCurve: .smooth,
         animationStrategy: .snapshot,
+        snapshotAnimationSpeed: 50,
         animationFPS: 60,
         animationPixelThreshold: 0.5,
         workspaceAutoBackAndForth: true,
@@ -280,6 +282,7 @@ struct MiriConfig: Codable {
         config.keyboardAnimationMS = config.keyboardAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }
         config.widthAnimationMS = config.widthAnimationMS.map { min(max($0, 0), 500) }
+        config.snapshotAnimationSpeed = config.snapshotAnimationSpeed.map { min(max($0, 1), 100) }
         config.animationFPS = config.animationFPS.map { min(max($0, 1), 120) }
         config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
@@ -343,6 +346,7 @@ struct MiriConfig: Codable {
         case widthAnimationMS = "width_animation_ms"
         case animationCurve = "animation_curve"
         case animationStrategy = "animation_strategy"
+        case snapshotAnimationSpeed = "snapshot_animation_speed"
         case animationFPS = "animation_fps"
         case animationPixelThreshold = "animation_pixel_threshold"
         case workspaceAutoBackAndForth = "workspace_auto_back_and_forth"

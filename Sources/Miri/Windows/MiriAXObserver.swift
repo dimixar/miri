@@ -3,6 +3,76 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
+    var axReconciliationShouldDefer: Bool {
+        isApplyingLayout
+            || animationTimer != nil
+            || snapshotAnimationSession != nil
+            || snapshotAnimationPreparing
+            || pendingSnapshotDeferredLayout
+    }
+
+    func deferAXReconciliation(
+        pid: pid_t,
+        adoptFocused: Bool,
+        needsFullRescan: Bool = false,
+        reason: String
+    ) {
+        if pid != 0 {
+            pendingAXReconciliationPIDs.insert(pid)
+        } else {
+            pendingAXReconciliationNeedsFullRescan = true
+        }
+        pendingAXReconciliationAdoptFocused = pendingAXReconciliationAdoptFocused || adoptFocused
+        pendingAXReconciliationNeedsFullRescan = pendingAXReconciliationNeedsFullRescan || needsFullRescan
+        debugLog(
+            "ax reconciliation deferred reason=\(reason) pid=\(pid) pids=\(pendingAXReconciliationPIDs.count) fullRescan=\(pendingAXReconciliationNeedsFullRescan)"
+        )
+        schedulePendingAXReconciliationDrain()
+    }
+
+    func schedulePendingAXReconciliationDrain() {
+        guard !pendingAXReconciliationDrainScheduled else {
+            return
+        }
+        pendingAXReconciliationDrainScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            self?.drainPendingAXReconciliationIfReady()
+        }
+    }
+
+    func drainPendingAXReconciliationIfReady() {
+        guard !axReconciliationShouldDefer else {
+            pendingAXReconciliationDrainScheduled = false
+            schedulePendingAXReconciliationDrain()
+            return
+        }
+
+        pendingAXReconciliationDrainScheduled = false
+        guard pendingAXReconciliationNeedsFullRescan || !pendingAXReconciliationPIDs.isEmpty else {
+            pendingAXReconciliationAdoptFocused = false
+            return
+        }
+
+        let pids = pendingAXReconciliationPIDs
+        let adoptFocused = pendingAXReconciliationAdoptFocused
+        let needsFullRescan = pendingAXReconciliationNeedsFullRescan || pids.count > 1
+        pendingAXReconciliationPIDs.removeAll()
+        pendingAXReconciliationAdoptFocused = false
+        pendingAXReconciliationNeedsFullRescan = false
+
+        debugLog(
+            "ax reconciliation draining pids=\(pids.count) fullRescan=\(needsFullRescan) adoptFocused=\(adoptFocused)"
+        )
+        if needsFullRescan {
+            rescanWindows(adoptFocused: adoptFocused)
+            return
+        }
+
+        if let pid = pids.first {
+            reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
+        }
+    }
+
     @discardableResult
     func adoptFocusedWindow(pid: pid_t?, applyLayout: Bool = true) -> Bool {
         guard let pid else {
@@ -98,6 +168,8 @@ extension Miri {
         switch name {
         case kAXFocusedWindowChangedNotification:
             guard !isApplyingLayout,
+                  snapshotAnimationSession == nil,
+                  !snapshotAnimationPreparing,
                   animationTimer == nil,
                   CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil
             else {
@@ -107,11 +179,19 @@ extension Miri {
             AXUIElementGetPid(element, &pid)
             adoptFocusedWindow(pid: pid)
         case kAXUIElementDestroyedNotification:
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            guard !axReconciliationShouldDefer else {
+                guard isKnownWindow(element) else {
+                    debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) known=false")
+                    return
+                }
+                deferAXReconciliation(pid: pid, adoptFocused: true, needsFullRescan: true, reason: name)
+                return
+            }
             if removeDestroyedWindowImmediately(element) {
                 saveActiveLogicalSpaceContext()
             } else {
-                var pid: pid_t = 0
-                AXUIElementGetPid(element, &pid)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                     self?.reconcileWindows(forPID: pid, adoptFocused: true)
                 }
@@ -123,10 +203,28 @@ extension Miri {
              kAXApplicationShownNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
+            guard !axReconciliationShouldDefer else {
+                guard isKnownWindow(element) || isManageableWindow(element) else {
+                    debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) manageable=false known=false")
+                    return
+                }
+                deferAXReconciliation(pid: pid, adoptFocused: true, reason: name)
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 self?.reconcileWindows(forPID: pid, adoptFocused: true)
             }
         case kAXWindowResizedNotification:
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            guard !axReconciliationShouldDefer else {
+                guard tiledWindow(for: element) != nil else {
+                    debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) tracked=false")
+                    return
+                }
+                deferAXReconciliation(pid: pid, adoptFocused: false, reason: name)
+                return
+            }
             if handleFullscreenTransitionIfNeeded(element) {
                 return
             }
@@ -147,6 +245,16 @@ extension Miri {
                 beginOrContinueManualResize(for: element)
             }
         case kAXWindowMovedNotification:
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            guard !axReconciliationShouldDefer else {
+                guard tiledWindow(for: element) != nil else {
+                    debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) tracked=false")
+                    return
+                }
+                deferAXReconciliation(pid: pid, adoptFocused: false, reason: name)
+                return
+            }
             if handleFullscreenTransitionIfNeeded(element) {
                 return
             }

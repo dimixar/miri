@@ -17,6 +17,13 @@ extension Miri {
             notifyWorkspaceBarNeedsRefresh()
         }
         enforceFullscreenSpaceGuardWorkspace()
+        if !animated, snapshotAnimationSession != nil || snapshotAnimationPreparing {
+            deferLayoutUntilSnapshotSettles(
+                focusActiveWindow: focusActiveWindow,
+                layoutLockDelay: layoutLockDelay
+            )
+            return
+        }
         layoutRequestGeneration &+= 1
         let viewport = currentViewport()
 
@@ -24,8 +31,9 @@ extension Miri {
         debugLog("layout workspace=\(targetState.activeWorkspace + 1) tiled=\(tiledWindows().count) floating=\(floatingWindows.count) animated=\(animated)")
         hideInactiveWorkspaceWindows(activeWorkspace: targetState.activeWorkspace)
         let duration = animationDuration ?? self.animationDuration
-        suppressManualResizeNotifications(for: (animated ? duration : 0) + max(layoutLockDelay, 0.25))
-        if animated, duration > 0, let previousState {
+        let shouldAnimate = animated && (animationStrategy == .snapshot || duration > 0)
+        suppressManualResizeNotifications(for: (shouldAnimate ? max(duration, 0.25) : 0) + max(layoutLockDelay, 0.25))
+        if shouldAnimate, let previousState {
             animateLayout(
                 from: previousState,
                 to: targetState,
@@ -44,6 +52,34 @@ extension Miri {
         applyLayout(layout, focusActiveWindow: focusActiveWindow)
         restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
         releaseLayoutLock(after: layoutLockDelay)
+    }
+
+    func deferLayoutUntilSnapshotSettles(focusActiveWindow: Bool, layoutLockDelay: TimeInterval) {
+        pendingSnapshotDeferredFocusActiveWindow = focusActiveWindow
+        pendingSnapshotDeferredLayoutLockDelay = layoutLockDelay
+        guard !pendingSnapshotDeferredLayout else {
+            debugLog("layout deferred during snapshot already pending")
+            return
+        }
+        pendingSnapshotDeferredLayout = true
+        debugLog("layout deferred during snapshot focus=\(focusActiveWindow) lockDelay=\(String(format: "%.2f", layoutLockDelay))")
+        pollDeferredSnapshotLayout()
+    }
+
+    func pollDeferredSnapshotLayout() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self else {
+                return
+            }
+            guard snapshotAnimationSession == nil, !snapshotAnimationPreparing else {
+                pollDeferredSnapshotLayout()
+                return
+            }
+            let focusActiveWindow = pendingSnapshotDeferredFocusActiveWindow
+            let layoutLockDelay = pendingSnapshotDeferredLayoutLockDelay
+            pendingSnapshotDeferredLayout = false
+            projectLayout(focusActiveWindow: focusActiveWindow, layoutLockDelay: layoutLockDelay)
+        }
     }
 
     func layoutItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {

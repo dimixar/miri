@@ -82,6 +82,7 @@ extension Miri {
     func stopAnimation(clearPresentation: Bool) {
         animationTimer?.cancel()
         animationTimer = nil
+        snapshotAnimationPreparing = false
         snapshotAnimationSession?.cancel()
         snapshotAnimationSession = nil
         restoreSnapshotHiddenWindows()
@@ -93,17 +94,26 @@ extension Miri {
 
     func releaseLayoutLock(after delay: TimeInterval = 0.08) {
         guard delay > 0 else {
-            isApplyingLayout = false
-            drainPendingFocusCommands()
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, animationTimer == nil, snapshotAnimationSession == nil else {
+            guard animationTimer == nil, snapshotAnimationSession == nil, !snapshotAnimationPreparing else {
                 return
             }
             isApplyingLayout = false
             drainPendingFocusCommands()
+            drainPendingAXReconciliationIfReady()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  animationTimer == nil,
+                  snapshotAnimationSession == nil,
+                  !snapshotAnimationPreparing
+            else {
+                return
+            }
+            isApplyingLayout = false
+            drainPendingFocusCommands()
+            drainPendingAXReconciliationIfReady()
         }
     }
 

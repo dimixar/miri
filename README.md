@@ -265,6 +265,7 @@ A compact example:
   "default_width_ratio": 0.67,
   "preset_width_ratios": [0.33, 0.5, 0.67, 1.0],
   "animation_strategy": "snapshot",
+  "snapshot_animation_speed": 50,
   "animation_fps": 60,
   "focus_alignment": "smart",
   "new_window_position": "after_active",
@@ -327,6 +328,8 @@ default command list.
 
 - `animation_curve`: `smooth`, `snappy`, or `linear`
 - `animation_strategy`: `snapshot` or `off`
+- `snapshot_animation_speed`: `1` to `100`; drives snapshot movement as
+  per-frame speed instead of a fixed millisecond duration
 - `focus_alignment`: `left`, `center`, or `smart`
 - `new_window_position` / rule `open_position`: `before_active`,
   `after_active`, or `end`
