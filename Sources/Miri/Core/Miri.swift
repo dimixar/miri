@@ -45,10 +45,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var snapshotAnimationSession: SnapshotAnimationSession?
     var snapshotOverlayWindow: SnapshotOverlayWindow?
     var snapshotHiddenWindows: [ManagedWindow] = []
-    var hoverFocusTimer: DispatchSourceTimer?
-    var hoverFocusTarget: ObjectIdentifier?
-    var hoverFocusRequiresRearm = false
-    var hoverFocusSuppressedUntil: CFAbsoluteTime = 0
     var transientWindowActive = false
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0
@@ -57,14 +53,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var layoutRequestGeneration: UInt64 = 0
     let floatingWindowLevel = Int32(CGWindowLevelForKey(.floatingWindow))
     var transientWindowStateCheckedAt: CFAbsoluteTime = 0
-    var trackpadNavigation: ThreeFingerTrackpadNavigation?
-    var trackpadCameraY: CGFloat?
-    var trackpadCameraVelocity = CGPoint.zero
-    var trackpadPendingCameraDelta = CGSize.zero
-    var trackpadLatestCameraVelocity = CGPoint.zero
-    var trackpadRenderTimer: DispatchSourceTimer?
-    var trackpadMomentumTimer: DispatchSourceTimer?
-    var trackpadMomentumLastFrameAt: CFAbsoluteTime = 0
     var manualResizeEndTimer: DispatchSourceTimer?
     var manualResizeElement: AXUIElement?
     var manualResizeSuppressedUntil: CFAbsoluteTime = 0
@@ -95,20 +83,12 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         configureInput()
         installEventTap()
-        installTrackpadNavigation()
         rescanWindows(adoptFocused: true)
         scheduleRescanTimer()
         schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")
         print("miri: loaded \(commandByKeybinding.count) keybindings")
-        if trackpadNavigationEnabled {
-            if trackpadNavigation != nil {
-                print("miri: three-finger trackpad swipe navigates columns/workspaces")
-            } else {
-                print("miri: three-finger trackpad navigation unavailable; private MultitouchSupport backend did not start")
-            }
-        }
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
     }
 

@@ -66,7 +66,7 @@ Core ideas:
 
 miri arranges tiled windows into horizontal columns grouped by virtual
 workspaces. Column width, width presets, focus alignment, new-window placement,
-and hover-to-focus are configurable.
+and keyboard navigation are configurable.
 
 ### macOS Recovery
 
@@ -99,16 +99,16 @@ active animation, and animations can be throttled or disabled.
 ### Input and Rules
 
 Defaults use **left Option** (`lalt`) so common macOS shortcuts keep working.
-Keybindings support side-specific modifiers, excluded shortcuts, and optional
-three-finger trackpad navigation. Rules can match apps and title text, including
+Keybindings support side-specific modifiers and excluded shortcuts. Rules can
+match apps and title text, including
 exact title matches, and can control tiling, floating, ignoring, workspace
-placement, width, open position, trackpad navigation, and hover-to-focus.
+placement, width, and open position.
 
 ### Private API Scope
 
 Moving, resizing, focusing, discovering, and observing normal app windows are
 Accessibility/AppKit-led. Private APIs are limited to window ID lookup,
-floating-window levels, and optional raw trackpad contact frames.
+and floating-window levels.
 
 ## Requirements and permissions
 
@@ -162,20 +162,6 @@ apps after miri exits.
 There is no public macOS API for changing another application's window level.
 The public fallback is only raise/focus ordering, which is not the same thing as
 a real WindowServer level change.
-
-### Trackpad contact frames
-
-`Sources/Miri/Trackpad/ThreeFingerTrackpadNavigation.swift` loads Apple's
-private MultitouchSupport framework and resolves:
-
-```text
-MTDeviceCreateList
-MTRegisterContactFrameCallback
-MTDeviceStart
-```
-
-This powers raw multi-finger trackpad navigation for columns/workspaces. It is
-independent from SkyLight and can be disabled with `trackpad_navigation: false`.
 
 ## Install and run
 
@@ -238,7 +224,6 @@ unless configured otherwise.
 | `LAlt+Ctrl+-` / `LAlt+Ctrl+=` | Nudge active column width |
 | `LAlt+Ctrl+Shift+H` / `LAlt+Ctrl+Shift+L` | Cycle every tiled window width preset |
 | `LAlt+Ctrl+Shift+-` / `LAlt+Ctrl+Shift+=` | Nudge every tiled window width |
-| Three-finger trackpad swipe | Navigate columns / workspaces |
 
 ## Menu bar and settings
 
@@ -256,8 +241,8 @@ The menu bar item shows the workspace strip and exposes:
 - **Quit Miri**, which performs normal window restoration.
 
 The settings editor writes to the active JSON config and reloads miri in place.
-It covers layout, focus behavior, animation options, fullscreen/Space recovery,
-logical Space autosave, trackpad tuning, window rules, excluded shortcuts, and
+It covers layout, animation options, fullscreen/Space recovery,
+logical Space autosave, window rules, excluded shortcuts, and
 command keybindings.
 
 ## Configuration
@@ -281,7 +266,6 @@ A compact example:
   "preset_width_ratios": [0.33, 0.5, 0.67, 1.0],
   "animation_strategy": "snapshot",
   "animation_fps": 60,
-  "hover_to_focus": true,
   "focus_alignment": "smart",
   "new_window_position": "after_active",
   "workspace_auto_back_and_forth": true,
@@ -292,7 +276,6 @@ A compact example:
     "workspace_down": ["lalt+j"],
     "workspace_up": ["lalt+k"]
   },
-  "trackpad_navigation": true,
   "restore_on_exit": true,
   "persist_layout": true,
   "width_resize_mode": "default",
@@ -330,11 +313,9 @@ default command list.
 
 - `animation_curve`: `smooth`, `snappy`, or `linear`
 - `animation_strategy`: `snapshot` or `off`
-- `hover_focus_mode`: `off`, `visible_only`, or `edge_or_visible`
 - `focus_alignment`: `left`, `center`, or `smart`
 - `new_window_position` / rule `open_position`: `before_active`,
   `after_active`, or `end`
-- `trackpad_navigation_snap`: `nearest_column`, `nearest_visible`, or `none`
 - `width_resize_mode`: `default` or `intelligent`
 - `workspace_bar_overflow_style`: `plus_count`, `dots_count`, `chevron`, or
   `none`
@@ -360,8 +341,6 @@ Rules can match on `bundle_id`, `app_name`, or `title_contains`.
 - `width_ratio`: override the default column width.
 - `workspace`: open on a specific Miri workspace.
 - `open_position`: choose where matching windows are inserted.
-- `trackpad_navigation` and `hover_to_focus`: override those features for
-  matching windows.
 
 ## Native macOS Space handling
 
@@ -405,7 +384,6 @@ buffer state.
 Sources/Miri/Core/          coordinator, commands, status providers
 Sources/Miri/Config/        config model and effective settings
 Sources/Miri/Input/         keyboard/event tap input and keybinding resolution
-Sources/Miri/Trackpad/      raw trackpad backend and camera/momentum
 Sources/Miri/Layout/        projection, geometry, application, animations
 Sources/Miri/Windows/       discovery, placement, lookup, transient windows, AX observers
 Sources/Miri/Persistence/   layout persistence and exit/crash restoration
@@ -421,8 +399,6 @@ Sources/Miri/System/        Accessibility and SkyLight wrappers
   window images.
 - SkyLight floating-window level changes are private; when unavailable, floating
   windows may fall back to normal raise/focus behavior.
-- Trackpad navigation uses Apple's private MultitouchSupport framework and may
-  need updates across macOS releases.
 - Native macOS Space handling is inferred from visible windows. If two Spaces
   contain indistinguishable sets of windows, miri may not be able to tell them
   apart without private Space IDs.

@@ -153,7 +153,6 @@ struct LayoutState: Equatable {
     var activeWorkspace: Int
     var activeColumns: [Int]
     var scrollOffsets: [CGFloat?]
-    var cameraY: CGFloat?
 }
 
 struct LayoutItem: Sendable {

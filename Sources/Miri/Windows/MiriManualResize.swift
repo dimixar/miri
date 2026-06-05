@@ -227,7 +227,6 @@ extension Miri {
     }
 
     func beginOrContinueManualResize(for element: AXUIElement) {
-        cancelHoverFocus()
         guard !isFullscreenWindow(element) else {
             _ = handleFullscreenTransitionIfNeeded(element)
             return

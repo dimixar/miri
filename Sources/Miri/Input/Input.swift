@@ -113,9 +113,3 @@ enum Command {
     case nudgeAllWidthsNarrower
     case nudgeAllWidthsWider
 }
-
-enum TrackpadNavigationEvent {
-    case began
-    case changed(delta: CGPoint, velocity: CGPoint)
-    case ended(velocity: CGPoint)
-}

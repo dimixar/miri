@@ -42,18 +42,6 @@ enum AnimationStrategy: String, Codable {
     }
 }
 
-enum HoverFocusMode: String, Codable {
-    case off
-    case visibleOnly = "visible_only"
-    case edgeOrVisible = "edge_or_visible"
-}
-
-enum TrackpadNavigationSnap: String, Codable {
-    case nearestColumn = "nearest_column"
-    case nearestVisible = "nearest_visible"
-    case none
-}
-
 enum WorkspaceBarOverflowStyle: String, Codable {
     case plusCount = "plus_count"
     case dotsCount = "dots_count"
@@ -117,21 +105,12 @@ struct MiriConfig: Codable {
     var presetWidthRatios: [CGFloat]?
     var animationDurationMS: Int?
     var keyboardAnimationMS: Int?
-    var hoverFocusAnimationMS: Int?
-    var trackpadSettleAnimationMS: Int?
     var moveColumnAnimationMS: Int?
     var widthAnimationMS: Int?
     var animationCurve: AnimationCurve?
     var animationStrategy: AnimationStrategy?
     var animationFPS: Int?
     var animationPixelThreshold: CGFloat?
-    var hoverToFocus: Bool?
-    var hoverFocusDelayMS: Int?
-    var hoverFocusMaxScrollRatio: CGFloat?
-    var hoverFocusRequiresVisibleRatio: CGFloat?
-    var hoverFocusEdgeTriggerWidth: CGFloat?
-    var hoverFocusAfterTrackpadMS: Int?
-    var hoverFocusMode: HoverFocusMode?
     var workspaceAutoBackAndForth: Bool?
     var centerFocusedColumn: Bool?
     var focusAlignment: FocusAlignment?
@@ -141,17 +120,6 @@ struct MiriConfig: Codable {
     var parkedSliverWidth: CGFloat?
     var excludedKeybindings: [String]?
     var keybindings: [String: [String]]?
-    var trackpadNavigation: Bool?
-    var trackpadNavigationFingers: Int?
-    var trackpadNavigationSensitivity: CGFloat?
-    var trackpadNavigationDeceleration: CGFloat?
-    var trackpadNavigationHoverSuppressionMS: Int?
-    var trackpadNavigationMomentumMinVelocity: CGFloat?
-    var trackpadNavigationVelocityGain: CGFloat?
-    var trackpadNavigationSettleAnimationMS: Int?
-    var trackpadNavigationSnap: TrackpadNavigationSnap?
-    var trackpadNavigationInvertX: Bool?
-    var trackpadNavigationInvertY: Bool?
     var rescanIntervalMS: Int?
     var likelyFullscreenTransitionGraceMS: Int?
     var fullscreenSpaceChangeGuardMS: Int?
@@ -177,21 +145,12 @@ struct MiriConfig: Codable {
         presetWidthRatios: [0.5, 0.67, 0.8, 1.0],
         animationDurationMS: 240,
         keyboardAnimationMS: 240,
-        hoverFocusAnimationMS: 240,
-        trackpadSettleAnimationMS: 240,
         moveColumnAnimationMS: 240,
         widthAnimationMS: 280,
         animationCurve: .smooth,
         animationStrategy: .snapshot,
         animationFPS: 60,
         animationPixelThreshold: 0.5,
-        hoverToFocus: true,
-        hoverFocusDelayMS: 120,
-        hoverFocusMaxScrollRatio: 0.15,
-        hoverFocusRequiresVisibleRatio: 0.15,
-        hoverFocusEdgeTriggerWidth: 8,
-        hoverFocusAfterTrackpadMS: 280,
-        hoverFocusMode: .edgeOrVisible,
         workspaceAutoBackAndForth: true,
         centerFocusedColumn: true,
         focusAlignment: .smart,
@@ -201,17 +160,6 @@ struct MiriConfig: Codable {
         parkedSliverWidth: 1,
         excludedKeybindings: ["lalt+shift+5"],
         keybindings: defaultKeybindings,
-        trackpadNavigation: true,
-        trackpadNavigationFingers: 3,
-        trackpadNavigationSensitivity: 1.6,
-        trackpadNavigationDeceleration: 5.5,
-        trackpadNavigationHoverSuppressionMS: 280,
-        trackpadNavigationMomentumMinVelocity: 80,
-        trackpadNavigationVelocityGain: 1.35,
-        trackpadNavigationSettleAnimationMS: 240,
-        trackpadNavigationSnap: .nearestColumn,
-        trackpadNavigationInvertX: false,
-        trackpadNavigationInvertY: false,
         rescanIntervalMS: 1000,
         likelyFullscreenTransitionGraceMS: 1500,
         fullscreenSpaceChangeGuardMS: 1500,
@@ -323,27 +271,13 @@ struct MiriConfig: Codable {
         config.presetWidthRatios = normalizeWidthPresets(config.presetWidthRatios)
         config.animationDurationMS = config.animationDurationMS.map { min(max($0, 0), 500) }
         config.keyboardAnimationMS = config.keyboardAnimationMS.map { min(max($0, 0), 500) }
-        config.hoverFocusAnimationMS = config.hoverFocusAnimationMS.map { min(max($0, 0), 500) }
-        config.trackpadSettleAnimationMS = config.trackpadSettleAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }
         config.widthAnimationMS = config.widthAnimationMS.map { min(max($0, 0), 500) }
         config.animationFPS = config.animationFPS.map { min(max($0, 1), 120) }
         config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
-        config.hoverFocusDelayMS = config.hoverFocusDelayMS.map { min(max($0, 0), 1000) }
-        config.hoverFocusMaxScrollRatio = config.hoverFocusMaxScrollRatio.map { min(max($0, 0), 2) }
-        config.hoverFocusRequiresVisibleRatio = config.hoverFocusRequiresVisibleRatio.map { min(max($0, 0), 2) }
-        config.hoverFocusEdgeTriggerWidth = config.hoverFocusEdgeTriggerWidth.map { min(max($0, 0), 96) }
-        config.hoverFocusAfterTrackpadMS = config.hoverFocusAfterTrackpadMS.map { min(max($0, 0), 2000) }
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
-        config.trackpadNavigationFingers = config.trackpadNavigationFingers.map { min(max($0, 2), 5) }
-        config.trackpadNavigationSensitivity = config.trackpadNavigationSensitivity.map { min(max($0, 0.1), 20) }
-        config.trackpadNavigationDeceleration = config.trackpadNavigationDeceleration.map { min(max($0, 1), 30) }
-        config.trackpadNavigationHoverSuppressionMS = config.trackpadNavigationHoverSuppressionMS.map { min(max($0, 0), 2000) }
-        config.trackpadNavigationMomentumMinVelocity = config.trackpadNavigationMomentumMinVelocity.map { min(max($0, 0), 5000) }
-        config.trackpadNavigationVelocityGain = config.trackpadNavigationVelocityGain.map { min(max($0, 0), 5) }
-        config.trackpadNavigationSettleAnimationMS = config.trackpadNavigationSettleAnimationMS.map { min(max($0, 0), 500) }
         config.rescanIntervalMS = config.rescanIntervalMS.map { min(max($0, 100), 5000) }
         config.likelyFullscreenTransitionGraceMS = config.likelyFullscreenTransitionGraceMS.map { min(max($0, 100), 2000) }
         config.fullscreenSpaceChangeGuardMS = config.fullscreenSpaceChangeGuardMS.map { min(max($0, 100), 3000) }
@@ -398,21 +332,12 @@ struct MiriConfig: Codable {
         case presetWidthRatios = "preset_width_ratios"
         case animationDurationMS = "animation_duration_ms"
         case keyboardAnimationMS = "keyboard_animation_ms"
-        case hoverFocusAnimationMS = "hover_focus_animation_ms"
-        case trackpadSettleAnimationMS = "trackpad_settle_animation_ms"
         case moveColumnAnimationMS = "move_column_animation_ms"
         case widthAnimationMS = "width_animation_ms"
         case animationCurve = "animation_curve"
         case animationStrategy = "animation_strategy"
         case animationFPS = "animation_fps"
         case animationPixelThreshold = "animation_pixel_threshold"
-        case hoverToFocus = "hover_to_focus"
-        case hoverFocusDelayMS = "hover_focus_delay_ms"
-        case hoverFocusMaxScrollRatio = "hover_focus_max_scroll_ratio"
-        case hoverFocusRequiresVisibleRatio = "hover_focus_requires_visible_ratio"
-        case hoverFocusEdgeTriggerWidth = "hover_focus_edge_trigger_width"
-        case hoverFocusAfterTrackpadMS = "hover_focus_after_trackpad_ms"
-        case hoverFocusMode = "hover_focus_mode"
         case workspaceAutoBackAndForth = "workspace_auto_back_and_forth"
         case centerFocusedColumn = "center_focused_column"
         case focusAlignment = "focus_alignment"
@@ -422,17 +347,6 @@ struct MiriConfig: Codable {
         case parkedSliverWidth = "parked_sliver_width"
         case excludedKeybindings = "excluded_keybindings"
         case keybindings
-        case trackpadNavigation = "trackpad_navigation"
-        case trackpadNavigationFingers = "trackpad_navigation_fingers"
-        case trackpadNavigationSensitivity = "trackpad_navigation_sensitivity"
-        case trackpadNavigationDeceleration = "trackpad_navigation_deceleration"
-        case trackpadNavigationHoverSuppressionMS = "trackpad_navigation_hover_suppression_ms"
-        case trackpadNavigationMomentumMinVelocity = "trackpad_navigation_momentum_min_velocity"
-        case trackpadNavigationVelocityGain = "trackpad_navigation_velocity_gain"
-        case trackpadNavigationSettleAnimationMS = "trackpad_navigation_settle_animation_ms"
-        case trackpadNavigationSnap = "trackpad_navigation_snap"
-        case trackpadNavigationInvertX = "trackpad_navigation_invert_x"
-        case trackpadNavigationInvertY = "trackpad_navigation_invert_y"
         case rescanIntervalMS = "rescan_interval_ms"
         case likelyFullscreenTransitionGraceMS = "likely_fullscreen_transition_grace_ms"
         case fullscreenSpaceChangeGuardMS = "fullscreen_space_change_guard_ms"
@@ -464,8 +378,6 @@ struct WindowRule: Codable {
     var widthRatio: CGFloat?
     var workspace: Int?
     var openPosition: NewWindowPosition?
-    var trackpadNavigation: Bool?
-    var hoverToFocus: Bool?
 
     init(
         bundleID: String? = nil,
@@ -475,9 +387,7 @@ struct WindowRule: Codable {
         behavior: WindowBehavior? = nil,
         widthRatio: CGFloat? = nil,
         workspace: Int? = nil,
-        openPosition: NewWindowPosition? = nil,
-        trackpadNavigation: Bool? = nil,
-        hoverToFocus: Bool? = nil
+        openPosition: NewWindowPosition? = nil
     ) {
         self.bundleID = bundleID
         self.appName = appName
@@ -487,8 +397,6 @@ struct WindowRule: Codable {
         self.widthRatio = widthRatio
         self.workspace = workspace
         self.openPosition = openPosition
-        self.trackpadNavigation = trackpadNavigation
-        self.hoverToFocus = hoverToFocus
     }
 
     func matches(_ window: ManagedWindow) -> Bool {
@@ -519,8 +427,6 @@ struct WindowRule: Codable {
         case widthRatio = "width_ratio"
         case workspace
         case openPosition = "open_position"
-        case trackpadNavigation = "trackpad_navigation"
-        case hoverToFocus = "hover_to_focus"
     }
 }
 

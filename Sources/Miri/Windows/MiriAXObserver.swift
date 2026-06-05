@@ -40,7 +40,6 @@ extension Miri {
             {
                 return false
             }
-            clearTrackpadCamera()
             let workspace = workspaces[loc.workspace]
             let changedFocus = activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
             setActiveWorkspace(loc.workspace)
@@ -93,8 +92,6 @@ extension Miri {
         logAXNotification(name, element: element)
         noteFullscreenSpaceHelperIfNeeded(element)
         if transientSystemWindowIsActive(forceRefresh: true) {
-            cancelHoverFocus()
-            clearTrackpadCamera()
             return
         }
 

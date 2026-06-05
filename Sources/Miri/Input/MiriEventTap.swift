@@ -5,7 +5,6 @@ import Foundation
 extension Miri {
     func installEventTap() {
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-            | CGEventMask(1 << CGEventType.mouseMoved.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -29,33 +28,6 @@ extension Miri {
         eventTapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-    }
-
-    func installTrackpadNavigation() {
-        guard trackpadNavigationEnabled else {
-            return
-        }
-
-        let navigation = ThreeFingerTrackpadNavigation(
-            fingers: trackpadNavigationFingers,
-            invertX: trackpadNavigationInvertX,
-            invertY: trackpadNavigationInvertY
-        ) { [weak self] event in
-            DispatchQueue.main.async { [weak self] in
-                self?.handleTrackpadNavigationEvent(event)
-            }
-        }
-
-        guard navigation.start() else { return }
-
-        trackpadNavigation = navigation
-    }
-
-    func restartTrackpadNavigation() {
-        trackpadNavigation?.stop()
-        trackpadNavigation = nil
-        clearTrackpadCamera()
-        installTrackpadNavigation()
     }
 
     func updateCleanupWatcher(previousRestoreOnExit: Bool) {
@@ -138,12 +110,7 @@ private func eventTapCallback(
         return Unmanaged.passUnretained(event)
     }
 
-    guard type == .keyDown || type == .mouseMoved else {
-        return Unmanaged.passUnretained(event)
-    }
-
-    if type == .mouseMoved {
-        app.handleMouseMoved(event)
+    guard type == .keyDown else {
         return Unmanaged.passUnretained(event)
     }
 

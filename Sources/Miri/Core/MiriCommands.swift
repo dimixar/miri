@@ -48,10 +48,6 @@ extension Miri {
     }
 
     func perform(_ command: Command, animateWorkspace: Bool = false) {
-        clearTrackpadCamera()
-        cancelHoverFocus()
-        hoverFocusRequiresRearm = false
-        let previousFocusedWindowID = activeWindow().map(ObjectIdentifier.init)
         let previousState = captureLayoutState()
         var animated = false
         var frameAnimated = false
@@ -611,8 +607,7 @@ extension Miri {
         LayoutState(
             activeWorkspace: min(max(activeWorkspace, 0), max(workspaces.count - 1, 0)),
             activeColumns: workspaces.map(\.activeColumn),
-            scrollOffsets: workspaces.map(\.scrollOffset),
-            cameraY: trackpadCameraY
+            scrollOffsets: workspaces.map(\.scrollOffset)
         )
     }
 

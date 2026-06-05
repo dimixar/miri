@@ -192,8 +192,6 @@ extension Miri {
         }
         let wasTransient = transientWindowActive
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            cancelHoverFocus()
-            clearTrackpadCamera()
             return
         }
         rescanWindows(adoptFocused: wasTransient)
@@ -216,7 +214,6 @@ extension Miri {
         let previousRescanInterval = rescanInterval
         let previousLogicalSpaceAutosaveInterval = logicalSpaceAutosaveInterval
         let previousRestoreOnExit = restoreOnExit
-        let previousTrackpadSettings = trackpadNavigationSettings
         let reloaded = MiriConfig.loadWithMetadata(logLoaded: false)
 
         guard reloaded.sourceURL != nil else {
@@ -229,9 +226,6 @@ extension Miri {
         loadedConfig = reloaded
         configureInput()
 
-        if trackpadNavigationSettings != previousTrackpadSettings {
-            restartTrackpadNavigation()
-        }
         if rescanInterval != previousRescanInterval {
             scheduleRescanTimer()
         }

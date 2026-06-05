@@ -76,9 +76,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         tabView.tabViewItems.removeAll()
         tabView.addTabViewItem(tab("General", generalView()))
         tabView.addTabViewItem(tab("Layout", layoutView()))
-        tabView.addTabViewItem(tab("Focus", focusView()))
         tabView.addTabViewItem(tab("Animations", animationsView()))
-        tabView.addTabViewItem(tab("Trackpad", trackpadView()))
         tabView.addTabViewItem(tab("Keybindings", keybindingsView()))
         tabView.addTabViewItem(tab("Workspace Bar", workspaceBarView()))
         tabView.addTabViewItem(tab("Rules", rulesView()))
@@ -157,40 +155,15 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Parked sliver width", doubleField("parkedSliverWidth", Double(draft.parkedSliverWidth ?? 1))),
     ]) }
 
-    private func focusView() -> NSView { form([
-        ("Hover to focus", checkbox("hoverToFocus", draft.hoverToFocus ?? true)),
-        ("Hover delay ms", intField("hoverFocusDelayMS", draft.hoverFocusDelayMS ?? 120)),
-        ("Hover mode", popup("hoverFocusMode", HoverFocusMode.allCasesStrings, draft.hoverFocusMode?.rawValue ?? "edge_or_visible")),
-        ("Hover max scroll ratio", doubleField("hoverFocusMaxScrollRatio", Double(draft.hoverFocusMaxScrollRatio ?? 0.15))),
-        ("Hover visible ratio", doubleField("hoverFocusRequiresVisibleRatio", Double(draft.hoverFocusRequiresVisibleRatio ?? 0.15))),
-        ("Hover edge trigger width", doubleField("hoverFocusEdgeTriggerWidth", Double(draft.hoverFocusEdgeTriggerWidth ?? 8))),
-        ("Hover after trackpad ms", intField("hoverFocusAfterTrackpadMS", draft.hoverFocusAfterTrackpadMS ?? 280)),
-    ]) }
-
     private func animationsView() -> NSView { form([
         ("Animation duration ms", intField("animationDurationMS", draft.animationDurationMS ?? 0)),
         ("Keyboard animation ms", intField("keyboardAnimationMS", draft.keyboardAnimationMS ?? 0)),
-        ("Hover focus animation ms", intField("hoverFocusAnimationMS", draft.hoverFocusAnimationMS ?? 0)),
-        ("Trackpad settle animation ms", intField("trackpadSettleAnimationMS", draft.trackpadSettleAnimationMS ?? 0)),
         ("Move column animation ms", intField("moveColumnAnimationMS", draft.moveColumnAnimationMS ?? 0)),
         ("Width animation ms", intField("widthAnimationMS", draft.widthAnimationMS ?? 0)),
         ("Strategy", popup("animationStrategy", AnimationStrategy.allCasesStrings, draft.animationStrategy?.rawValue ?? MiriConfig.fallback.animationStrategy?.rawValue ?? "snapshot")),
         ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 60)),
         ("Pixel threshold", doubleField("animationPixelThreshold", Double(draft.animationPixelThreshold ?? 0.5))),
         ("Curve", popup("animationCurve", AnimationCurve.allCasesStrings, draft.animationCurve?.rawValue ?? "smooth")),
-    ]) }
-
-    private func trackpadView() -> NSView { form([
-        ("Trackpad navigation", checkbox("trackpadNavigation", draft.trackpadNavigation ?? false)),
-        ("Fingers", intField("trackpadNavigationFingers", draft.trackpadNavigationFingers ?? 3)),
-        ("Sensitivity", doubleField("trackpadNavigationSensitivity", Double(draft.trackpadNavigationSensitivity ?? 1.6))),
-        ("Deceleration", doubleField("trackpadNavigationDeceleration", Double(draft.trackpadNavigationDeceleration ?? 5.5))),
-        ("Momentum min velocity", doubleField("trackpadNavigationMomentumMinVelocity", Double(draft.trackpadNavigationMomentumMinVelocity ?? 80))),
-        ("Velocity gain", doubleField("trackpadNavigationVelocityGain", Double(draft.trackpadNavigationVelocityGain ?? 1.35))),
-        ("Settle animation ms", intField("trackpadNavigationSettleAnimationMS", draft.trackpadNavigationSettleAnimationMS ?? 240)),
-        ("Snap", popup("trackpadNavigationSnap", TrackpadNavigationSnap.allCasesStrings, draft.trackpadNavigationSnap?.rawValue ?? "nearest_column")),
-        ("Invert X", checkbox("trackpadNavigationInvertX", draft.trackpadNavigationInvertX ?? false)),
-        ("Invert Y", checkbox("trackpadNavigationInvertY", draft.trackpadNavigationInvertY ?? false)),
     ]) }
 
     private func workspaceBarView() -> NSView { form([
@@ -284,12 +257,6 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         if let openPosition = rule.openPosition {
             detailParts.append("open=\(openPosition.rawValue)")
         }
-        if let trackpadNavigation = rule.trackpadNavigation {
-            detailParts.append("trackpad=\(trackpadNavigation ? "on" : "off")")
-        }
-        if let hoverToFocus = rule.hoverToFocus {
-            detailParts.append("hover=\(hoverToFocus ? "on" : "off")")
-        }
         return "\(match) -> \(detailParts.joined(separator: " · "))"
     }
 
@@ -309,33 +276,14 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.innerGap = CGFloat(double("innerGap"))
         draft.outerGap = CGFloat(double("outerGap"))
         draft.parkedSliverWidth = CGFloat(double("parkedSliverWidth"))
-        draft.hoverToFocus = bool("hoverToFocus")
-        draft.hoverFocusDelayMS = int("hoverFocusDelayMS")
-        draft.hoverFocusMode = HoverFocusMode(rawValue: string("hoverFocusMode"))
-        draft.hoverFocusMaxScrollRatio = CGFloat(double("hoverFocusMaxScrollRatio"))
-        draft.hoverFocusRequiresVisibleRatio = CGFloat(double("hoverFocusRequiresVisibleRatio"))
-        draft.hoverFocusEdgeTriggerWidth = CGFloat(double("hoverFocusEdgeTriggerWidth"))
-        draft.hoverFocusAfterTrackpadMS = int("hoverFocusAfterTrackpadMS")
         draft.animationDurationMS = int("animationDurationMS")
         draft.keyboardAnimationMS = int("keyboardAnimationMS")
-        draft.hoverFocusAnimationMS = int("hoverFocusAnimationMS")
-        draft.trackpadSettleAnimationMS = int("trackpadSettleAnimationMS")
         draft.moveColumnAnimationMS = int("moveColumnAnimationMS")
         draft.widthAnimationMS = int("widthAnimationMS")
         draft.animationStrategy = AnimationStrategy(rawValue: string("animationStrategy"))
         draft.animationFPS = int("animationFPS")
         draft.animationPixelThreshold = CGFloat(double("animationPixelThreshold"))
         draft.animationCurve = AnimationCurve(rawValue: string("animationCurve"))
-        draft.trackpadNavigation = bool("trackpadNavigation")
-        draft.trackpadNavigationFingers = int("trackpadNavigationFingers")
-        draft.trackpadNavigationSensitivity = CGFloat(double("trackpadNavigationSensitivity"))
-        draft.trackpadNavigationDeceleration = CGFloat(double("trackpadNavigationDeceleration"))
-        draft.trackpadNavigationMomentumMinVelocity = CGFloat(double("trackpadNavigationMomentumMinVelocity"))
-        draft.trackpadNavigationVelocityGain = CGFloat(double("trackpadNavigationVelocityGain"))
-        draft.trackpadNavigationSettleAnimationMS = int("trackpadNavigationSettleAnimationMS")
-        draft.trackpadNavigationSnap = TrackpadNavigationSnap(rawValue: string("trackpadNavigationSnap"))
-        draft.trackpadNavigationInvertX = bool("trackpadNavigationInvertX")
-        draft.trackpadNavigationInvertY = bool("trackpadNavigationInvertY")
         draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
         draft.workspaceBarActiveStyle = WorkspaceBarActiveStyle(rawValue: string("workspaceBarActiveStyle"))
         draft.workspaceBarCenterStyle = WorkspaceBarCenterStyle(rawValue: string("workspaceBarCenterStyle"))
@@ -706,10 +654,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
 extension FocusAlignment { static let allCasesStrings = ["left", "center", "smart"] }
 extension NewWindowPosition { static let allCasesStrings = ["before_active", "after_active", "end"] }
-extension HoverFocusMode { static let allCasesStrings = ["off", "visible_only", "edge_or_visible"] }
 extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "linear"] }
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
-extension TrackpadNavigationSnap { static let allCasesStrings = ["nearest_column", "nearest_visible", "none"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
 extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "outline", "filled_outline"] }
 extension WorkspaceBarCenterStyle { static let allCasesStrings = ["delimiter", "border", "filled_border"] }

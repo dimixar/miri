@@ -27,17 +27,6 @@ extension Miri {
         config.rules.first { $0.matches(window) }
     }
 
-    func hoverToFocusAllowed(for window: ManagedWindow) -> Bool {
-        rule(for: window)?.hoverToFocus ?? true
-    }
-
-    var trackpadNavigationAllowedForActiveWindow: Bool {
-        guard let window = activeWindow() else {
-            return true
-        }
-        return rule(for: window)?.trackpadNavigation ?? true
-    }
-
     func activeWindow() -> ManagedWindow? {
         guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
             return nil

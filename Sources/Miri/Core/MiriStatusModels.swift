@@ -44,13 +44,6 @@ struct TransientSystemWindow {
     var element: AXUIElement
 }
 
-struct TrackpadNavigationSettings: Equatable {
-    var enabled: Bool
-    var fingers: Int
-    var invertX: Bool
-    var invertY: Bool
-}
-
 struct FullscreenWindowState {
     let identity: PersistentWindowIdentity
     let element: AXUIElement

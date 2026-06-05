@@ -10,8 +10,6 @@ extension Miri {
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            cancelHoverFocus()
-            clearTrackpadCamera()
             return
         }
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
@@ -54,8 +52,6 @@ extension Miri {
 
     func rescanWindows(adoptFocused: Bool) {
         guard !transientSystemWindowIsActive() else {
-            cancelHoverFocus()
-            clearTrackpadCamera()
             return
         }
 

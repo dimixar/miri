@@ -45,8 +45,6 @@ extension Miri {
 
     func layoutItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {
         let stateActiveWorkspace = min(max(state.activeWorkspace, 0), max(workspaces.count - 1, 0))
-        let cameraY = state.cameraY ?? CGFloat(stateActiveWorkspace) * viewport.height
-        let cameraWorkspace = trackpadCameraWorkspaceIndex(cameraY: cameraY, viewport: viewport)
         var layout: [LayoutItem] = []
 
         for (workspaceIndex, workspace) in workspaces.enumerated() {
@@ -58,7 +56,7 @@ extension Miri {
                 activeColumn: activeColumn,
                 scrollOffset: scrollOffset
             )
-            let rowOffset = CGFloat(workspaceIndex) * viewport.height - cameraY
+            let rowOffset = CGFloat(workspaceIndex - stateActiveWorkspace) * viewport.height
 
             for (columnIndex, window) in workspace.columns.enumerated() {
                 let frame: CGRect
@@ -69,13 +67,13 @@ extension Miri {
                 let visible = projected.intersects(viewport)
                 if visible || !parkHidden {
                     frame = projected
-                } else if workspaceIndex == cameraWorkspace {
+                } else if workspaceIndex == stateActiveWorkspace {
                     frame = parkedFrame(for: window, viewport: viewport, beforeActive: columnIndex < activeColumn)
                 } else {
                     frame = parkedFrame(
                         for: window,
                         viewport: viewport,
-                        beforeActive: CGFloat(workspaceIndex) * viewport.height < cameraY
+                        beforeActive: workspaceIndex < stateActiveWorkspace
                     )
                 }
 
@@ -103,14 +101,6 @@ extension Miri {
             return state.scrollOffsets[workspaceIndex]
         }
         return workspace.scrollOffset
-    }
-
-    func trackpadCameraWorkspaceIndex(cameraY: CGFloat, viewport: CGRect) -> Int {
-        guard viewport.height > 0, !workspaces.isEmpty else {
-            return 0
-        }
-
-        return min(max(Int(round(cameraY / viewport.height)), 0), workspaces.count - 1)
     }
 
     func applyLayout(_ layout: [LayoutItem], focusActiveWindow: Bool) {
