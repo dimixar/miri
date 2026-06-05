@@ -260,6 +260,9 @@ extension Miri {
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
             if name == kAXCreatedNotification {
+                guard shouldScheduleAXCreatedReconciliation(for: element, pid: pid) else {
+                    return
+                }
                 scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
                 return
             }

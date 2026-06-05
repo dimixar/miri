@@ -534,6 +534,33 @@ extension Miri {
         return positionError == .success && sizeError == .success && positionSettable.boolValue && sizeSettable.boolValue
     }
 
+    func shouldScheduleAXCreatedReconciliation(for element: AXUIElement, pid: pid_t) -> Bool {
+        if pid == 0 || isKnownWindow(element) || isManageableWindow(element) || isLikelyAXCreatedWindowPlaceholder(element) {
+            return true
+        }
+
+        let role = axString(element, kAXRoleAttribute) ?? "nil"
+        let subrole = axString(element, kAXSubroleAttribute) ?? "nil"
+        let frameDescription = axFrame(element).map { String(describing: $0) } ?? "nil"
+        let title = axString(element, kAXTitleAttribute) ?? ""
+        debugLog("ax created ignored reason=unmanageable-created pid=\(pid) title='\(title)' role=\(role) subrole=\(subrole) frame=\(frameDescription)")
+        return false
+    }
+
+    func isLikelyAXCreatedWindowPlaceholder(_ element: AXUIElement) -> Bool {
+        guard axString(element, kAXRoleAttribute) == kAXWindowRole else {
+            return false
+        }
+
+        let subrole = axString(element, kAXSubroleAttribute)
+        guard subrole == nil || subrole == kAXStandardWindowSubrole else {
+            return false
+        }
+
+        return axBool(element, kAXMinimizedAttribute) != true
+            && axBool(element, "AXFullScreen") != true
+    }
+
     func isUnknownSubroleWindow(_ element: AXUIElement) -> Bool {
         axString(element, kAXSubroleAttribute) == "AXUnknown"
     }
