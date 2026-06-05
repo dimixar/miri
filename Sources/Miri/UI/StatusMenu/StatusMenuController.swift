@@ -9,16 +9,26 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let focusedItem = NSMenuItem(title: "Focused: —", action: nil, keyEquivalent: "")
     private let widthItem = NSMenuItem(title: "Width: —", action: nil, keyEquivalent: "")
     private var workspaceMenuItems: [NSMenuItem] = []
-    private var refreshTimer: Timer?
+    private var lastWorkspaceBarSignature: WorkspaceBarRenderSignature?
+    private var workspaceBarRefreshScheduled = false
+    private var iconCache: [String: NSImage] = [:]
+    private lazy var fallbackIcon = NSWorkspace.shared.icon(for: .application)
 
     init(miri: Miri) {
         self.miri = miri
         super.init()
         configureMenu()
-        refreshWorkspaceBar()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshWorkspaceBar() }
-        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspaceBarNeedsRefresh(_:)),
+            name: .miriWorkspaceBarNeedsRefresh,
+            object: miri
+        )
+        refreshWorkspaceBar(force: true)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func configureMenu() {
@@ -57,7 +67,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         focusedItem.title = "Focused: \(status.focusedWindow)"
         widthItem.title = status.widthPercent.map { "Width: \($0)%" } ?? "Width: —"
         refreshWorkspaceMenuItems()
-        refreshWorkspaceBar()
+        refreshWorkspaceBar(force: true)
     }
 
     private func refreshWorkspaceMenuItems() {
@@ -90,18 +100,42 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func refreshWorkspaceBar() {
+    @objc private func workspaceBarNeedsRefresh(_ notification: Notification) {
+        scheduleWorkspaceBarRefresh()
+    }
+
+    private func scheduleWorkspaceBarRefresh() {
+        guard !workspaceBarRefreshScheduled else {
+            return
+        }
+        workspaceBarRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            workspaceBarRefreshScheduled = false
+            refreshWorkspaceBar(force: false)
+        }
+    }
+
+    private func refreshWorkspaceBar(force: Bool) {
         guard let barStatus = miri?.currentWorkspaceBarStatus() else {
             statusItem.button?.title = "Miri"
             statusItem.button?.image = nil
+            lastWorkspaceBarSignature = nil
             return
         }
+        let config = miri?.currentConfigForStatusBar() ?? .fallback
+        let signature = WorkspaceBarRenderSignature(status: barStatus, config: config)
+        guard force || signature != lastWorkspaceBarSignature else {
+            return
+        }
+        lastWorkspaceBarSignature = signature
         statusItem.button?.title = ""
-        statusItem.button?.image = drawWorkspaceBar(barStatus)
+        statusItem.button?.image = drawWorkspaceBar(barStatus, config: config)
     }
 
-    private func drawWorkspaceBar(_ status: MiriWorkspaceBarStatus) -> NSImage {
-        let config = miri?.currentConfigForStatusBar() ?? .fallback
+    private func drawWorkspaceBar(_ status: MiriWorkspaceBarStatus, config: MiriConfig) -> NSImage {
         let maxIcons = config.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3
         let iconSize: CGFloat = 16
         let iconBox: CGFloat = 20
@@ -348,6 +382,32 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         var windows: [MiriWorkspaceBarWindow]
     }
 
+    private struct WorkspaceBarRenderSignature: Equatable {
+        let status: MiriWorkspaceBarStatus
+        let highlightColor: String?
+        let visibleIconCount: Int?
+        let overflowStyle: WorkspaceBarOverflowStyle?
+        let showFullscreen: Bool?
+        let activeStyle: WorkspaceBarActiveStyle?
+        let centerStyle: WorkspaceBarCenterStyle?
+        let delimiterColor: String?
+        let centerBorderOutset: Int?
+        let centerBorderThickness: Int?
+
+        init(status: MiriWorkspaceBarStatus, config: MiriConfig) {
+            self.status = status
+            highlightColor = config.workspaceBarHighlightColor
+            visibleIconCount = config.workspaceBarVisibleIconCount
+            overflowStyle = config.workspaceBarOverflowStyle
+            showFullscreen = config.workspaceBarShowFullscreen
+            activeStyle = config.workspaceBarActiveStyle
+            centerStyle = config.workspaceBarCenterStyle
+            delimiterColor = config.workspaceBarDelimiterColor
+            centerBorderOutset = config.workspaceBarCenterBorderOutset
+            centerBorderThickness = config.workspaceBarCenterBorderThickness
+        }
+    }
+
     private static func workspaceLabelFont(weight: NSFont.Weight) -> NSFont {
         NSFont.monospacedDigitSystemFont(ofSize: 14, weight: weight)
     }
@@ -481,20 +541,25 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func icon(for window: MiriWorkspaceBarWindow) -> NSImage {
-        if let bundleID = window.bundleID,
-           let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }),
-           let icon = app.icon
-        {
-            return icon
+        guard let bundleID = window.bundleID, !bundleID.isEmpty else {
+            return fallbackIcon
+        }
+        if let cached = iconCache[bundleID] {
+            return cached
         }
 
-        if let bundleID = window.bundleID,
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        let icon: NSImage
+        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }),
+           let appIcon = app.icon
         {
-            return NSWorkspace.shared.icon(forFile: url.path)
+            icon = appIcon
+        } else if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            icon = NSWorkspace.shared.icon(forFile: url.path)
+        } else {
+            icon = fallbackIcon
         }
-
-        return NSWorkspace.shared.icon(for: .application)
+        iconCache[bundleID] = icon
+        return icon
     }
 
     @objc private func openSettings() {

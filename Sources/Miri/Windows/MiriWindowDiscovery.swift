@@ -172,6 +172,9 @@ extension Miri {
         if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
             pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(existing))
             _ = consumeBufferedWindowIfNeeded(existing)
+            let metadataChanged = existing.title != found.title
+                || existing.appName != found.appName
+                || existing.bundleID != found.bundleID
             existing.title = found.title
             existing.appName = found.appName
             existing.bundleID = found.bundleID
@@ -179,7 +182,7 @@ extension Miri {
             let shouldFloat = behavior(for: existing) == .float
             let isFloating = floatingWindows.contains(where: { $0 === existing })
             guard shouldFloat != isFloating else {
-                return false
+                return metadataChanged
             }
             removeWindow(existing)
             if shouldFloat {

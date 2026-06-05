@@ -1,7 +1,15 @@
 import AppKit
 import Foundation
 
+extension Notification.Name {
+    static let miriWorkspaceBarNeedsRefresh = Notification.Name("MiriWorkspaceBarNeedsRefresh")
+}
+
 extension Miri {
+    func notifyWorkspaceBarNeedsRefresh() {
+        NotificationCenter.default.post(name: .miriWorkspaceBarNeedsRefresh, object: self)
+    }
+
     func currentConfigForStatusBar() -> MiriConfig {
         config
     }

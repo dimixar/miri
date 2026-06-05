@@ -14,14 +14,14 @@ struct MiriStatus {
     let widthPercent: Int?
 }
 
-struct MiriWorkspaceSummary {
+struct MiriWorkspaceSummary: Equatable {
     let workspace: Int
     let isActive: Bool
     let lastFocusedWindow: MiriWorkspaceBarWindow?
     let appNames: [String]
 }
 
-struct MiriWorkspaceBarStatus {
+struct MiriWorkspaceBarStatus: Equatable {
     let workspace: Int
     let focusedIndex: Int?
     let windows: [MiriWorkspaceBarWindow]
@@ -29,13 +29,13 @@ struct MiriWorkspaceBarStatus {
     let fullscreenWindows: [MiriWorkspaceBarFullscreenWindow]
 }
 
-struct MiriWorkspaceBarWindow {
+struct MiriWorkspaceBarWindow: Equatable {
     let bundleID: String?
     let appName: String
     let title: String
 }
 
-struct MiriWorkspaceBarFullscreenWindow {
+struct MiriWorkspaceBarFullscreenWindow: Equatable {
     let workspace: Int
     let window: MiriWorkspaceBarWindow
 }
