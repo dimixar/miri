@@ -292,6 +292,7 @@ extension Miri {
         let startByWindow = layoutByWindow(startLayout)
         let targetByWindow = layoutByWindow(targetProjectedLayout)
         let targetWorkspaceWindowIDs = workspaceWindowIDs(workspaceIndex: targetState.activeWorkspace)
+        parkNonTargetWorkspaceWindows(finalLayout, targetWorkspaceWindowIDs: targetWorkspaceWindowIDs)
         let windowIDs = Set(startByWindow.keys).union(targetByWindow.keys).intersection(targetWorkspaceWindowIDs)
 
         let motions = windowIDs.compactMap { id -> WindowMotion? in
@@ -357,13 +358,6 @@ extension Miri {
         }
 
         let snapshotSourceMotions = motions
-        for motion in snapshotSourceMotions {
-            if !motion.startsVisible {
-                setAXFrame(motion.startFrame, for: motion.window)
-            }
-        }
-        CATransaction.flush()
-
         DispatchQueue.main.async { [weak self] in
             guard let self, snapshotAnimationSession == nil, isApplyingLayout else {
                 return
@@ -446,6 +440,15 @@ extension Miri {
                 snapshotAnimationSession = nil
                 releaseLayoutLock()
             }
+        }
+    }
+
+    func parkNonTargetWorkspaceWindows(_ finalLayout: [LayoutItem], targetWorkspaceWindowIDs: Set<ObjectIdentifier>) {
+        for item in finalLayout where !item.visible {
+            guard !targetWorkspaceWindowIDs.contains(ObjectIdentifier(item.window)) else {
+                continue
+            }
+            applyLayoutItem(item, forceFrame: true)
         }
     }
 }

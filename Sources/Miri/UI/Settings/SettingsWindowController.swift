@@ -155,7 +155,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("New window position", popup("newWindowPosition", NewWindowPosition.allCasesStrings, draft.newWindowPosition?.rawValue ?? "after_active")),
         ("Inner gap", doubleField("innerGap", Double(draft.innerGap ?? 0))),
         ("Outer gap", doubleField("outerGap", Double(draft.outerGap ?? 0))),
-        ("Parked sliver width", doubleField("parkedSliverWidth", Double(draft.parkedSliverWidth ?? 1))),
+        ("Parked sliver px", doubleField("parkedSliverWidth", Double(draft.parkedSliverWidth ?? 1))),
     ]) }
 
     private func animationsView() -> NSView { form([

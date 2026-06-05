@@ -201,11 +201,55 @@ extension Miri {
 
     func parkedFrame(for window: ManagedWindow, viewport: CGRect, beforeActive: Bool) -> CGRect {
         let width = viewport.width * widthRatio(for: window)
+        let sliverWidth = parkedSliverPoints(for: viewport)
+        let visualOutsets = renderedHorizontalOutsets(for: window)
         var frame = CGRect(x: viewport.minX, y: viewport.minY, width: width, height: viewport.height)
         frame.origin.x = beforeActive
-            ? viewport.minX - width + parkedSliverWidth
-            : viewport.maxX - parkedSliverWidth
+            ? viewport.minX - width - visualOutsets.right + sliverWidth
+            : viewport.maxX + visualOutsets.left - sliverWidth
         return frame
+    }
+
+    func parkedSliverPoints(for viewport: CGRect) -> CGFloat {
+        let pixelWidth = max(1, parkedSliverWidth)
+        let screen = screenContaining(viewport) ?? NSScreen.main
+        let scale = max(screen?.backingScaleFactor ?? 1, 1)
+        return pixelWidth / scale
+    }
+
+    func screenContaining(_ rect: CGRect) -> NSScreen? {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        return NSScreen.screens.first { $0.frame.contains(center) }
+    }
+
+    func renderedHorizontalOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat) {
+        guard let windowID = window.windowID,
+              let renderedBounds = cgWindowBounds(windowID: windowID),
+              let axFrame = axFrame(window.element),
+              axFrame.width > 0,
+              renderedBounds.width > 0
+        else {
+            return (0, 0)
+        }
+
+        let left = min(max(axFrame.minX - renderedBounds.minX, 0), 128)
+        let right = min(max(renderedBounds.maxX - axFrame.maxX, 0), 128)
+        return (left, right)
+    }
+
+    func cgWindowBounds(windowID: UInt32) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowID)) as? [[String: Any]],
+              let info = list.first,
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary
+        else {
+            return nil
+        }
+
+        var rect = CGRect.zero
+        guard CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &rect) else {
+            return nil
+        }
+        return rect
     }
 
     func currentViewport() -> CGRect {
