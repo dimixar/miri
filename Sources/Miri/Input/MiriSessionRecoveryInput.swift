@@ -4,6 +4,29 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
+    func requestSessionRecoveryForFullscreenTransitionIfNeeded(
+        notification: String,
+        element: AXUIElement
+    ) {
+        guard notification == kAXWindowMovedNotification
+                || notification == kAXWindowResizedNotification
+                || notification == kAXFocusedWindowChangedNotification,
+              sessionRecoverySessionIsEligible,
+              let isFullscreen = axBool(element, "AXFullScreen")
+        else {
+            return
+        }
+
+        let enteredFullscreen = isFullscreen && isKnownWindow(element)
+        let exitedFullscreen = !isFullscreen && isRememberedFullscreenWindow(element)
+        guard enteredFullscreen || exitedFullscreen else {
+            return
+        }
+
+        let direction = enteredFullscreen ? "entered" : "exited"
+        requestSessionRecovery(reason: "tracked-window-fullscreen-\(direction):\(notification)")
+    }
+
     var sessionRecoveryInputEventMask: CGEventMask {
         var eventTypes: [CGEventType] = [
             .leftMouseDown,

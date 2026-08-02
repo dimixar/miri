@@ -271,6 +271,10 @@ extension Miri {
     }
 
     fileprivate func handleAXNotification(_ name: String, element: AXUIElement) {
+        requestSessionRecoveryForFullscreenTransitionIfNeeded(
+            notification: name,
+            element: element
+        )
         guard isLayoutTrackingAllowed else {
             return
         }
