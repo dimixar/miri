@@ -54,8 +54,9 @@ current scope and have not been tested.
   captured snapshots and final Accessibility placement.
 - **Precise window rules.** Rule matching and behavior overrides for apps and
   individual window titles.
-- **Small private API surface.** Core window management stays Accessibility-led,
-  with private APIs reserved for narrow macOS gaps.
+- **Small private and undocumented API surface.** Core window management stays
+  Accessibility-led, with private or undocumented behavior reserved for narrow
+  macOS gaps.
 
 ## Requirements
 
@@ -225,14 +226,13 @@ Historical notes and research:
 - [Intelligent width resize report](docs/intelligent-width-resize-report.md)
 - [Refactoring summary](docs/miri-refactoring-summary.md)
 
-## Private API Usage
+## Private And Undocumented API Usage
 
 miri's core window management is Accessibility-based. Moving, resizing,
 focusing, discovering, and observing normal app windows are done through public
 macOS Accessibility/AppKit APIs where possible.
 
-The project still uses a small private API surface for things macOS does not
-expose publicly:
+The project dynamically resolves these private symbols at runtime:
 
 - `_AXUIElementGetWindow`: maps an `AXUIElement` to a `CGWindowID` for more
   reliable matching, persistence, logical Space recovery, debugging, and exit
@@ -240,9 +240,29 @@ expose publicly:
 - `SLSMainConnectionID` and `SLSSetWindowLevel`: set real floating-window levels
   for windows miri treats as floating.
 
-There is no public macOS API for changing another application's window level.
-When private calls are unavailable, floating windows may fall back to normal
-raise/focus behavior.
+It also relies on a few undocumented macOS contracts that are not private
+function calls but are absent from the public SDK documentation:
+
+- `com.apple.screenIsLocked` and `com.apple.screenIsUnlocked`: distributed
+  notifications used to pause and arm recovery around screen locking.
+- `IOConsoleLocked`: an IORegistry root property used to check the current lock
+  state at startup, wake, login activation, and before accepting recovery input.
+- `AXFullScreen`: an Accessibility attribute used to identify native fullscreen
+  windows and protect workspace state across fullscreen transitions.
+- `AXEnhancedUserInterface`: an application-level Accessibility attribute that
+  is temporarily disabled, only when it was already enabled and readable, while
+  applying window frames; its previous value is restored immediately afterward.
+
+The implementation checks availability where possible. If the private
+AX-to-window-ID mapping is absent, identity matching and recovery use weaker
+fallbacks. If the SkyLight level functions are absent, floating windows fall
+back to normal raise/focus behavior. Undocumented lock and Accessibility
+contracts may change between macOS releases.
+
+`CGSessionCopyCurrentDictionary`, `kCGSessionOnConsoleKey`, NSWorkspace
+session/sleep notifications, CG event taps and event fields, and CoreGraphics
+window-list/image functions are low-level but public SDK APIs; they are not part
+of the private list above.
 
 ## Notes And Limitations
 

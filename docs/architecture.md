@@ -76,7 +76,7 @@ Moved windows are handled non-destructively. If a known live window disappears
 because it moved to another native Space, miri buffers its old placement and
 reattaches it when the window appears in another context.
 
-## Private API Scope
+## Private And Undocumented API Scope
 
 Most window control is Accessibility/AppKit-led. Private APIs are limited to
 narrow macOS gaps:
@@ -85,9 +85,25 @@ narrow macOS gaps:
 - `SLSMainConnectionID` and `SLSSetWindowLevel`: set real floating-window levels
   for windows miri treats as floating.
 
+miri also consumes undocumented system contracts rather than private callable
+symbols:
+
+- `com.apple.screenIsLocked` and `com.apple.screenIsUnlocked` distributed
+  notifications, plus the `IOConsoleLocked` IORegistry property, for lock-state
+  monitoring and guarded session recovery.
+- `AXFullScreen` for native fullscreen detection.
+- `AXEnhancedUserInterface`, conditionally and temporarily toggled while frames
+  are applied.
+
 There is no public macOS API for changing another application's WindowServer
 level. If SkyLight calls are unavailable, floating windows can still be raised
-and focused, but they may not stay at a true floating level.
+and focused, but they may not stay at a true floating level. The private symbols
+are dynamically resolved so their absence is non-fatal; the undocumented
+notifications, properties, and attributes remain macOS-version-sensitive.
+
+CoreGraphics session dictionaries, NSWorkspace session/sleep notifications, CG
+event taps and fields, and CoreGraphics window-list/image functions used by miri
+are public SDK APIs despite being relatively low-level.
 
 ## Files Worth Watching
 
