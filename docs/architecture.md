@@ -4,6 +4,10 @@ miri is a source-first macOS window manager built around a small coordinator
 object, `Miri`, split into domain extensions. The code is organized by what the
 extension owns rather than by framework.
 
+The current architecture is designed and tested for one active display: a
+MacBook using only its built-in screen. It does not maintain independent layout
+models or viewport ownership for multiple displays.
+
 ```text
 Sources/Miri/Core/          app coordinator, commands, status providers
 Sources/Miri/Config/        config model and effective settings
@@ -33,8 +37,10 @@ debugging, and cleanup more stable.
 
 ## Event Flow
 
-At startup, miri performs a full scan, installs NSWorkspace and AX observers,
-configures input, and starts long-period safety timers.
+At startup, miri installs session and NSWorkspace observers, configures input,
+and performs a full window scan only if the console session is available. AX
+observers are attached as regular applications are discovered. Long-period
+safety timers run only while layout tracking is allowed.
 
 After startup, the normal path is event driven:
 
@@ -48,6 +54,25 @@ After startup, the normal path is event driven:
 
 The periodic reconciliation timer remains as a safety net for missed or delayed
 Accessibility notifications.
+
+## Session Availability Flow
+
+Screen lock, inactive-console-session, and system-sleep signals suspend layout
+tracking. miri invalidates reconciliation timers, clears pending AX/layout work,
+stops active snapshot presentation, and ignores discovery, AX notifications,
+and layout application while the session is unavailable.
+
+An unlock, login activation, or wake signal makes the session eligible but does
+not immediately restart layout work. miri temporarily watches for a mouse press
+or scroll targeting a relevant on-screen window, a key press directed to the
+focused managed window, or a registered Carbon hot key with a managed window in
+focus. Lock/login UI input cannot release this guard because both console state
+and the target window are validated.
+
+After a qualifying interaction, miri performs one full rescan, restarts the
+safety timers, and runs the triggering Miri command if one was queued. Regular
+applications launched while waiting are remembered so their first valid window
+interaction can qualify.
 
 ## Layout Pipeline
 

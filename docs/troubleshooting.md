@@ -5,8 +5,11 @@
 miri needs Accessibility permission to focus, move, and resize app windows.
 
 The `event_tap` shortcut backend may also require Input Monitoring permission.
-Snapshot animation needs Screen Recording permission because it captures window
-images.
+The temporary event tap that validates managed-window interaction after an
+unlock, login, or wake may need the same permission even with the
+`registered_hot_keys` backend. Configured Carbon hot keys remain an alternate
+recovery path when a managed window is focused. Snapshot animation needs Screen
+Recording permission because it captures window images.
 
 If miri is run from Terminal, iTerm, kitty, or another shell app, macOS may grant
 permissions to that terminal app rather than to a packaged `Miri.app`.
@@ -33,6 +36,32 @@ Useful commands:
 tail -n 300 ~/.config/miri/debug.log
 rg "window discovered|ax reconciliation|snapshot|layout workspace" ~/.config/miri/debug.log
 ```
+
+## Miri Appears Paused After Unlock Or Wake
+
+This can be expected briefly. miri deliberately remains paused after the
+desktop session becomes available until input targets a relevant window. Click
+or scroll an on-screen managed window, type while one is focused, or invoke a
+configured Miri Carbon hot key while a managed window is focused. Input on the
+lock/login UI does not count.
+
+Check the recovery sequence:
+
+```bash
+rg "session state|layout tracking|session recovery|malformed ax-windows" ~/.config/miri/debug.log
+```
+
+Expected lines include:
+
+- `layout tracking paused for unavailable session`
+- `layout tracking awaiting managed-window interaction`
+- `session recovery requested reason=...`
+- `layout tracking resumed reason=...`
+
+If the first two appear but no recovery request follows a valid click, scroll,
+or key press, verify Input Monitoring permission for the process actually
+running miri. With `registered_hot_keys`, a configured Miri shortcut can test
+the independent Carbon recovery path.
 
 ## Window Did Not Tile
 
@@ -75,6 +104,11 @@ main-window notifications, and it can report stale AX frames for multiple
 distinct windows. Active rescans are enabled by default for configured bundles
 such as `notion.id`; they rescan the app once per second and on user input while
 one of its windows is tiled.
+
+Telegram has also been observed returning an `AXApplication` element from an
+`AXWindows` query during screen locking. miri now rejects that enumeration as
+unreliable and preserves its existing window/layout state. The corresponding
+log line is `ignoring malformed ax-windows response containing AXApplication`.
 
 Active rescans are only a recovery aid. They can remove stale windows sooner,
 but they cannot make an app's Accessibility frame data correct. If a problematic

@@ -101,6 +101,13 @@ The repository includes a complete default config at
   treats `lalt` and `ralt` as generic `alt`, and does not support `fn`/Globe
   bindings.
 
+After lock, login-session changes, or sleep, miri temporarily uses a listen-only
+CG event tap to detect a qualifying interaction with a managed window even when
+`registered_hot_keys` is selected. Input Monitoring permission may be required
+for pointer/key recovery through that tap. A configured Carbon hot key can also
+release recovery without relying on the temporary tap, provided a relevant
+managed window is focused.
+
 `keybindings` is merged with built-in defaults by action name. Set an action to
 `[]` to disable it. `excluded_keybindings` always wins when using `event_tap`.
 
@@ -122,6 +129,11 @@ Rules can match on `bundle_id`, `app_name`, or `title_contains`.
 - `open_position`: `before_active`, `after_active`, or `end`.
 
 ## Recovery And Persistence
+
+Session lock/sleep recovery is automatic rather than configurable. Layout work
+pauses while the session is unavailable and resumes only after interaction with
+a relevant managed window. See
+[Session Lock And Sleep Recovery](../README.md#session-lock-and-sleep-recovery).
 
 - `window_reconciliation_interval_ms`: long safety timer for missed
   notifications, clamped to `5000...300000`.

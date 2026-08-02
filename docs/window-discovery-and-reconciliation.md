@@ -1,7 +1,8 @@
 # Window Discovery And Reconciliation
 
-miri tries to avoid constant polling. It scans on startup and then relies on
-NSWorkspace and AX events, with a long safety timer for missed notifications.
+miri tries to avoid constant polling. It scans on startup when the user session
+is available and then relies on NSWorkspace and AX events, with a long safety
+timer for missed notifications.
 
 ## Startup
 
@@ -14,7 +15,9 @@ Startup performs a full discovery pass:
 4. Convert accepted AX elements into `ManagedWindow` values.
 5. Restore persisted layout and logical Space context when available.
 
-This full scan gives miri a baseline before event-driven updates begin.
+This full scan gives miri a baseline before event-driven updates begin. If miri
+starts while the screen is locked, the console session is inactive, or the Mac
+is sleeping, discovery waits for session recovery instead.
 
 ## App Events
 
@@ -22,7 +25,9 @@ NSWorkspace events provide process-level signals:
 
 - Launch: start observing the app and schedule the same coalesced settle
   sequence used for delayed created windows.
-- Activation: adopt focus and reconcile the app.
+- Activation: reconcile the previously active app, then reconcile and adopt
+  focus for the newly active app. This catches windows that vanished while their
+  former app was frontmost.
 - Termination: remove windows for that process or defer removal until layout is
   safe.
 - Native Space change: save the current logical Space context, wait briefly,
@@ -46,6 +51,24 @@ When layout or snapshot animation is busy, miri queues affected process IDs and
 drains that queue after the animation and layout lock settle. This keeps
 window-list changes from mutating the real layout while the snapshot overlay is
 still presenting a movement.
+
+`AXWindowMiniaturized` for a known tiled window is handled immediately when the
+layout is safe: miri remembers its placement, removes it from the tiled model,
+and projects the remaining windows. Deminiaturization follows the normal
+reconciliation path and can restore the remembered placement.
+
+## Session Gating
+
+Discovery and reconciliation stop while the screen is locked, the console
+session is inactive, or the system is sleeping. They remain stopped after the
+desktop becomes available until a mouse, scroll, keyboard, or registered-hot-key
+interaction is validated against a relevant managed window. This avoids using
+events from the lock/login UI as evidence that the desktop is ready.
+
+Applications launched during this waiting period are recorded but not scanned
+immediately. A valid interaction with one of their manageable windows can
+release recovery, after which a full rescan establishes the current model and
+restarts periodic and active-rescan timers.
 
 ## Created Windows
 
@@ -86,6 +109,13 @@ case, per-app reconciliation has a CoreGraphics fallback: when AX window
 discovery for a PID becomes unavailable, miri checks tracked windows for that
 PID by CG window ID and removes any whose CG window no longer exists.
 
+An AX query can also succeed but return structurally invalid data. Telegram has
+been observed returning its `AXApplication` root inside `AXWindows` during a
+screen-lock transition. Because `AXWindows` should contain window elements,
+miri treats the whole response as unreliable and retains the app's known
+windows. Merely filtering out the root could turn the transient response into an
+apparently empty window list and discard layout order or manual width state.
+
 Notion is known to be inconsistent here. Closing its last window without
 quitting the app may produce no useful Accessibility event for the tracked
 window: no destroyed, minimized, deminimized, hidden, shown, focused-window, or
@@ -117,7 +147,9 @@ apps, the recommended fallback is adding a window rule with
 
 Full rescans are still used for startup, native Space changes, config reloads,
 explicit menu-bar rescans, and the long reconciliation timer. They are also
-used when a queued event explicitly requires global reconciliation.
+used when a queued event explicitly requires global reconciliation and once
+after a valid session-recovery interaction. Rescans are ignored while session
+tracking is unavailable or still awaiting that interaction.
 
 Routine AX movement, resize, and creation events should prefer targeted per-PID
 reconciliation.
@@ -138,5 +170,13 @@ Useful log lines in `~/.config/miri/debug.log`:
   queued targeted PID reconciliation.
 - `active rescan reason=...`: optional active rescan ran for a configured
   bundle currently present in the tiled layout.
+- `ignoring malformed ax-windows response containing AXApplication`: an app
+  returned a non-window root from `AXWindows`; known state was preserved.
+- `layout tracking paused for unavailable session`: lock, inactive session, or
+  sleep suspended discovery and layout work.
+- `layout tracking awaiting managed-window interaction`: the desktop is
+  available but recovery is still guarded.
+- `session recovery requested` / `layout tracking resumed`: a validated target
+  released recovery and the rescan completed.
 - `removing vanished window`: CG fallback removed a stale tracked window.
 - `layout workspace=...`: layout projection and application happened.

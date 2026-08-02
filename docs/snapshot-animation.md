@@ -31,6 +31,15 @@ AX focus calls are allowed during snapshot animation so keyboard input follows
 the user's requested focus. AX position and size changes for tiled windows are
 deferred until completion.
 
+## Session Interruption
+
+If the screen locks, the console session becomes inactive, or the system sleeps
+during an animation, miri stops the animation and clears its snapshot
+presentation. No further snapshot, layout, or final AX-frame work is performed
+while the session is unavailable. After the desktop is available and a relevant
+managed-window interaction releases the recovery guard, a full rescan projects
+the current layout from preserved logical state.
+
 ## Layout Copies
 
 The animation path separates three states:
