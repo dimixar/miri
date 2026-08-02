@@ -493,20 +493,39 @@ extension Miri {
             return nil
         }
 
-        if axWindows.contains(where: { axString($0, kAXRoleAttribute) == kAXApplicationRole }) {
-            // Telegram can transiently return its AXApplication root from AXWindows while
-            // the session is locking. Treat that enumeration as unreliable: filtering the
-            // root and accepting the remainder could make known windows appear to vanish
-            // and discard their saved layout state.
-            debugLog("ignoring malformed ax-windows response containing AXApplication app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
-            return allWindows().filter { $0.pid == pid }
+        let containsApplicationRoot = axWindows.contains {
+            axString($0, kAXRoleAttribute) == kAXApplicationRole
+        }
+        let windowElements = axWindows.filter {
+            axString($0, kAXRoleAttribute) == kAXWindowRole
+        }
+        let knownWindows = allWindows().filter { $0.pid == pid }
+
+        if containsApplicationRoot, windowElements.isEmpty {
+            // Telegram can transiently return only its AXApplication root from AXWindows
+            // while the session is locking. Preserve known windows until AX returns a
+            // usable enumeration again.
+            debugLog("ignoring malformed root-only ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
+            return knownWindows
         }
 
         var windows: [ManagedWindow] = []
-        for element in axWindows {
+        for element in windowElements {
             if let window = managedWindow(from: element, app: app, source: "scan") {
                 windows.append(window)
             }
+        }
+
+        if containsApplicationRoot {
+            // A mixed AXApplication/AXWindow response is still structurally malformed.
+            // Accept reported windows so newly launched apps can be discovered, but do
+            // not trust the response to prove that an existing window disappeared.
+            for knownWindow in knownWindows where !windows.contains(where: {
+                sameWindow($0.element, knownWindow.element)
+            }) {
+                windows.append(knownWindow)
+            }
+            debugLog("accepted windows from malformed mixed ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) reported=\(windowElements.count) accepted=\(windows.count)")
         }
 
         return windows
