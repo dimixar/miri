@@ -189,12 +189,19 @@ extension Miri {
 
     func scheduleReconciliationTimer() {
         reconciliationTimer?.invalidate()
+        reconciliationTimer = nil
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         reconciliationTimer = Timer.scheduledTimer(withTimeInterval: windowReconciliationInterval, repeats: true) { [weak self] _ in
             self?.handlePeriodicTick()
         }
     }
 
     func handlePeriodicTick() {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         guard !reloadConfigIfNeeded() else {
             return
         }

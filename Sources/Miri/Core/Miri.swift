@@ -44,6 +44,9 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var excludedKeybindingSet = Set<String>()
     var reconciliationTimer: Timer?
     var activeRescanTimer: Timer?
+    var isScreenLocked = false
+    var isWorkspaceSessionActive = true
+    var sessionResumeGeneration: UInt64 = 0
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
     var animationTimer: AnimationTimer?
@@ -94,6 +97,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
 
         observeWorkspace()
+        observeSessionState()
         installTerminationHandlers()
         if restoreOnExit {
             startCleanupWatcher()
@@ -101,7 +105,11 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         configureInput()
         installInputBackend()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        rescanWindows(adoptFocused: true)
+        if isLayoutTrackingAllowed {
+            rescanWindows(adoptFocused: true)
+        } else {
+            print("miri: layout tracking paused because the user session is unavailable")
+        }
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
         schedulePeriodicLogicalSpaceSnapshotWrite()

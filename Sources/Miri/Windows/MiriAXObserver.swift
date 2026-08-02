@@ -271,6 +271,9 @@ extension Miri {
     }
 
     fileprivate func handleAXNotification(_ name: String, element: AXUIElement) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         logAXNotification(name, element: element)
         noteFullscreenSpaceHelperIfNeeded(element)
         if transientSystemWindowIsActive(forceRefresh: true) {

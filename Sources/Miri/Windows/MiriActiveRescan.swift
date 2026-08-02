@@ -3,7 +3,7 @@ import Foundation
 
 extension Miri {
     func syncActiveRescanTimer() {
-        let shouldRun = activeRescanTrackedPIDs().isEmpty == false
+        let shouldRun = isLayoutTrackingAllowed && activeRescanTrackedPIDs().isEmpty == false
         if shouldRun, activeRescanTimer == nil {
             activeRescanTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
                 self?.handleActiveRescanTick()
@@ -17,7 +17,7 @@ extension Miri {
     }
 
     func scheduleActiveRescanForUserInput() {
-        guard activeRescanEnabled else {
+        guard isLayoutTrackingAllowed, activeRescanEnabled else {
             return
         }
 
@@ -27,6 +27,10 @@ extension Miri {
     }
 
     private func handleActiveRescanTick() {
+        guard isLayoutTrackingAllowed else {
+            syncActiveRescanTimer()
+            return
+        }
         guard !reloadConfigIfNeeded() else {
             syncActiveRescanTimer()
             return

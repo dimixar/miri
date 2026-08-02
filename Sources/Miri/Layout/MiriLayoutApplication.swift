@@ -13,6 +13,10 @@ extension Miri {
         animatedWindowIDs: Set<ObjectIdentifier>? = nil,
         resizingWindowID: ObjectIdentifier? = nil
     ) {
+        guard isLayoutTrackingAllowed else {
+            debugLog("layout skipped because user session is unavailable")
+            return
+        }
         defer {
             notifyWorkspaceBarNeedsRefresh()
         }

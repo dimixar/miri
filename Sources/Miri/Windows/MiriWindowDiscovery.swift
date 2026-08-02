@@ -12,6 +12,9 @@ enum AXCreatedReconciliationAction {
 
 extension Miri {
     @objc func applicationActivated(_ notification: Notification) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         guard !isApplyingLayout else {
             return
         }
@@ -66,6 +69,9 @@ extension Miri {
     }
 
     @objc func applicationLaunched(_ notification: Notification) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
@@ -79,6 +85,10 @@ extension Miri {
 
     @objc func applicationTerminated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+            return
+        }
+        guard isLayoutTrackingAllowed else {
+            observers.removeValue(forKey: app.processIdentifier)
             return
         }
         guard !axReconciliationShouldDefer else {
@@ -96,6 +106,9 @@ extension Miri {
     }
 
     @objc func activeSpaceChanged(_ notification: Notification) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         if activeContextHasBufferedSourceWindows() {
             debugLog("skipping logical macOS space save during switch because active context has buffered source windows")
         } else {
@@ -129,6 +142,9 @@ extension Miri {
     }
 
     func reconcileWindows(for app: NSRunningApplication, adoptFocused: Bool) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         guard app.activationPolicy == .regular else {
             debugLog("reconcile skipped reason=non-regular-app app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier) activationPolicy=\(app.activationPolicy.rawValue)")
             return
@@ -331,6 +347,9 @@ extension Miri {
     }
 
     func rescanWindows(adoptFocused: Bool) {
+        guard isLayoutTrackingAllowed else {
+            return
+        }
         guard !transientSystemWindowIsActive() else {
             return
         }
