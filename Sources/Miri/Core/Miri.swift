@@ -22,6 +22,8 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var observers: [pid_t: AXObserver] = [:]
     var eventTap: CFMachPort?
     var eventTapSource: CFRunLoopSource?
+    var sessionRecoveryEventTap: CFMachPort?
+    var sessionRecoveryEventTapSource: CFRunLoopSource?
     var carbonHotKeys: [EventHotKeyRef] = []
     var carbonEventHandler: EventHandlerRef?
     var carbonCommandByID: [UInt32: Command] = [:]
@@ -46,6 +48,11 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var activeRescanTimer: Timer?
     var isScreenLocked = false
     var isWorkspaceSessionActive = true
+    var isSystemSleeping = false
+    var isAwaitingSessionRecoveryInteraction = false
+    var isSessionRecoveryResumeScheduled = false
+    var pendingSessionRecoveryCommands: [Command] = []
+    var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
     var sessionResumeGeneration: UInt64 = 0
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
@@ -104,6 +111,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         configureInput()
         installInputBackend()
+        syncSessionRecoveryInputTracking()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         if isLayoutTrackingAllowed {
             rescanWindows(adoptFocused: true)
@@ -123,6 +131,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         snapshotWriteTimer?.cancel()
         logicalSpaceSnapshotTimer?.cancel()
         activeRescanTimer?.invalidate()
+        uninstallSessionRecoveryEventTap()
         uninstallEventTap()
         uninstallCarbonHotKeys()
         writePersistentLayoutSnapshot()

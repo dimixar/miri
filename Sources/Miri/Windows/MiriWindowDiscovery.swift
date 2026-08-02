@@ -69,10 +69,14 @@ extension Miri {
     }
 
     @objc func applicationLaunched(_ notification: Notification) {
-        guard isLayoutTrackingAllowed else {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+        guard isLayoutTrackingAllowed else {
+            if isAwaitingSessionRecoveryInteraction, app.activationPolicy == .regular {
+                pendingSessionRecoveryLaunchedPIDs.insert(app.processIdentifier)
+                debugLog("session recovery noted launched app pid=\(app.processIdentifier) bundle='\(app.bundleIdentifier ?? "nil")'")
+            }
             return
         }
         startObservingApp(pid: app.processIdentifier)
@@ -87,6 +91,7 @@ extension Miri {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
+        pendingSessionRecoveryLaunchedPIDs.remove(app.processIdentifier)
         guard isLayoutTrackingAllowed else {
             observers.removeValue(forKey: app.processIdentifier)
             return
@@ -486,6 +491,15 @@ extension Miri {
         let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
         guard error == .success, let axWindows = value as? [AXUIElement] else {
             return nil
+        }
+
+        if axWindows.contains(where: { axString($0, kAXRoleAttribute) == kAXApplicationRole }) {
+            // Telegram can transiently return its AXApplication root from AXWindows while
+            // the session is locking. Treat that enumeration as unreliable: filtering the
+            // root and accepting the remainder could make known windows appear to vanish
+            // and discard their saved layout state.
+            debugLog("ignoring malformed ax-windows response containing AXApplication app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
+            return allWindows().filter { $0.pid == pid }
         }
 
         var windows: [ManagedWindow] = []

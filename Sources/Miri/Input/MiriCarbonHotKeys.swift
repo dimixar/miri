@@ -90,6 +90,14 @@ extension Miri {
             return OSStatus(eventNotHandledErr)
         }
 
+        if isAwaitingSessionRecoveryInteraction {
+            guard sessionRecoveryFocusedLayoutTarget() != nil else {
+                return OSStatus(eventNotHandledErr)
+            }
+            requestSessionRecovery(reason: "managed-carbon-hot-key", command: command)
+            return noErr
+        }
+
         guard !transientSystemWindowIsActive() else {
             return noErr
         }

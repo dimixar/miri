@@ -92,27 +92,35 @@ extension Miri {
     }
 
     func handleKeyEvent(_ event: CGEvent) -> Bool {
-        scheduleActiveRescanForUserInput()
-
         let modifiers = event.flags
-
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let keyText = KeybindingResolver.keyboardText(from: event)
-        guard !KeybindingResolver.isExcludedKeybinding(
+        let isExcluded = KeybindingResolver.isExcludedKeybinding(
             modifiers: modifiers,
             keyCode: keyCode,
             keyText: keyText,
             excludedKeybindingSet: excludedKeybindingSet
-        ) else {
-            return false
-        }
-
-        guard let command = KeybindingResolver.commandForKeyEvent(
+        )
+        let command = isExcluded ? nil : KeybindingResolver.commandForKeyEvent(
             modifiers: modifiers,
             keyCode: keyCode,
             keyText: keyText,
             commandByKeybinding: commandByKeybinding
-        ) else {
+        )
+
+        if isAwaitingSessionRecoveryInteraction {
+            guard sessionRecoveryInputTargetsManagedWindow(
+                event,
+                type: .keyDown
+            ) else {
+                return false
+            }
+            requestSessionRecovery(reason: "managed-key-down", command: command)
+            return command != nil
+        }
+
+        scheduleActiveRescanForUserInput()
+        guard let command else {
             return false
         }
 
@@ -124,6 +132,15 @@ extension Miri {
             self?.submit(command)
         }
         return true
+    }
+
+    func handlePointerEvent(_ event: CGEvent, type: CGEventType) {
+        guard isAwaitingSessionRecoveryInteraction,
+              sessionRecoveryInputTargetsManagedWindow(event, type: type)
+        else {
+            return
+        }
+        requestSessionRecovery(reason: "managed-pointer-event-\(type.rawValue)")
     }
 
 }
