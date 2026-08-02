@@ -17,13 +17,19 @@ is maintained independently and is no longer presented as a fork.
 
 It tiles normal app windows through macOS Accessibility APIs, keeps a virtual
 workspace/column model, and adds macOS-specific recovery for app hiding,
-minimize, native fullscreen, Space switching, and process/window churn.
+minimize, native fullscreen, Space switching, session lock/sleep, and
+process/window churn.
 
 ## Status
 
 miri is source-first software for users who are comfortable building and running
 Swift tools locally. GitHub Releases are not part of the current project flow;
 use the Swift commands or local packaging scripts below.
+
+miri is designed and tested for a single-display setup, specifically a MacBook
+using only its built-in display. Its purpose is to provide a Niri-style workflow
+on that laptop screen. Multi-display configurations are outside the project's
+current scope and have not been tested.
 
 ## Features
 
@@ -38,6 +44,10 @@ use the Swift commands or local packaging scripts below.
   extra rescans while tiled, improving UX when they miss Accessibility events.
   This is a mitigation for broken app behavior, not a guarantee that those apps
   will tile predictably.
+- **Session-aware recovery.** Layout tracking pauses while the screen is locked,
+  the login session is inactive, or the Mac is asleep. After the session becomes
+  available, tracking resumes only after input targets a relevant managed
+  window, avoiding lock-screen input and premature layout reconciliation.
 - **Persistent layout state.** Saved column positions, manual widths, focus, and
   logical Space state across restarts.
 - **Snapshot transitions.** Window movement and resizing animations using
@@ -53,7 +63,7 @@ use the Swift commands or local packaging scripts below.
 - Swift 6 toolchain.
 - Accessibility permission for window management.
 - Input Monitoring permission may be needed for the `event_tap` shortcut
-  backend.
+  backend and for detecting managed-window interaction after session recovery.
 - Screen Recording permission is needed for snapshot animations.
 
 If you run miri from a terminal, macOS may request permissions for that terminal
@@ -140,6 +150,32 @@ It covers layout, animation, fullscreen/Space recovery, logical Space autosave,
 active rescans for problematic apps, window rules, excluded shortcuts, and
 command keybindings.
 
+## Session Lock And Sleep Recovery
+
+miri pauses window discovery, Accessibility handling, layout projection,
+animations, and reconciliation timers when macOS reports that the screen is
+locked, the console session is inactive, or the system is sleeping. It does not
+immediately reconcile windows when an unlock, login, or wake notification
+arrives because the login UI and the user's desktop can overlap briefly during
+that transition.
+
+Once the desktop session is available, miri waits for a layout-relevant action:
+
+- a mouse-button press or scroll event targeting an on-screen managed window;
+- a key press delivered to the focused managed window; or
+- a registered Miri Carbon hot key while a managed window is focused.
+
+Input aimed at the lock/login UI does not release the guard. Regular apps
+launched while miri is waiting are remembered so their first valid managed-window
+interaction can also resume tracking. Recovery then performs one rescan,
+restarts the safety timers, and runs a triggering Miri command if one was queued.
+
+Some applications expose transiently malformed Accessibility state during a
+session transition. In particular, an `AXWindows` query may return an
+`AXApplication` root instead of only window elements. miri treats that response
+as unreliable and retains its known windows until a valid enumeration arrives,
+preserving layout order and manual width state.
+
 ## Configuration
 
 miri loads the first readable config from:
@@ -161,13 +197,13 @@ The code is split by domain:
 ```text
 Sources/Miri/Core/          coordinator, commands, status providers
 Sources/Miri/Config/        config model and effective settings
-Sources/Miri/Input/         event tap, Carbon hot keys, keybinding resolution
+Sources/Miri/Input/         event tap, Carbon hot keys, recovery input, keybindings
 Sources/Miri/Layout/        projection, geometry, application, animations
 Sources/Miri/Windows/       discovery, placement, lookup, transient windows
 Sources/Miri/Persistence/   layout persistence and exit/crash restoration
 Sources/Miri/UI/            settings window and status menu
 Sources/Miri/Debug/         debug logging
-Sources/Miri/System/        Accessibility and SkyLight wrappers
+Sources/Miri/System/        session state, Accessibility and SkyLight wrappers
 ```
 
 Read the current architecture notes in [Architecture](docs/architecture.md).
@@ -210,6 +246,9 @@ raise/focus behavior.
 
 ## Notes And Limitations
 
+- Only a single active display is currently supported and tested. Behavior with
+  external or multiple displays—including viewport selection, window placement,
+  native Space inference, and session recovery—is not guaranteed.
 - Native macOS Space handling is inferred from visible windows. If two Spaces
   contain indistinguishable sets of windows, miri may not be able to tell them
   apart without private Space IDs.
