@@ -68,12 +68,6 @@ extension Miri {
         config.parkedSliverWidth ?? MiriConfig.fallback.parkedSliverWidth ?? 1
     }
 
-    var bringTiledAppsForwardOnFocus: Bool {
-        config.bringTiledAppsForwardOnFocus
-            ?? MiriConfig.fallback.bringTiledAppsForwardOnFocus
-            ?? true
-    }
-
     var widthPresetRatios: [CGFloat] {
         config.presetWidthRatios ?? MiriConfig.fallback.presetWidthRatios ?? [0.5, 0.67, 0.8, 1.0]
     }

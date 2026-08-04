@@ -287,12 +287,13 @@ extension Miri {
 
     func parkedFrame(for window: ManagedWindow, viewport: CGRect, beforeActive: Bool) -> CGRect {
         let width = viewport.width * widthRatio(for: window)
-        let sliverWidth = parkedSliverPoints(for: viewport)
-        let visualOutsets = renderedHorizontalOutsets(for: window)
+        let sliver = parkedSliverPoints(for: viewport)
+        let visualOutsets = renderedOutsets(for: window)
         var frame = CGRect(x: viewport.minX, y: viewport.minY, width: width, height: viewport.height)
         frame.origin.x = beforeActive
-            ? viewport.minX - width - visualOutsets.right + sliverWidth
-            : viewport.maxX + visualOutsets.left - sliverWidth
+            ? viewport.minX - width - visualOutsets.right + sliver
+            : viewport.maxX + visualOutsets.left - sliver
+        frame.origin.y = viewport.maxY + visualOutsets.top - sliver
         return frame
     }
 
@@ -332,7 +333,12 @@ extension Miri {
         )
     }
 
-    func renderedHorizontalOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat) {
+    func renderedOutsets(for window: ManagedWindow) -> (
+        left: CGFloat,
+        right: CGFloat,
+        top: CGFloat,
+        bottom: CGFloat
+    ) {
         if let shadow = SkyLight.shared.shadowParameters(for: window.windowID),
            shadow.density > 0,
            shadow.standardDeviation > 0
@@ -342,7 +348,9 @@ extension Miri {
             let radius = ceil(shadow.standardDeviation * 3)
             return (
                 left: max(0, radius - shadow.offsetX),
-                right: max(0, radius + shadow.offsetX)
+                right: max(0, radius + shadow.offsetX),
+                top: max(0, radius - shadow.offsetY),
+                bottom: max(0, radius + shadow.offsetY)
             )
         }
 
@@ -352,12 +360,14 @@ extension Miri {
               axFrame.width > 0,
               renderedBounds.width > 0
         else {
-            return (0, 0)
+            return (0, 0, 0, 0)
         }
 
         let left = min(max(axFrame.minX - renderedBounds.minX, 0), 128)
         let right = min(max(renderedBounds.maxX - axFrame.maxX, 0), 128)
-        return (left, right)
+        let top = min(max(axFrame.minY - renderedBounds.minY, 0), 128)
+        let bottom = min(max(renderedBounds.maxY - axFrame.maxY, 0), 128)
+        return (left, right, top, bottom)
     }
 
     func cgWindowBounds(windowID: UInt32) -> CGRect? {

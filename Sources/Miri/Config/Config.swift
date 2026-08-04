@@ -141,7 +141,6 @@ struct MiriConfig: Codable {
     var innerGap: CGFloat?
     var outerGap: CGFloat?
     var parkedSliverWidth: CGFloat?
-    var bringTiledAppsForwardOnFocus: Bool?
     var keyboardShortcutBackend: KeyboardShortcutBackend?
     var axCreatedPlaceholderProbeCooldownMS: Int?
     var activeRescanEnabled: Bool?
@@ -186,7 +185,6 @@ struct MiriConfig: Codable {
         innerGap: 0,
         outerGap: 0,
         parkedSliverWidth: 1,
-        bringTiledAppsForwardOnFocus: true,
         keyboardShortcutBackend: .eventTap,
         axCreatedPlaceholderProbeCooldownMS: 1000,
         activeRescanEnabled: true,
@@ -427,7 +425,6 @@ struct MiriConfig: Codable {
         case innerGap = "inner_gap"
         case outerGap = "outer_gap"
         case parkedSliverWidth = "parked_sliver_width"
-        case bringTiledAppsForwardOnFocus = "bring_tiled_apps_forward_on_focus"
         case keyboardShortcutBackend = "keyboard_shortcut_backend"
         case axCreatedPlaceholderProbeCooldownMS = "ax_created_placeholder_probe_cooldown_ms"
         case activeRescanEnabled = "active_rescan_enabled"

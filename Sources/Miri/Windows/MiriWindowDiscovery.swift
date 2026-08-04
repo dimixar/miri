@@ -26,10 +26,6 @@ extension Miri {
         }
         let previousPID = lastActivatedApplicationPID
         lastActivatedApplicationPID = app.processIdentifier
-        if CFAbsoluteTimeGetCurrent() < tiledAppReactivationFocusSuppressionUntil {
-            debugLog("app activation suppressed during tiled app reactivation pid=\(app.processIdentifier)")
-            return
-        }
 
         if let previousPID, previousPID != app.processIdentifier {
             if axReconciliationShouldDefer {
@@ -118,7 +114,6 @@ extension Miri {
         guard isLayoutTrackingAllowed else {
             return
         }
-        cancelTiledStackAudit()
         if activeContextHasBufferedSourceWindows() {
             debugLog("skipping logical macOS space save during switch because active context has buffered source windows")
         } else {

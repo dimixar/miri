@@ -267,12 +267,8 @@ The implementation checks availability where possible. If the private
 AX-to-window-ID mapping is absent, identity matching and recovery use weaker
 fallbacks. If the SkyLight functions are absent, floating windows fall back to
 normal raise/focus behavior and parking falls back to Accessibility placement.
-After completed layout-position mutations, WindowServer's public front-to-back
-window list is audited while a tiled window is focused. Visible tiles found
-behind parked or unmanaged layer-0 windows are corrected through normal AppKit
-application activation rather than private ordering. The decision does not use
-focus history, jump distance, or window-to-window intersection. Undocumented
-lock and Accessibility contracts may change between macOS releases.
+Undocumented lock and Accessibility contracts may change between macOS
+releases.
 
 `CGSessionCopyCurrentDictionary`, `kCGSessionOnConsoleKey`, NSWorkspace
 session/sleep notifications, CG event taps and event fields, and CoreGraphics

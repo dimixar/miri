@@ -90,8 +90,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
     var originalWindowTransforms: [UInt32: CGAffineTransform] = [:]
-    var tiledStackAuditGeneration: UInt64 = 0
-    var tiledAppReactivationFocusSuppressionUntil: CFAbsoluteTime = 0
     lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
     var needsPersistentLayoutRestore = true
     lazy var persistentLogicalSpaceSnapshot = readPersistentLogicalSpaceSnapshot()

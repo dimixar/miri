@@ -198,10 +198,10 @@ extension Miri {
                 height: viewport.height
             )
             let sliver = parkedSliverPoints(for: viewport)
-            let visualOutsets = renderedHorizontalOutsets(for: window)
+            let visualOutsets = renderedOutsets(for: window)
             let parked = CGRect(
                 x: viewport.maxX + visualOutsets.left - sliver,
-                y: frame.minY,
+                y: viewport.maxY + visualOutsets.top - sliver,
                 width: frame.width,
                 height: frame.height
             )

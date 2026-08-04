@@ -100,7 +100,6 @@ extension Miri {
             isApplyingLayout = false
             drainPendingFocusCommands()
             drainPendingAXReconciliationIfReady()
-            scheduleTiledStackAudit()
             return
         }
 
@@ -115,7 +114,6 @@ extension Miri {
             isApplyingLayout = false
             drainPendingFocusCommands()
             drainPendingAXReconciliationIfReady()
-            scheduleTiledStackAudit()
         }
     }
 

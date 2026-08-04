@@ -131,13 +131,9 @@ symbols:
 There is no public macOS API for changing another application's WindowServer
 level or compositor position. If SkyLight calls are unavailable, floating
 windows can still be raised and focused, while exact parking becomes
-best-effort. After layout and animation work settles, Miri uses Core Graphics'
-front-to-back on-screen window list to detect visible tiles behind parked tiles
-or unmanaged layer-0 windows. It corrects only affected applications through
-ordinary AppKit activation; focus history, jump distance, and
-window-to-window intersection are not inputs. The private symbols are
-dynamically resolved so their absence is non-fatal; the undocumented
-notifications, properties, and attributes remain macOS-version-sensitive.
+best-effort. The private symbols are dynamically resolved so their absence is
+non-fatal; the undocumented notifications, properties, and attributes remain
+macOS-version-sensitive.
 
 CoreGraphics session dictionaries, NSWorkspace session/sleep notifications, CG
 event taps and fields, and CoreGraphics window-list/image functions used by miri
