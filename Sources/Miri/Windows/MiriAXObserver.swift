@@ -292,12 +292,25 @@ extension Miri {
              kAXMainWindowChangedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
+            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let isFrontmost = frontmostPID == pid
             let focusedBehavior = configuredBehavior(for: element, pid: pid)
             if focusedBehavior != .ignore,
                !isKnownWindow(element),
                isManageableWindow(element)
             {
-                scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
+                scheduleAXCreationReconciliation(
+                    pid: pid,
+                    adoptFocused: isFrontmost,
+                    reason: name
+                )
+            }
+            guard isFrontmost else {
+                let frontmostDescription = frontmostPID.map(String.init) ?? "nil"
+                debugLog(
+                    "ax focus adoption ignored reason=non-frontmost notification=\(name) pid=\(pid) frontmostPID=\(frontmostDescription)"
+                )
+                return
             }
             guard !axReconciliationShouldDefer,
                   CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil

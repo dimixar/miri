@@ -43,6 +43,14 @@ extension Miri {
             guard let self else {
                 return
             }
+            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            guard frontmostPID == app.processIdentifier else {
+                let frontmostDescription = frontmostPID.map(String.init) ?? "nil"
+                debugLog(
+                    "activation settle ignored reason=stale-app pid=\(app.processIdentifier) frontmostPID=\(frontmostDescription)"
+                )
+                return
+            }
             guard !axReconciliationShouldDefer else {
                 deferAXReconciliation(
                     pid: app.processIdentifier,

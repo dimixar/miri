@@ -14,6 +14,7 @@ extension Miri {
     ) {
         guard animationStrategy == .snapshot else {
             stopAnimation(clearPresentation: true)
+            isApplyingLayout = true
             let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
             applyLayout(finalLayout, focusActiveWindow: focusActiveWindow)
             restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)

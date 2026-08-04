@@ -32,11 +32,14 @@ extension Miri {
         let viewport = currentViewport()
 
         let targetState = captureLayoutState()
-        debugLog("layout workspace=\(targetState.activeWorkspace + 1) tiled=\(tiledWindows().count) floating=\(floatingWindows.count) animated=\(animated)")
         hideInactiveWorkspaceWindows(activeWorkspace: targetState.activeWorkspace)
         syncActiveRescanTimer()
         let duration = animationDuration ?? self.animationDuration
-        let shouldAnimate = animated && (animationStrategy == .snapshot || duration > 0)
+        let shouldAnimate = animated && animationStrategy == .snapshot
+        let durationDescription = String(format: "%.3f", duration)
+        debugLog(
+            "layout workspace=\(targetState.activeWorkspace + 1) tiled=\(tiledWindows().count) floating=\(floatingWindows.count) animationRequested=\(animated) animationStrategy=\(animationStrategy.rawValue) animationActive=\(shouldAnimate) duration=\(durationDescription)"
+        )
         suppressManualResizeNotifications(for: (shouldAnimate ? max(duration, 0.25) : 0) + max(layoutLockDelay, 0.25))
         if shouldAnimate, let previousState {
             animateLayout(
