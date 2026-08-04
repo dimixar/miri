@@ -134,6 +134,10 @@ rg "AXFocusedWindowChanged|AXMainWindowChanged|focused-window-probe|ax observer 
   Command-based switch fallback.
 - `ax reconciliation deferred reason=focused-window-probe:...` means the probe
   arrived during layout or animation and will be adopted after it settles.
+- `ax focus adoption ignored reason=non-frontmost` confirms that an app-local
+  focus notification from a background application was intentionally rejected.
+- `activation settle ignored reason=stale-app` confirms that another app became
+  frontmost before a delayed activation callback ran.
 - `ax observer registration failed` identifies an app for which notification
   registration itself failed.
 
@@ -159,6 +163,15 @@ Things to look for:
 - Repeated `AXCreated` placeholder windows from one app.
 - Menu bar redraws without status changes.
 - Snapshot ticks continuing after `settled=true`.
+
+Layout lines distinguish an animation-capable request from actual presentation:
+
+```text
+animationRequested=true animationStrategy=off animationActive=false duration=0.300
+```
+
+This is an immediate layout. `animationRequested` records the caller's intent;
+`animationActive` records whether snapshot animation is actually running.
 
 `window_reconciliation_interval_ms` controls the long safety rescan interval.
 The normal path should be event-driven and targeted per PID.

@@ -27,7 +27,8 @@ NSWorkspace events provide process-level signals:
   sequence used for delayed created windows.
 - Activation: reconcile the previously active app, then reconcile and adopt
   focus for the newly active app. This catches windows that vanished while their
-  former app was frontmost.
+  former app was frontmost. The delayed activation settle verifies that the app
+  is still globally frontmost before adopting its focused window.
 - Termination: remove windows for that process or defer removal until layout is
   safe.
 - Native Space change: save the current logical Space context, wait briefly,
@@ -48,11 +49,18 @@ AX observers provide window-level signals:
 - `AXApplicationHidden`
 - `AXApplicationShown`
 
+`AXFocusedWindowChanged` and `AXMainWindowChanged` describe focus inside the
+emitting application; they are not proof that the application is globally
+frontmost. miri therefore adopts those signals only when the emitting PID
+matches `NSWorkspace`'s current frontmost application. Non-frontmost signals
+may still schedule discovery for an unknown manageable window, but they cannot
+change the active layout column.
+
 When layout or snapshot animation is busy, miri queues affected process IDs and
-drains that queue after the animation and layout lock settle. Focus and
-main-window signals are queued too instead of being discarded. This keeps
-window-list changes from mutating the real layout while the snapshot overlay is
-still presenting a movement and adopts the final focused window afterward.
+drains that queue after the animation and layout lock settle. Authoritative
+focus and main-window signals are queued too instead of being discarded. This
+keeps window-list changes from mutating the real layout while frames are being
+applied and adopts the frontmost application's final focused window afterward.
 
 ## Focus Tracking Fallback
 

@@ -93,10 +93,12 @@ Useful log lines:
 - `layout deferred during snapshot`: real AX layout was deferred.
 - `ax reconciliation deferred`: AX events were queued until animation settled.
 
-## Fallback AX Animation
+## Disabled Animation
 
-If `animation_strategy` is `off`, snapshot animation is disabled. Some fallback
-AX animation settings remain for non-snapshot paths and compatibility:
+If `animation_strategy` is `off`, snapshot animation is disabled and final AX
+frames are applied immediately under the normal layout lock. Duration settings
+do not override `off`; the following keys remain accepted for configuration
+compatibility and animated requests:
 
 - `animation_duration_ms`
 - `keyboard_animation_ms`

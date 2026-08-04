@@ -49,12 +49,14 @@ After startup, the normal path is event driven:
    changes, movement, resize, minimization, hiding, and showing.
 3. Mouse clicks and Command-based window switching schedule a lightweight AX
    focused-window probe as a fallback for applications that miss focus events.
-4. miri adopts a different managed focused column or reconciles the affected
-   process when possible; unchanged and unmanaged focus targets are ignored.
+4. miri adopts a different managed focused column only from the globally
+   frontmost application. App-local focus notifications from background
+   processes may inform discovery but cannot change layout focus.
 5. Layout projection computes logical target frames using the configured focus
    alignment policy.
-6. Snapshot animation or fallback AX animation presents movement.
-7. Final AX frames are applied once the animation has settled.
+6. Snapshot animation presents movement when configured; `off` applies final
+   AX frames immediately while retaining the layout/reconciliation lock.
+7. Final AX frames are committed once presentation work has settled.
 
 The periodic reconciliation timer remains as a safety net for missed or delayed
 Accessibility notifications.
