@@ -154,7 +154,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Default width ratio", doubleField("defaultWidthRatio", Double(draft.defaultWidthRatio))),
         ("Preset width ratios CSV", textField("presetWidthRatios", (draft.presetWidthRatios ?? []).map { String(format: "%.2f", Double($0)) }.joined(separator: ", "))),
         ("Width resize mode", popup("widthResizeMode", WidthResizeMode.allCasesStrings, draft.widthResizeMode?.rawValue ?? MiriConfig.fallback.widthResizeMode?.rawValue ?? "default")),
-        ("Focus alignment", popup("focusAlignment", FocusAlignment.allCasesStrings, draft.focusAlignment?.rawValue ?? "smart")),
+        ("Focus alignment", focusAlignmentPopup()),
         ("New window position", popup("newWindowPosition", NewWindowPosition.allCasesStrings, draft.newWindowPosition?.rawValue ?? "after_active")),
         ("Inner gap", doubleField("innerGap", Double(draft.innerGap ?? 0))),
         ("Outer gap", doubleField("outerGap", Double(draft.outerGap ?? 0))),
@@ -345,7 +345,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.defaultWidthRatio = CGFloat(double("defaultWidthRatio"))
         draft.presetWidthRatios = string("presetWidthRatios").split(separator: ",").compactMap { CGFloat(Double($0.trimmingCharacters(in: .whitespaces)) ?? .nan) }
         draft.widthResizeMode = WidthResizeMode(rawValue: string("widthResizeMode"))
-        draft.focusAlignment = FocusAlignment(rawValue: string("focusAlignment"))
+        let focusAlignmentRawValue = (controls["focusAlignment"] as? NSPopUpButton)?
+            .selectedItem?.representedObject as? String
+        draft.focusAlignment = FocusAlignment(rawValue: focusAlignmentRawValue ?? FocusAlignment.default.rawValue)
         draft.newWindowPosition = NewWindowPosition(rawValue: string("newWindowPosition"))
         draft.innerGap = CGFloat(double("innerGap"))
         draft.outerGap = CGFloat(double("outerGap"))
@@ -691,6 +693,20 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func doubleField(_ key: String, _ value: Double) -> NSTextField { textField(key, String(value)) }
     private func popup(_ key: String, _ values: [String], _ selected: String) -> NSPopUpButton { let p = NSPopUpButton(); p.addItems(withTitles: values); p.selectItem(withTitle: selected); controls[key] = p; return p }
 
+    private func focusAlignmentPopup() -> NSPopUpButton {
+        let popup = NSPopUpButton()
+        let selected = draft.focusAlignment ?? MiriConfig.fallback.focusAlignment ?? .default
+        for option in FocusAlignment.guiOptions {
+            popup.addItem(withTitle: option.title)
+            popup.lastItem?.representedObject = option.alignment.rawValue
+            if option.alignment == selected {
+                popup.select(popup.lastItem)
+            }
+        }
+        controls["focusAlignment"] = popup
+        return popup
+    }
+
     private func keyboardShortcutBackendPopup() -> NSPopUpButton {
         let selected = draft.keyboardShortcutBackend ?? MiriConfig.fallback.keyboardShortcutBackend ?? .eventTap
         let popup = NSPopUpButton()
@@ -872,7 +888,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     }
 }
 
-extension FocusAlignment { static let allCasesStrings = ["left", "center", "smart"] }
+extension FocusAlignment {
+    static let guiOptions: [(alignment: FocusAlignment, title: String)] = [
+        (.default, "Default"),
+        (.centered, "Centered"),
+        (.centeredSmart, "Centered Smart"),
+    ]
+}
 extension NewWindowPosition { static let allCasesStrings = ["before_active", "after_active", "end"] }
 extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "linear"] }
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }

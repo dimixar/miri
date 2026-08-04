@@ -49,16 +49,7 @@ extension Miri {
     }
 
     var focusAlignment: FocusAlignment {
-        if let focusAlignment = config.focusAlignment {
-            return focusAlignment
-        }
-        if let centerFocusedColumn = config.centerFocusedColumn {
-            return centerFocusedColumn ? .smart : .left
-        }
-        if let focusAlignment = MiriConfig.fallback.focusAlignment {
-            return focusAlignment
-        }
-        return (config.centerFocusedColumn ?? MiriConfig.fallback.centerFocusedColumn ?? true) ? .smart : .left
+        config.focusAlignment ?? MiriConfig.fallback.focusAlignment ?? .default
     }
 
     var newWindowPosition: NewWindowPosition {

@@ -22,7 +22,7 @@ The repository includes a complete default config at
   "animation_strategy": "snapshot",
   "snapshot_animation_speed": 50,
   "animation_fps": 60,
-  "focus_alignment": "smart",
+  "focus_alignment": "default",
   "new_window_position": "after_active",
   "keyboard_shortcut_backend": "event_tap",
   "excluded_keybindings": ["cmd+shift+5"],
@@ -49,12 +49,15 @@ The repository includes a complete default config at
 
 - `default_width_ratio`: default column width as a fraction of the viewport.
 - `preset_width_ratios`: ratios used by width cycling commands.
-- `focus_alignment`: `left`, `center`, or `smart`.
+- `focus_alignment`: `default`, `centered`, or `centered_smart`. Default moves
+  only enough to fully reveal the focused window. Centered always centers it.
+  Centered smart centers windows wider than half the viewport and minimally
+  reveals windows at or below half width. Legacy `left` and `smart` values are
+  migrated to `default`; legacy `center` is migrated to `centered`. The obsolete
+  `center_focused_column` key is removed during migration.
 - `new_window_position`: `before_active`, `after_active`, or `end`.
 - `workspace_auto_back_and_forth`: when true, focusing the active workspace
   jumps back to the previous workspace.
-- `center_focused_column`: legacy centering behavior. `focus_alignment` is the
-  preferred setting.
 - `inner_gap` / `outer_gap`: layout gaps in pixels.
 - `parked_sliver_width`: number of pixels left visible when real windows are
   parked offscreen during snapshot animation or hidden-workspace staging.

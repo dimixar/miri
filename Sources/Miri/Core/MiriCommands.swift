@@ -465,6 +465,16 @@ extension Miri {
             return
         }
 
+        if shouldCenterColumn(width: newMetrics.widths[activeColumn], viewport: viewport) {
+            clearIntelligentResizeMemory()
+            workspace.scrollOffset = centeredScrollOffset(
+                columnMinX: newMetrics.origins[activeColumn],
+                columnWidth: newMetrics.widths[activeColumn],
+                viewport: viewport
+            )
+            return
+        }
+
         var targetOffset: CGFloat
         switch anchor {
         case .left:

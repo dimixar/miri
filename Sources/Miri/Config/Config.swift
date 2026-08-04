@@ -8,9 +8,27 @@ enum WindowBehavior: String, Codable {
 }
 
 enum FocusAlignment: String, Codable {
-    case left
-    case center
-    case smart
+    case `default`
+    case centered
+    case centeredSmart = "centered_smart"
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        switch value {
+        case "default", "left", "smart":
+            self = .default
+        case "centered", "center":
+            self = .centered
+        case "centered_smart":
+            self = .centeredSmart
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown focus alignment '\(value)'"
+            )
+        }
+    }
 }
 
 enum NewWindowPosition: String, Codable {
@@ -118,7 +136,6 @@ struct MiriConfig: Codable {
     var animationFPS: Int?
     var animationPixelThreshold: CGFloat?
     var workspaceAutoBackAndForth: Bool?
-    var centerFocusedColumn: Bool?
     var focusAlignment: FocusAlignment?
     var newWindowPosition: NewWindowPosition?
     var innerGap: CGFloat?
@@ -163,8 +180,7 @@ struct MiriConfig: Codable {
         animationFPS: 60,
         animationPixelThreshold: 0.5,
         workspaceAutoBackAndForth: true,
-        centerFocusedColumn: true,
-        focusAlignment: .smart,
+        focusAlignment: .default,
         newWindowPosition: .afterActive,
         innerGap: 0,
         outerGap: 0,
@@ -255,6 +271,7 @@ struct MiriConfig: Codable {
 
             do {
                 let config = normalize(try decoder.decode(MiriConfig.self, from: data))
+                migrateLegacyFocusAlignmentIfNeeded(config, originalData: data, at: url, logErrors: logErrors)
                 if logLoaded {
                     print("miri: loaded config \(url.path)")
                 }
@@ -282,6 +299,7 @@ struct MiriConfig: Codable {
 
     private static func normalize(_ loadedConfig: MiriConfig) -> MiriConfig {
         var config = loadedConfig
+        config.focusAlignment = config.focusAlignment ?? .default
         config.defaultWidthRatio = config.defaultWidthRatio.clampedWidthRatio
         config.presetWidthRatios = normalizeWidthPresets(config.presetWidthRatios)
         config.animationDurationMS = config.animationDurationMS.map { min(max($0, 0), 500) }
@@ -309,6 +327,35 @@ struct MiriConfig: Codable {
             return rule
         }
         return config
+    }
+
+    private static func migrateLegacyFocusAlignmentIfNeeded(
+        _ config: MiriConfig,
+        originalData: Data,
+        at url: URL,
+        logErrors: Bool
+    ) {
+        guard let object = try? JSONSerialization.jsonObject(with: originalData) as? [String: Any] else {
+            return
+        }
+        let legacyValues = Set(["left", "center", "smart"])
+        let hasLegacyAlignment = (object["focus_alignment"] as? String).map(legacyValues.contains) ?? false
+        let hasLegacyCenteringKey = object["center_focused_column"] != nil
+        guard hasLegacyAlignment || hasLegacyCenteringKey else {
+            return
+        }
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let migratedData = try encoder.encode(config)
+            try migratedData.write(to: url, options: [.atomic])
+            print("miri: migrated focus alignment config \(url.path)")
+        } catch {
+            if logErrors {
+                fputs("miri: failed to migrate focus alignment config \(url.path): \(error)\n", stderr)
+            }
+        }
     }
 
     private static func normalizeWidthPresets(_ presets: [CGFloat]?) -> [CGFloat]? {
@@ -373,7 +420,6 @@ struct MiriConfig: Codable {
         case animationFPS = "animation_fps"
         case animationPixelThreshold = "animation_pixel_threshold"
         case workspaceAutoBackAndForth = "workspace_auto_back_and_forth"
-        case centerFocusedColumn = "center_focused_column"
         case focusAlignment = "focus_alignment"
         case newWindowPosition = "new_window_position"
         case innerGap = "inner_gap"

@@ -38,11 +38,30 @@ extension Miri {
         }
 
         let metrics = stripMetrics(for: workspace, viewport: viewport)
-        let scrollOffset = preferredScrollOffset ?? defaultScrollOffset(
-            metrics: metrics,
-            activeColumn: activeColumn,
-            viewport: viewport
-        )
+        let scrollOffset: CGFloat
+        if metrics.widths.indices.contains(activeColumn),
+           metrics.origins.indices.contains(activeColumn),
+           shouldCenterColumn(width: metrics.widths[activeColumn], viewport: viewport)
+        {
+            scrollOffset = centeredScrollOffset(
+                columnMinX: metrics.origins[activeColumn],
+                columnWidth: metrics.widths[activeColumn],
+                viewport: viewport
+            )
+        } else {
+            if let preferredScrollOffset {
+                scrollOffset = min(
+                    max(preferredScrollOffset, 0),
+                    maxHorizontalCameraOffset(for: workspace, viewport: viewport)
+                )
+            } else {
+                scrollOffset = defaultScrollOffset(
+                    metrics: metrics,
+                    activeColumn: activeColumn,
+                    viewport: viewport
+                )
+            }
+        }
         return workspace.columns.indices.map { index in
             CGRect(
                 x: viewport.minX + metrics.origins[index] - scrollOffset,
@@ -88,6 +107,15 @@ extension Miri {
         let currentOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
         let columnMinX = metrics.origins[workspace.activeColumn]
         let columnMaxX = columnMinX + metrics.widths[workspace.activeColumn]
+        if shouldCenterColumn(width: metrics.widths[workspace.activeColumn], viewport: viewport) {
+            workspace.scrollOffset = centeredScrollOffset(
+                columnMinX: columnMinX,
+                columnWidth: metrics.widths[workspace.activeColumn],
+                viewport: viewport
+            )
+            return
+        }
+
         var targetOffset = currentOffset
 
         if columnMinX < currentOffset {
@@ -102,12 +130,23 @@ extension Miri {
     }
 
     func horizontalCameraOffset(for workspace: Workspace, viewport: CGRect) -> CGFloat {
+        let metrics = stripMetrics(for: workspace, viewport: viewport)
+        let activeColumn = min(max(workspace.activeColumn, 0), max(workspace.columns.count - 1, 0))
+        if metrics.origins.indices.contains(activeColumn),
+           metrics.widths.indices.contains(activeColumn),
+           shouldCenterColumn(width: metrics.widths[activeColumn], viewport: viewport)
+        {
+            return centeredScrollOffset(
+                columnMinX: metrics.origins[activeColumn],
+                columnWidth: metrics.widths[activeColumn],
+                viewport: viewport
+            )
+        }
+
         if let scrollOffset = workspace.scrollOffset {
             return min(max(scrollOffset, 0), maxHorizontalCameraOffset(for: workspace, viewport: viewport))
         }
 
-        let metrics = stripMetrics(for: workspace, viewport: viewport)
-        let activeColumn = min(max(workspace.activeColumn, 0), max(workspace.columns.count - 1, 0))
         return defaultScrollOffset(metrics: metrics, activeColumn: activeColumn, viewport: viewport)
     }
 
@@ -189,14 +228,36 @@ extension Miri {
         }
 
         switch focusAlignment {
-        case .left:
-            return metrics.origins[activeColumn]
-        case .smart where activeColumn == 0:
-            return metrics.origins.indices.contains(activeColumn) ? metrics.origins[activeColumn] : 0
-        case .smart, .center:
-            let activeCenter = metrics.origins[activeColumn] + metrics.widths[activeColumn] / 2
-            return max(0, activeCenter - viewport.width / 2)
+        case .centered:
+            return centeredScrollOffset(
+                columnMinX: metrics.origins[activeColumn],
+                columnWidth: metrics.widths[activeColumn],
+                viewport: viewport
+            )
+        case .centeredSmart where metrics.widths[activeColumn] > viewport.width / 2:
+            return centeredScrollOffset(
+                columnMinX: metrics.origins[activeColumn],
+                columnWidth: metrics.widths[activeColumn],
+                viewport: viewport
+            )
+        case .default, .centeredSmart:
+            return max(0, metrics.origins[activeColumn] + metrics.widths[activeColumn] - viewport.width)
         }
+    }
+
+    func shouldCenterColumn(width: CGFloat, viewport: CGRect) -> Bool {
+        switch focusAlignment {
+        case .default:
+            return false
+        case .centered:
+            return true
+        case .centeredSmart:
+            return width > viewport.width / 2
+        }
+    }
+
+    func centeredScrollOffset(columnMinX: CGFloat, columnWidth: CGFloat, viewport: CGRect) -> CGFloat {
+        columnMinX + columnWidth / 2 - viewport.width / 2
     }
 
     func parkedFrame(for window: ManagedWindow, viewport: CGRect, beforeActive: Bool) -> CGRect {
