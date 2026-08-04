@@ -182,7 +182,8 @@ final class SnapshotOverlayWindow: @unchecked Sendable {
 }
 
 extension Miri {
-    func hideSnapshotWindows(_ windows: [ManagedWindow], parkIn viewport: CGRect? = nil) {
+    func hideSnapshotWindows(_ windows: [ManagedWindow]) {
+        let viewport = currentViewport()
         var hiddenIDs = Set(snapshotHiddenWindows.map(ObjectIdentifier.init))
         for window in windows {
             let id = ObjectIdentifier(window)
@@ -190,21 +191,24 @@ extension Miri {
                 snapshotHiddenWindows.append(window)
             }
             appliedVisibility[id] = false
-            if let viewport {
-                let frame = axFrame(window.element) ?? CGRect(
-                    x: viewport.maxX + 8192,
-                    y: viewport.minY,
-                    width: 320,
-                    height: 240
-                )
-                let parked = CGRect(
-                    x: viewport.maxX + 8192,
-                    y: frame.minY,
-                    width: frame.width,
-                    height: frame.height
-                )
-                setAXFrame(parked, for: window)
-            }
+            let frame = axFrame(window.element) ?? CGRect(
+                x: viewport.maxX,
+                y: viewport.minY,
+                width: 320,
+                height: viewport.height
+            )
+            let sliver = parkedSliverPoints(for: viewport)
+            let visualOutsets = renderedHorizontalOutsets(for: window)
+            let parked = CGRect(
+                x: viewport.maxX + visualOutsets.left - sliver,
+                y: frame.minY,
+                width: frame.width,
+                height: frame.height
+            )
+            resetCompositorTransform(for: window)
+            setAXFrame(parked, for: window)
+            applyCompositorParkingCorrection(to: parked, for: window)
+            appliedFrames[id] = parked
         }
     }
 
@@ -239,6 +243,7 @@ extension Miri {
             guard let frame = frames[id] else {
                 continue
             }
+            resetCompositorTransform(for: window)
             setAXFrame(frame, for: window)
             appliedFrames[id] = frame
             appliedVisibility[id] = true
@@ -354,7 +359,7 @@ extension Miri {
 
         let layer = session.overlay.addSnapshotLayer(image: image, at: motion.startFrame)
         session.layersByWindowID[id] = layer
-        hideSnapshotWindows([motion.window], parkIn: session.overlay.axViewport)
+        hideSnapshotWindows([motion.window])
         return layer
     }
 
@@ -716,7 +721,7 @@ extension Miri {
                 guard let self, snapshotAnimationSession === session, !session.cancelled else {
                     return
                 }
-                hideSnapshotWindows(snapshotMotions.map { $0.0.window }, parkIn: overlay.axViewport)
+                hideSnapshotWindows(snapshotMotions.map { $0.0.window })
                 updateSnapshotAnimationTargets(snapshotLayers.map(\.motion), in: session)
                 ensureSnapshotFrameRunner(for: session, viewport: viewport)
             }

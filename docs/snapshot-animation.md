@@ -67,7 +67,12 @@ capped per tick so a delayed frame does not turn into a visible jump.
 
 Real windows may be moved offscreen while the overlay owns the visible motion.
 `parked_sliver_width` controls how much of the parked real window remains
-visible. The default is `1`.
+visible in physical pixels. The default is `1`. Accessibility placement runs
+first; a dynamically resolved SkyLight transaction then attempts to move the
+window and its compositor group to the requested edge. Miri verifies the
+WindowServer position before accepting that move. WindowServer shadow
+parameters are included in the edge calculation, with direct movement and
+compositor transforms retained as verified fallbacks.
 
 Parking is intentionally separate from final layout. A parked real window is
 not the presentation state; it is only a staging detail to keep the overlay

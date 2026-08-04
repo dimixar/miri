@@ -24,6 +24,7 @@ The repository includes a complete default config at
   "animation_fps": 60,
   "focus_alignment": "default",
   "new_window_position": "after_active",
+  "bring_tiled_apps_forward_on_focus": true,
   "keyboard_shortcut_backend": "event_tap",
   "excluded_keybindings": ["cmd+shift+5"],
   "keybindings": {
@@ -59,11 +60,28 @@ The repository includes a complete default config at
   Strict centering can leave empty space at the display edge when the first or
   last column is narrower than the viewport.
 - `new_window_position`: `before_active`, `after_active`, or `end`.
+- `bring_tiled_apps_forward_on_focus`: when true, Miri audits WindowServer's
+  front-to-back order after completed layout-position mutations while a tiled
+  window is focused. If a visible tile is behind a parked tile or an unmanaged
+  layer-0 window on the active display, only applications containing affected
+  visible tiles are reactivated, ending with the intended focused application.
+  The decision does not depend on focus history, jump distance, or
+  window-to-window intersection. Audits are coalesced and wait for snapshot
+  animation and AX reconciliation to settle. Intermediate activation
+  notifications are suppressed. Set it to `false` to use normal macOS focus
+  ordering without this correction.
 - `workspace_auto_back_and_forth`: when true, focusing the active workspace
   jumps back to the previous workspace.
-- `inner_gap` / `outer_gap`: layout gaps in pixels.
+- `inner_gap` / `outer_gap`: layout gaps in physical pixels. `inner_gap`
+  applies only between adjacent columns; `outer_gap` independently insets the
+  usable display viewport. Values are converted using the display's backing
+  scale and final frame edges are aligned to physical pixels.
 - `parked_sliver_width`: number of pixels left visible when real windows are
   parked offscreen during snapshot animation or hidden-workspace staging.
+  Miri reads the WindowServer shadow parameters and uses a transactional
+  SkyLight group move after Accessibility sizing so the configured width
+  includes the rendered shadow extent. Accessibility positioning remains the
+  fallback when the required private symbols are unavailable.
 - `width_resize_mode`: `default` or `intelligent`.
 - `ax_created_placeholder_probe_cooldown_ms`: per-app cooldown for short
   placeholder-window probes after an already-tracked app emits a tiny

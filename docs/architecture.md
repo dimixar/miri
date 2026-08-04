@@ -111,8 +111,12 @@ Most window control is Accessibility/AppKit-led. Private APIs are limited to
 narrow macOS gaps:
 
 - `_AXUIElementGetWindow`: maps an AX element to a `CGWindowID`.
-- `SLSMainConnectionID` and `SLSSetWindowLevel`: set real floating-window levels
-  for windows miri treats as floating.
+- `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
+  `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
+  `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
+  `SLSSetWindowTransform`: maintain true floating-window levels and correct
+  parked positions and shadow outsets when Accessibility placement is
+  constrained.
 
 miri also consumes undocumented system contracts rather than private callable
 symbols:
@@ -125,9 +129,14 @@ symbols:
   are applied.
 
 There is no public macOS API for changing another application's WindowServer
-level. If SkyLight calls are unavailable, floating windows can still be raised
-and focused, but they may not stay at a true floating level. The private symbols
-are dynamically resolved so their absence is non-fatal; the undocumented
+level or compositor position. If SkyLight calls are unavailable, floating
+windows can still be raised and focused, while exact parking becomes
+best-effort. After layout and animation work settles, Miri uses Core Graphics'
+front-to-back on-screen window list to detect visible tiles behind parked tiles
+or unmanaged layer-0 windows. It corrects only affected applications through
+ordinary AppKit activation; focus history, jump distance, and
+window-to-window intersection are not inputs. The private symbols are
+dynamically resolved so their absence is non-fatal; the undocumented
 notifications, properties, and attributes remain macOS-version-sensitive.
 
 CoreGraphics session dictionaries, NSWorkspace session/sleep notifications, CG

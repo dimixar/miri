@@ -156,9 +156,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Width resize mode", popup("widthResizeMode", WidthResizeMode.allCasesStrings, draft.widthResizeMode?.rawValue ?? MiriConfig.fallback.widthResizeMode?.rawValue ?? "default")),
         ("Focus alignment", focusAlignmentPopup()),
         ("New window position", popup("newWindowPosition", NewWindowPosition.allCasesStrings, draft.newWindowPosition?.rawValue ?? "after_active")),
-        ("Inner gap", doubleField("innerGap", Double(draft.innerGap ?? 0))),
-        ("Outer gap", doubleField("outerGap", Double(draft.outerGap ?? 0))),
+        ("Inner gap px", doubleField("innerGap", Double(draft.innerGap ?? 0))),
+        ("Outer gap px", doubleField("outerGap", Double(draft.outerGap ?? 0))),
         ("Parked sliver px", doubleField("parkedSliverWidth", Double(draft.parkedSliverWidth ?? 1))),
+        ("Bring tiled apps forward", checkbox("bringTiledAppsForwardOnFocus", draft.bringTiledAppsForwardOnFocus ?? MiriConfig.fallback.bringTiledAppsForwardOnFocus ?? true)),
     ]) }
 
     private func animationsView() -> NSView { form([
@@ -352,6 +353,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.innerGap = CGFloat(double("innerGap"))
         draft.outerGap = CGFloat(double("outerGap"))
         draft.parkedSliverWidth = CGFloat(double("parkedSliverWidth"))
+        draft.bringTiledAppsForwardOnFocus = bool("bringTiledAppsForwardOnFocus")
         draft.animationDurationMS = int("animationDurationMS")
         draft.keyboardAnimationMS = int("keyboardAnimationMS")
         draft.moveColumnAnimationMS = int("moveColumnAnimationMS")

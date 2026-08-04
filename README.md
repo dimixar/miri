@@ -243,8 +243,12 @@ The project dynamically resolves these private symbols at runtime:
 - `_AXUIElementGetWindow`: maps an `AXUIElement` to a `CGWindowID` for more
   reliable matching, persistence, logical Space recovery, debugging, and exit
   restoration.
-- `SLSMainConnectionID` and `SLSSetWindowLevel`: set real floating-window levels
-  for windows miri treats as floating.
+- `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
+  `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
+  `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
+  `SLSSetWindowTransform`: maintain true floating-window levels and correct
+  parked-window positions and shadow outsets when Accessibility placement is
+  constrained.
 
 It also relies on a few undocumented macOS contracts that are not private
 function calls but are absent from the public SDK documentation:
@@ -261,9 +265,14 @@ function calls but are absent from the public SDK documentation:
 
 The implementation checks availability where possible. If the private
 AX-to-window-ID mapping is absent, identity matching and recovery use weaker
-fallbacks. If the SkyLight level functions are absent, floating windows fall
-back to normal raise/focus behavior. Undocumented lock and Accessibility
-contracts may change between macOS releases.
+fallbacks. If the SkyLight functions are absent, floating windows fall back to
+normal raise/focus behavior and parking falls back to Accessibility placement.
+After completed layout-position mutations, WindowServer's public front-to-back
+window list is audited while a tiled window is focused. Visible tiles found
+behind parked or unmanaged layer-0 windows are corrected through normal AppKit
+application activation rather than private ordering. The decision does not use
+focus history, jump distance, or window-to-window intersection. Undocumented
+lock and Accessibility contracts may change between macOS releases.
 
 `CGSessionCopyCurrentDictionary`, `kCGSessionOnConsoleKey`, NSWorkspace
 session/sleep notifications, CG event taps and event fields, and CoreGraphics

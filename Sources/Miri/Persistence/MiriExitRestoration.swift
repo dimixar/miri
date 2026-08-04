@@ -4,6 +4,11 @@ import Foundation
 
 extension Miri {
     func restoreManagedWindowsForExit() {
+        for (windowID, transform) in originalWindowTransforms {
+            _ = SkyLight.shared.setTransform(transform, for: windowID)
+        }
+        originalWindowTransforms.removeAll()
+
         guard restoreOnExit else {
             return
         }

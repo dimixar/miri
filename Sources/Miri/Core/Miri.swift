@@ -89,6 +89,9 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var lastIntelligentResizeWindowID: ObjectIdentifier?
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
+    var originalWindowTransforms: [UInt32: CGAffineTransform] = [:]
+    var tiledStackAuditGeneration: UInt64 = 0
+    var tiledAppReactivationFocusSuppressionUntil: CFAbsoluteTime = 0
     lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
     var needsPersistentLayoutRestore = true
     lazy var persistentLogicalSpaceSnapshot = readPersistentLogicalSpaceSnapshot()
@@ -140,9 +143,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         uninstallCarbonHotKeys()
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
-        if restoreOnExit {
-            restoreManagedWindowsForExit()
-        }
+        restoreManagedWindowsForExit()
     }
 
     private func requestAccessibilityPermission() -> Bool {
@@ -187,9 +188,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 self?.logicalSpaceSnapshotTimer?.cancel()
                 self?.writePersistentLayoutSnapshot()
                 self?.writePersistentLogicalSpaceSnapshot()
-                if self?.restoreOnExit == true {
-                    self?.restoreManagedWindowsForExit()
-                }
+                self?.restoreManagedWindowsForExit()
                 exit(0)
             }
             source.resume()

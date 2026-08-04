@@ -12,6 +12,13 @@ enum WindowRestoration {
         }
 
         for windowID in restoreWindowIDs {
+            if let bounds = cgWindowBounds(windowID: windowID) {
+                let normalTransform = CGAffineTransform(
+                    translationX: -bounds.minX,
+                    y: -bounds.minY
+                )
+                SkyLight.shared.setTransform(normalTransform, for: windowID)
+            }
             SkyLight.shared.setLevel(Int32(CGWindowLevelForKey(.normalWindow)), for: windowID)
         }
 
@@ -37,6 +44,20 @@ enum WindowRestoration {
                 setAXFrame(viewport, for: element)
             }
         }
+    }
+
+    private static func cgWindowBounds(windowID: UInt32) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionIncludingWindow],
+            CGWindowID(windowID)
+        ) as? [[String: Any]],
+              let bounds = list.first?[kCGWindowBounds as String] as? NSDictionary
+        else {
+            return nil
+        }
+
+        var rect = CGRect.zero
+        return CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &rect) ? rect : nil
     }
 }
 

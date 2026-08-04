@@ -88,6 +88,10 @@ extension Miri {
 
     func removeWindow(_ window: ManagedWindow, preferRightFocus: Bool = false) {
         let id = ObjectIdentifier(window)
+        resetCompositorTransform(for: window)
+        if let windowID = window.windowID {
+            originalWindowTransforms.removeValue(forKey: windowID)
+        }
         appliedFrames.removeValue(forKey: id)
         appliedVisibility.removeValue(forKey: id)
         pendingFullscreenTransitionSince.removeValue(forKey: id)

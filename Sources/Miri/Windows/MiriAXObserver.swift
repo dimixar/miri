@@ -231,6 +231,9 @@ extension Miri {
                     animationDuration: keyboardAnimationDuration
                 )
             }
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleTiledStackAudit()
+            }
             return true
         }
 
@@ -292,7 +295,15 @@ extension Miri {
              kAXMainWindowChangedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
-            if !isKnownWindow(element), isManageableWindow(element) {
+            if CFAbsoluteTimeGetCurrent() < tiledAppReactivationFocusSuppressionUntil {
+                debugLog("ax focus notification suppressed during tiled app reactivation reason=\(name) pid=\(pid)")
+                return
+            }
+            let focusedBehavior = configuredBehavior(for: element, pid: pid)
+            if focusedBehavior != .ignore,
+               !isKnownWindow(element),
+               isManageableWindow(element)
+            {
                 scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
             }
             guard !axReconciliationShouldDefer,

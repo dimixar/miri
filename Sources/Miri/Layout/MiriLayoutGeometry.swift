@@ -11,11 +11,32 @@ extension Miri {
 
     func visualFrame(_ frame: CGRect, viewport: CGRect) -> CGRect {
         guard innerGap > 0 else {
-            return frame
+            return alignToPhysicalPixels(frame, viewport: viewport)
         }
 
-        let inset = min(innerGap / 2, frame.width / 3, frame.height / 3)
-        return frame.insetBy(dx: inset, dy: inset)
+        let gap = min(
+            points(forPhysicalPixels: innerGap, in: viewport),
+            frame.width * 2 / 3
+        )
+        var minX = frame.minX + gap / 2
+        var maxX = frame.maxX - gap / 2
+
+        // Inner gaps belong only between columns. A column edge that lands on
+        // the viewport edge must not add another half-gap to the outer gap.
+        if abs(frame.minX - viewport.minX) < 0.001 {
+            minX = frame.minX
+        }
+        if abs(frame.maxX - viewport.maxX) < 0.001 {
+            maxX = frame.maxX
+        }
+
+        let visual = CGRect(
+            x: minX,
+            y: frame.minY,
+            width: max(0, maxX - minX),
+            height: frame.height
+        )
+        return alignToPhysicalPixels(visual, viewport: viewport)
     }
 
     func insetViewport(_ viewport: CGRect, by inset: CGFloat) -> CGRect {
@@ -23,8 +44,12 @@ extension Miri {
             return viewport
         }
 
-        let safeInset = min(inset, viewport.width / 3, viewport.height / 3)
-        return viewport.insetBy(dx: safeInset, dy: safeInset)
+        let insetPoints = points(forPhysicalPixels: inset, in: viewport)
+        let safeInset = min(insetPoints, viewport.width / 3, viewport.height / 3)
+        return alignToPhysicalPixels(
+            viewport.insetBy(dx: safeInset, dy: safeInset),
+            viewport: viewport
+        )
     }
 
     func stripFrames(
@@ -272,18 +297,55 @@ extension Miri {
     }
 
     func parkedSliverPoints(for viewport: CGRect) -> CGFloat {
-        let pixelWidth = max(1, parkedSliverWidth)
-        let screen = screenContaining(viewport) ?? NSScreen.main
-        let scale = max(screen?.backingScaleFactor ?? 1, 1)
-        return pixelWidth / scale
+        let pixelWidth = max(0, parkedSliverWidth)
+        return points(forPhysicalPixels: pixelWidth, in: viewport)
     }
 
     func screenContaining(_ rect: CGRect) -> NSScreen? {
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        return NSScreen.screens.first { $0.frame.contains(center) }
+        return NSScreen.screens.first { screen in
+            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+                return false
+            }
+            return CGDisplayBounds(displayID).contains(center)
+        }
+    }
+
+    func points(forPhysicalPixels pixels: CGFloat, in viewport: CGRect) -> CGFloat {
+        let screen = screenContaining(viewport) ?? NSScreen.main
+        let scale = max(screen?.backingScaleFactor ?? 1, 1)
+        return pixels / scale
+    }
+
+    func alignToPhysicalPixels(_ frame: CGRect, viewport: CGRect) -> CGRect {
+        let screen = screenContaining(viewport) ?? NSScreen.main
+        let scale = max(screen?.backingScaleFactor ?? 1, 1)
+        let minX = (frame.minX * scale).rounded() / scale
+        let minY = (frame.minY * scale).rounded() / scale
+        let maxX = (frame.maxX * scale).rounded() / scale
+        let maxY = (frame.maxY * scale).rounded() / scale
+        return CGRect(
+            x: minX,
+            y: minY,
+            width: max(0, maxX - minX),
+            height: max(0, maxY - minY)
+        )
     }
 
     func renderedHorizontalOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat) {
+        if let shadow = SkyLight.shared.shadowParameters(for: window.windowID),
+           shadow.density > 0,
+           shadow.standardDeviation > 0
+        {
+            // WindowServer's shadow texture has finite support at roughly
+            // three standard deviations from its offset origin.
+            let radius = ceil(shadow.standardDeviation * 3)
+            return (
+                left: max(0, radius - shadow.offsetX),
+                right: max(0, radius + shadow.offsetX)
+            )
+        }
+
         guard let windowID = window.windowID,
               let renderedBounds = cgWindowBounds(windowID: windowID),
               let axFrame = axFrame(window.element),

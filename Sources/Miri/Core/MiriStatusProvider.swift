@@ -181,9 +181,7 @@ extension Miri {
         logicalSpaceSnapshotTimer?.cancel()
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
-        if restoreOnExit {
-            restoreManagedWindowsForExit()
-        }
+        restoreManagedWindowsForExit()
         NSApp.terminate(nil)
     }
 
