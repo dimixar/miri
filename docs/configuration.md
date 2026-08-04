@@ -54,7 +54,10 @@ The repository includes a complete default config at
   Centered smart centers windows wider than half the viewport and minimally
   reveals windows at or below half width. Legacy `left` and `smart` values are
   migrated to `default`; legacy `center` is migrated to `centered`. The obsolete
-  `center_focused_column` key is removed during migration.
+  `center_focused_column` key is removed during migration. Loading a legacy
+  value atomically rewrites the active config with its normalized replacement.
+  Strict centering can leave empty space at the display edge when the first or
+  last column is narrower than the viewport.
 - `new_window_position`: `before_active`, `after_active`, or `end`.
 - `workspace_auto_back_and_forth`: when true, focusing the active workspace
   jumps back to the previous workspace.

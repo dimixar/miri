@@ -34,12 +34,18 @@ current scope and have not been tested.
 ## Features
 
 - **Niri-like columns.** A keyboard-first horizontal column layout for macOS.
+- **Configurable focus alignment.** Keep the current camera position and reveal
+  only what is clipped, always center the focused window, or center only windows
+  wider than half the display.
 - **Virtual workspaces.** Independent Miri workspaces with per-workspace focus
   and scroll state.
 - **Logical Space contexts.** Separate Miri state per inferred macOS Space,
   without depending on private Space IDs.
 - **Event-driven discovery.** Startup does a full scan; normal updates are
   driven by NSWorkspace and AX events with a long safety reconciliation timer.
+- **Reliable same-app focus tracking.** Focus and main-window AX notifications
+  are backed by lightweight probes after mouse clicks and macOS Command-based
+  window switching, covering apps that miss useful focus notifications.
 - **Active stale-window recovery.** Known problematic apps can be targeted for
   extra rescans while tiled, improving UX when they miss Accessibility events.
   This is a mitigation for broken app behavior, not a guarantee that those apps
@@ -187,9 +193,9 @@ miri loads the first readable config from:
 4. `~/.config/miri/config.json`
 
 The repository includes a complete default [`miri.config.json`](miri.config.json).
-See [Configuration](docs/configuration.md) for setting descriptions, shortcut
-backend tradeoffs, active-rescan reliability settings, rule syntax, and menu bar
-options.
+See [Configuration](docs/configuration.md) for setting descriptions, focus
+alignment modes, shortcut backend tradeoffs, active-rescan reliability settings,
+rule syntax, and menu bar options.
 
 ## Architecture
 
@@ -200,7 +206,7 @@ Sources/Miri/Core/          coordinator, commands, status providers
 Sources/Miri/Config/        config model and effective settings
 Sources/Miri/Input/         event tap, Carbon hot keys, recovery input, keybindings
 Sources/Miri/Layout/        projection, geometry, application, animations
-Sources/Miri/Windows/       discovery, placement, lookup, transient windows
+Sources/Miri/Windows/       discovery, focus tracking, placement, lookup, transient windows
 Sources/Miri/Persistence/   layout persistence and exit/crash restoration
 Sources/Miri/UI/            settings window and status menu
 Sources/Miri/Debug/         debug logging

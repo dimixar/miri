@@ -40,6 +40,7 @@ AX observers provide window-level signals:
 - `AXCreated`
 - `AXUIElementDestroyed`
 - `AXFocusedWindowChanged`
+- `AXMainWindowChanged`
 - `AXWindowMoved`
 - `AXWindowResized`
 - `AXWindowMiniaturized`
@@ -48,9 +49,26 @@ AX observers provide window-level signals:
 - `AXApplicationShown`
 
 When layout or snapshot animation is busy, miri queues affected process IDs and
-drains that queue after the animation and layout lock settle. This keeps
+drains that queue after the animation and layout lock settle. Focus and
+main-window signals are queued too instead of being discarded. This keeps
 window-list changes from mutating the real layout while the snapshot overlay is
-still presenting a movement.
+still presenting a movement and adopts the final focused window afterward.
+
+## Focus Tracking Fallback
+
+Some applications do not reliably emit `AXFocusedWindowChanged` when the user
+switches between windows of the already-active app. miri therefore schedules a
+lightweight focused-window probe after:
+
+- a left, right, or other mouse-button press; and
+- Command+Backtick or Command+Tab.
+
+After an 80 ms settle delay, the probe asks the frontmost application for its AX
+focused window. If that window belongs to a different managed layout column,
+miri adopts the column and applies the configured focus alignment. If the
+focused window is unmanaged or the active column has not changed, no layout is
+projected. Rapid inputs are coalesced, and a probe that lands during layout or
+snapshot work is deferred through the normal per-PID reconciliation queue.
 
 `AXWindowMiniaturized` for a known tiled window is handled immediately when the
 layout is safe: miri remembers its placement, removes it from the tiled model,
@@ -166,6 +184,10 @@ Useful log lines in `~/.config/miri/debug.log`:
   transient system state.
 - `ax reconciliation deferred`: event queued while layout/animation is busy.
 - `ax reconciliation draining`: queued PID reconciliation begins.
+- `focus adopted reason=focused-window-probe:...`: the input fallback found a
+  different managed focused window and adopted its column.
+- `ax observer registration failed`: registering an AX notification for an app
+  failed; the line includes the PID, notification name, and AX error code.
 - `snapshot missing image`: snapshot capture failed for a tracked window and
   queued targeted PID reconciliation.
 - `active rescan reason=...`: optional active rescan ran for a configured

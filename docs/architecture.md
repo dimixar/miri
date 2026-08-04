@@ -45,12 +45,16 @@ safety timers run only while layout tracking is allowed.
 After startup, the normal path is event driven:
 
 1. NSWorkspace reports app launch, termination, activation, or Space change.
-2. AX observers report window creation, destruction, focus, movement, resize,
-   minimization, hiding, and showing.
-3. miri reconciles the affected process when possible.
-4. Layout projection computes logical target frames.
-5. Snapshot animation or fallback AX animation presents movement.
-6. Final AX frames are applied once the animation has settled.
+2. AX observers report window creation, destruction, focused/main-window
+   changes, movement, resize, minimization, hiding, and showing.
+3. Mouse clicks and Command-based window switching schedule a lightweight AX
+   focused-window probe as a fallback for applications that miss focus events.
+4. miri adopts a different managed focused column or reconciles the affected
+   process when possible; unchanged and unmanaged focus targets are ignored.
+5. Layout projection computes logical target frames using the configured focus
+   alignment policy.
+6. Snapshot animation or fallback AX animation presents movement.
+7. Final AX frames are applied once the animation has settled.
 
 The periodic reconciliation timer remains as a safety net for missed or delayed
 Accessibility notifications.

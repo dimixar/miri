@@ -116,6 +116,31 @@ app still behaves unpredictably while tiled, especially during rapid focus
 movement or multiple window changes, add a window rule with
 `behavior: "ignore"` for that app.
 
+## Same-App Window Focus Does Not Move The Layout
+
+miri normally adopts window focus from `AXFocusedWindowChanged` or
+`AXMainWindowChanged`. Because some apps miss those notifications when switching
+between their own windows, miri also probes the frontmost AX focused window after
+mouse-button presses, Command+Backtick, and Command+Tab.
+
+Enable debug logging and check for:
+
+```bash
+rg "AXFocusedWindowChanged|AXMainWindowChanged|focused-window-probe|ax observer registration failed|focus adopted" ~/.config/miri/debug.log
+```
+
+- `focus adopted reason=focused-window-probe:mouse-down` confirms mouse fallback.
+- `focus adopted reason=focused-window-probe:command-window-switch` confirms a
+  Command-based switch fallback.
+- `ax reconciliation deferred reason=focused-window-probe:...` means the probe
+  arrived during layout or animation and will be adopted after it settles.
+- `ax observer registration failed` identifies an app for which notification
+  registration itself failed.
+
+No `focus adopted` line is expected when the probed window is unmanaged or is
+already the active layout column, because that case intentionally avoids a
+redundant layout projection.
+
 ## High CPU Or Battery Usage
 
 First check whether debug logging is enabled. Debug logging is intentionally
