@@ -218,9 +218,8 @@ extension Miri {
             if changedFocus {
                 revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             }
-            if applyLayout {
+            if applyLayout, changedFocus {
                 let shouldAnimate = animateIfSameWorkspace
-                    && changedFocus
                     && previousWorkspace == loc.workspace
                 debugLog(
                     "focus adopted reason=\(reason) animated=\(shouldAnimate) workspace=\(loc.workspace + 1) column=\(loc.column + 1)"
@@ -253,6 +252,7 @@ extension Miri {
         let notifications = [
             kAXCreatedNotification,
             kAXFocusedWindowChangedNotification,
+            kAXMainWindowChangedNotification,
             kAXUIElementDestroyedNotification,
             kAXWindowMovedNotification,
             kAXWindowResizedNotification,
@@ -263,7 +263,10 @@ extension Miri {
         ]
 
         for notification in notifications {
-            AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
+            let error = AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
+            if error != .success, error != .notificationAlreadyRegistered {
+                debugLog("ax observer registration failed pid=\(pid) notification=\(notification) error=\(error.rawValue)")
+            }
         }
 
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
@@ -285,24 +288,23 @@ extension Miri {
         }
 
         switch name {
-        case kAXFocusedWindowChangedNotification:
+        case kAXFocusedWindowChangedNotification,
+             kAXMainWindowChangedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
             if !isKnownWindow(element), isManageableWindow(element) {
                 scheduleAXCreationReconciliation(pid: pid, adoptFocused: true, reason: name)
             }
-            guard !isApplyingLayout,
-                  snapshotAnimationSession == nil,
-                  !snapshotAnimationPreparing,
-                  animationTimer == nil,
+            guard !axReconciliationShouldDefer,
                   CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil
             else {
+                deferAXReconciliation(pid: pid, adoptFocused: true, reason: name)
                 return
             }
             adoptFocusedWindow(
                 pid: pid,
                 animateIfSameWorkspace: true,
-                reason: "AXFocusedWindowChanged"
+                reason: name
             )
         case kAXUIElementDestroyedNotification:
             var pid: pid_t = 0

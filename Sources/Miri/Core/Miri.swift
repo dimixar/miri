@@ -20,6 +20,8 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingLogicalSpaceSwitch = false
     var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] = [:]
     var observers: [pid_t: AXObserver] = [:]
+    var focusedWindowInputMonitor: Any?
+    var focusedWindowProbeGeneration: UInt64 = 0
     var eventTap: CFMachPort?
     var eventTapSource: CFRunLoopSource?
     var sessionRecoveryEventTap: CFMachPort?
@@ -111,6 +113,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         configureInput()
         installInputBackend()
+        installFocusedWindowInputMonitor()
         syncSessionRecoveryInputTracking()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         if isLayoutTrackingAllowed {
@@ -131,6 +134,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         snapshotWriteTimer?.cancel()
         logicalSpaceSnapshotTimer?.cancel()
         activeRescanTimer?.invalidate()
+        uninstallFocusedWindowInputMonitor()
         uninstallSessionRecoveryEventTap()
         uninstallEventTap()
         uninstallCarbonHotKeys()
