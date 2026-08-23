@@ -14,6 +14,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var floatingWindows: [ManagedWindow] = []
     var activeWorkspace: Int = 0
     weak var previousWorkspace: Workspace?
+    weak var emptyWorkspaceFocusAuthority: Workspace?
     var logicalSpaceContexts: [LogicalSpaceContext] = [LogicalSpaceContext(id: 0)]
     var activeLogicalSpaceContextID: Int = 0
     var nextLogicalSpaceContextID: Int = 1
@@ -110,6 +111,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
             exit(1)
         }
 
+        reconcileWorkspaceCapacity()
         observeWorkspace()
         observeSessionState()
         installTerminationHandlers()

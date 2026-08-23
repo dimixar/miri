@@ -55,7 +55,9 @@ extension Miri {
 
         switch command {
         case .focusWorkspace(let oneBasedIndex):
-            focusWorkspace(oneBasedIndex)
+            guard focusWorkspace(oneBasedIndex) else {
+                return
+            }
         case .focusPreviousWorkspace:
             guard focusPreviousWorkspace() else {
                 return
@@ -65,12 +67,16 @@ extension Miri {
                 return
             }
             activeWorkspaceObject()?.clampFocus()
+            protectActiveEmptyWorkspaceIfNeeded()
+            reconcileWorkspaceCapacity()
             animated = animateWorkspace
         case .workspaceUp:
             guard setActiveWorkspace(activeWorkspace - 1) else {
                 return
             }
             activeWorkspaceObject()?.clampFocus()
+            protectActiveEmptyWorkspaceIfNeeded()
+            reconcileWorkspaceCapacity()
             animated = animateWorkspace
         case .columnLeft:
             lastHorizontalFocusDirection = -1
@@ -205,18 +211,26 @@ extension Miri {
         return true
     }
 
-    func focusWorkspace(_ oneBasedIndex: Int) {
-        guard !workspaces.isEmpty else {
-            return
+    @discardableResult
+    func focusWorkspace(_ oneBasedIndex: Int) -> Bool {
+        let requestedIndex = oneBasedIndex - 1
+        guard workspaces.indices.contains(requestedIndex) else {
+            debugLog("workspace focus ignored reason=not-created requested=\(oneBasedIndex) available=\(workspaces.count)")
+            return false
         }
 
-        let requestedIndex = min(max(oneBasedIndex - 1, 0), workspaces.count - 1)
         let targetIndex = workspaceAutoBackAndForth && requestedIndex == activeWorkspace
             ? previousWorkspaceIndex() ?? requestedIndex
             : requestedIndex
 
-        setActiveWorkspace(targetIndex)
+        guard setActiveWorkspace(targetIndex) else {
+            protectActiveEmptyWorkspaceIfNeeded()
+            return false
+        }
         activeWorkspaceObject()?.clampFocus()
+        protectActiveEmptyWorkspaceIfNeeded()
+        reconcileWorkspaceCapacity()
+        return true
     }
 
     func focusPreviousWorkspace() -> Bool {
@@ -228,6 +242,8 @@ extension Miri {
 
         setActiveWorkspace(previousIndex)
         activeWorkspaceObject()?.clampFocus()
+        protectActiveEmptyWorkspaceIfNeeded()
+        reconcileWorkspaceCapacity()
         return true
     }
 
@@ -239,12 +255,16 @@ extension Miri {
             return false
         }
 
-        let targetIndex = min(max(requestedIndex, 0), workspaces.count - 1)
+        guard workspaces.indices.contains(requestedIndex) else {
+            return false
+        }
+        let targetIndex = requestedIndex
         guard targetIndex != activeWorkspace else {
             return false
         }
 
         let currentWorkspace = activeWorkspaceObject()
+        emptyWorkspaceFocusAuthority = nil
         activeWorkspace = targetIndex
         if rememberPrevious {
             previousWorkspace = currentWorkspace
@@ -258,6 +278,25 @@ extension Miri {
         }
 
         return workspaces.firstIndex(where: { $0 === previousWorkspace })
+    }
+
+    func protectActiveEmptyWorkspaceIfNeeded() {
+        guard let workspace = activeWorkspaceObject(), workspace.isEmpty else {
+            emptyWorkspaceFocusAuthority = nil
+            return
+        }
+        emptyWorkspaceFocusAuthority = workspace
+        debugLog("empty workspace focus protected workspace=\(activeWorkspace + 1)")
+    }
+
+    var activeEmptyWorkspaceHasFocusAuthority: Bool {
+        guard let authority = emptyWorkspaceFocusAuthority,
+              authority.isEmpty,
+              activeWorkspaceObject() === authority
+        else {
+            return false
+        }
+        return true
     }
 
     func focusColumn(at requestedIndex: Int) -> Bool {
@@ -581,7 +620,11 @@ extension Miri {
         }
 
         sourceWorkspace.clampFocus()
-        let targetIndex = min(max(requestedIndex, 0), workspaces.count - 1)
+        guard requestedIndex >= 0 else {
+            return false
+        }
+        ensureWorkspaceExists(requestedIndex)
+        let targetIndex = requestedIndex
         guard targetIndex != activeWorkspace else {
             return false
         }
@@ -600,7 +643,7 @@ extension Miri {
         targetWorkspace.scrollOffset = nil
 
         setActiveWorkspace(targetIndex)
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
         activeWorkspace = workspaces.firstIndex(where: { $0 === targetWorkspace }) ?? activeWorkspace
         schedulePersistentLayoutSnapshotWrite()
         return true

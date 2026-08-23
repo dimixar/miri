@@ -76,18 +76,19 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         workspaceMenuItems.removeAll()
 
-        guard let barStatus = miri?.currentWorkspaceBarStatus(), !barStatus.occupiedWorkspaces.isEmpty else {
+        guard let barStatus = miri?.currentWorkspaceBarStatus(), !barStatus.workspaceSummaries.isEmpty else {
             return
         }
 
         let header = NSMenuItem(title: "Workspaces", action: nil, keyEquivalent: "")
         header.isEnabled = false
         workspaceMenuItems.append(header)
-        for workspace in barStatus.occupiedWorkspaces {
+        for workspace in barStatus.workspaceSummaries {
             let marker = workspace.isActive ? "✓ " : "  "
             let apps = workspace.appNames.prefix(4).joined(separator: ", ")
             let suffix = workspace.appNames.count > 4 ? ", +\(workspace.appNames.count - 4)" : ""
-            let item = NSMenuItem(title: "\(marker)Workspace \(workspace.workspace): \(apps)\(suffix)", action: nil, keyEquivalent: "")
+            let contents = workspace.appNames.isEmpty ? "Empty" : "\(apps)\(suffix)"
+            let item = NSMenuItem(title: "\(marker)Workspace \(workspace.workspace): \(contents)", action: nil, keyEquivalent: "")
             item.isEnabled = false
             item.image = workspace.lastFocusedWindow.map { icon(for: $0) }
             workspaceMenuItems.append(item)
@@ -160,8 +161,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             .font: font,
             .foregroundColor: delimiterColor,
         ]
-        let activeTextRun = workspaceLabelRun(workspace: status.workspace, isActive: true, style: activeStyle)
-
         let count = status.windows.count
         let focused = status.focusedIndex.flatMap { count.indicesContains($0) ? $0 : nil }
         let range: Range<Int>
@@ -176,17 +175,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         let leftOverflow = range.lowerBound
         let rightOverflow = max(0, count - range.upperBound)
-        let workspaceSummaries = status.occupiedWorkspaces.prefix(9)
+        let allWorkspaceSummaries = status.workspaceSummaries
+        let activeSummaryIndex = allWorkspaceSummaries.firstIndex(where: \.isActive) ?? 0
+        let workspaceSummaryStart = max(0, min(activeSummaryIndex - 4, max(0, allWorkspaceSummaries.count - 9)))
+        let workspaceSummaryEnd = min(allWorkspaceSummaries.count, workspaceSummaryStart + 9)
+        let workspaceSummaries = allWorkspaceSummaries[workspaceSummaryStart..<workspaceSummaryEnd]
         let usesDelimiters = centerStyle == .delimiter
-        let hasCenterStrip = !range.isEmpty
-        let separatorText = usesDelimiters && !workspaceSummaries.isEmpty && hasCenterStrip ? "|" : nil
-        let workspaceTextRun = workspaceSummaries.isEmpty ? activeTextRun : nil
         let overflowStyle = config.workspaceBarOverflowStyle ?? MiriConfig.fallback.workspaceBarOverflowStyle ?? .plusCount
         let leftText = overflowText(count: leftOverflow, side: .left, style: overflowStyle)
         let rightText = overflowText(count: rightOverflow, side: .right, style: overflowStyle)
         let showFullscreen = config.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true
         let fullscreenGroups = showFullscreen ? groupedFullscreenWindows(status.fullscreenWindows) : []
-        let fullscreenSeparatorText = usesDelimiters && !fullscreenGroups.isEmpty && hasCenterStrip ? "|" : nil
+        let fullscreenSeparatorText = usesDelimiters && !fullscreenGroups.isEmpty && !workspaceSummaries.isEmpty ? "|" : nil
         let fullscreenMarkerText = fullscreenGroups.isEmpty ? nil : "⛶"
 
         func textWidth(_ text: String?) -> CGFloat {
@@ -207,10 +207,21 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let iconCount = CGFloat(range.count)
         let centerPadding: CGFloat = centerStyle == .delimiter ? 0 : 3 + centerBorderOutset
         let centerStripWidth = iconCount * iconBox + (range.isEmpty ? 0 : centerPadding * 2)
+        let activeExpansionWidth = (leftText == nil ? 0 : textGap + textWidth(leftText))
+            + (range.isEmpty ? 0 : textGap + centerStripWidth)
+            + (rightText == nil ? 0 : textGap + textWidth(rightText))
         let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
             let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
-            let iconWidth: CGFloat = summary.isActive || summary.lastFocusedWindow == nil ? 0 : iconBox
-            return total + (total == 0 ? 0 : textGap) + workspaceLabelWidth(label, style: activeStyle, isActive: summary.isActive) + iconWidth
+            let contentWidth: CGFloat
+            if summary.isActive {
+                contentWidth = activeExpansionWidth
+            } else {
+                contentWidth = summary.lastFocusedWindow == nil ? 0 : iconBox
+            }
+            return total
+                + (total == 0 ? 0 : textGap)
+                + workspaceLabelWidth(label, style: activeStyle, isActive: summary.isActive)
+                + contentWidth
         }
         let fullscreenStripWidth = fullscreenGroups.reduce(CGFloat(0)) { total, group in
             let label = "\(group.workspace)"
@@ -218,11 +229,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return total + (total == 0 ? 0 : textGap) + entryWidth
         }
         let width = paddingX * 2
-            + (workspaceTextRun == nil ? workspaceStripWidth : workspaceLabelWidth(workspaceTextRun!, style: activeStyle, isActive: true))
-            + (separatorText == nil ? 0 : textGap + textWidth(separatorText))
-            + (leftText == nil ? 0 : textGap + textWidth(leftText))
-            + (range.isEmpty ? 0 : textGap + centerStripWidth)
-            + (rightText == nil ? 0 : textGap + textWidth(rightText))
+            + workspaceStripWidth
             + (fullscreenSeparatorText == nil ? 0 : textGap + textWidth(fullscreenSeparatorText))
             + (fullscreenMarkerText == nil ? 0 : textGap + textWidth(fullscreenMarkerText))
             + (fullscreenStripWidth == 0 ? 0 : textGap + fullscreenStripWidth)
@@ -236,102 +243,94 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let yText: CGFloat = 2 + verticalOutset
         let yIcon: CGFloat = (height - iconSize) / 2
         let yIconBox: CGFloat = (height - iconBox) / 2
-        if let workspaceTextRun {
+        var firstWorkspace = true
+        for summary in workspaceSummaries {
+            if !firstWorkspace { x += textGap }
+            firstWorkspace = false
+            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
             drawWorkspaceLabel(
-                workspaceTextRun,
+                label,
                 at: &x,
                 yText: yText,
                 yIconBox: yIconBox,
                 style: activeStyle,
-                isActive: true,
+                isActive: summary.isActive,
                 borderOutset: configuredBorderOutset,
                 borderThickness: centerBorderThickness,
                 color: delimiterColor
             )
-        } else {
-            var first = true
-            for summary in workspaceSummaries {
-                if !first { x += textGap }
-                first = false
-                let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
-                drawWorkspaceLabel(
-                    label,
-                    at: &x,
-                    yText: yText,
-                    yIconBox: yIconBox,
-                    style: activeStyle,
-                    isActive: summary.isActive,
-                    borderOutset: configuredBorderOutset,
-                    borderThickness: centerBorderThickness,
-                    color: delimiterColor
+
+            if !summary.isActive, let window = summary.lastFocusedWindow {
+                icon(for: window).draw(
+                    in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1
                 )
-                if !summary.isActive, let window = summary.lastFocusedWindow {
-                    icon(for: window).draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
+                x += iconBox
+                continue
+            }
+            guard summary.isActive else {
+                continue
+            }
+
+            if let leftText {
+                x += textGap
+                (leftText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+                x += textWidth(leftText)
+            }
+
+            if !range.isEmpty {
+                x += textGap
+                let centerRect = NSRect(
+                    x: x + centerBorderThickness / 2,
+                    y: yIconBox - centerBorderOutset + centerBorderThickness / 2,
+                    width: centerStripWidth - centerBorderThickness,
+                    height: iconBox + centerBorderOutset * 2 - centerBorderThickness
+                )
+                switch centerStyle {
+                case .delimiter:
+                    break
+                case .border:
+                    delimiterColor.withAlphaComponent(0.85).setStroke()
+                    let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
+                    path.lineWidth = centerBorderThickness
+                    path.stroke()
+                case .filledBorder:
+                    centerFillColor(delimiterColor).setFill()
+                    let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
+                    path.fill()
+                    delimiterColor.withAlphaComponent(0.65).setStroke()
+                    path.lineWidth = centerBorderThickness
+                    path.stroke()
+                }
+                x += centerPadding
+
+                for index in range {
+                    let window = status.windows[index]
+                    let isFocused = index == focused
+                    let box = NSRect(x: x, y: yIconBox, width: iconBox, height: iconBox)
+                    if isFocused {
+                        highlightColor(config.workspaceBarHighlightColor).withAlphaComponent(0.55).setFill()
+                        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+                    }
+
+                    icon(for: window).draw(
+                        in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize),
+                        from: .zero,
+                        operation: .sourceOver,
+                        fraction: 1
+                    )
                     x += iconBox
                 }
-            }
-        }
-
-        if let separatorText {
-            x += textGap
-            (separatorText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: separatorAttrs)
-            x += textWidth(separatorText)
-        }
-
-        if let leftText {
-            x += textGap
-            (leftText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
-            x += textWidth(leftText)
-        }
-
-        if !range.isEmpty {
-            x += textGap
-            let centerRect = NSRect(
-                x: x + centerBorderThickness / 2,
-                y: yIconBox - centerBorderOutset + centerBorderThickness / 2,
-                width: centerStripWidth - centerBorderThickness,
-                height: iconBox + centerBorderOutset * 2 - centerBorderThickness
-            )
-            switch centerStyle {
-            case .delimiter:
-                break
-            case .border:
-                delimiterColor.withAlphaComponent(0.85).setStroke()
-                let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
-                path.lineWidth = centerBorderThickness
-                path.stroke()
-            case .filledBorder:
-                centerFillColor(delimiterColor).setFill()
-                let path = NSBezierPath(roundedRect: centerRect, xRadius: 5, yRadius: 5)
-                path.fill()
-                delimiterColor.withAlphaComponent(0.65).setStroke()
-                path.lineWidth = centerBorderThickness
-                path.stroke()
-            }
-            x += centerPadding
-        }
-
-        for index in range {
-            let window = status.windows[index]
-            let isFocused = index == focused
-            let box = NSRect(x: x, y: yIconBox, width: iconBox, height: iconBox)
-            if isFocused {
-                highlightColor(config.workspaceBarHighlightColor).withAlphaComponent(0.55).setFill()
-                NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+                x += centerPadding
             }
 
-            let icon = icon(for: window)
-            icon.draw(in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize), from: .zero, operation: .sourceOver, fraction: 1)
-            x += iconBox
-        }
-        if !range.isEmpty {
-            x += centerPadding
-        }
-
-        if let rightText {
-            x += textGap
-            (rightText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
-            x += textWidth(rightText)
+            if let rightText {
+                x += textGap
+                (rightText as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+                x += textWidth(rightText)
+            }
         }
 
         if let fullscreenSeparatorText {

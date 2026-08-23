@@ -146,19 +146,21 @@ See [Configuration](docs/configuration.md#shortcuts).
 
 ## Menu Bar And Settings
 
-The menu bar item shows the workspace strip and exposes:
+The menu bar item shows every configured or dynamically existing workspace.
+The active workspace expands in place to show its window icons; inactive
+workspaces contract to their number and last-focused icon. It also exposes:
 
 - current workspace, focused window, and active width;
-- occupied workspace summaries with app names/icons;
+- empty and occupied workspace summaries with app names/icons;
 - fullscreen app indicators grouped by source workspace;
 - **Settings...** for the GUI config editor;
 - **Open Config**, **Reload Config**, and **Rescan Windows**;
 - **Quit Miri**, which performs normal window restoration.
 
 The settings editor writes to the active JSON config and reloads miri in place.
-It covers layout, animation, fullscreen/Space recovery, logical Space autosave,
-active rescans for problematic apps, window rules, excluded shortcuts, and
-command keybindings.
+It covers pre-created workspace count, explicit back-and-forth behavior, layout,
+animation, fullscreen/Space recovery, logical Space autosave, active rescans for
+problematic apps, window rules, excluded shortcuts, and command keybindings.
 
 ## Session Lock And Sleep Recovery
 

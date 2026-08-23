@@ -24,6 +24,8 @@ The repository includes a complete default config at
   "animation_fps": 60,
   "focus_alignment": "default",
   "new_window_position": "after_active",
+  "minimum_workspace_count": 1,
+  "workspace_auto_back_and_forth": false,
   "keyboard_shortcut_backend": "event_tap",
   "excluded_keybindings": ["cmd+shift+5"],
   "keybindings": {
@@ -59,8 +61,14 @@ The repository includes a complete default config at
   Strict centering can leave empty space at the display edge when the first or
   last column is narrower than the viewport.
 - `new_window_position`: `before_active`, `after_active`, or `end`.
+- `minimum_workspace_count`: number of empty-or-occupied numbered workspaces
+  Miri always keeps available, clamped to `1...9`. Moving a column or applying
+  a window rule to a higher workspace creates every numbered slot through that
+  destination. Empty interior slots are retained so occupied workspaces never
+  change numbers; unused trailing dynamic workspaces may be removed.
 - `workspace_auto_back_and_forth`: when true, focusing the active workspace
-  jumps back to the previous workspace.
+  jumps back to the previous workspace. It defaults to `false`; the dedicated
+  `focus_previous_workspace` command provides explicit back-and-forth behavior.
 - `inner_gap` / `outer_gap`: layout gaps in physical pixels. `inner_gap`
   applies only between adjacent columns; `outer_gap` independently insets the
   usable display viewport. Values are converted using the display's backing

@@ -20,7 +20,7 @@ extension Miri {
                 workspace: activeWorkspace + 1,
                 focusedIndex: nil,
                 windows: [],
-                occupiedWorkspaces: [],
+                workspaceSummaries: [],
                 fullscreenWindows: fullscreenWorkspaceBarWindows()
             )
         }
@@ -30,16 +30,20 @@ extension Miri {
             workspace: activeWorkspace + 1,
             focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
             windows: workspace.columns.map(workspaceBarWindow),
-            occupiedWorkspaces: occupiedWorkspaceSummaries(),
+            workspaceSummaries: workspaceSummaries(),
             fullscreenWindows: fullscreenWorkspaceBarWindows()
         )
     }
 
-    func occupiedWorkspaceSummaries() -> [MiriWorkspaceSummary] {
-        workspaces.enumerated().compactMap { index, workspace in
-            guard !workspace.columns.isEmpty else { return nil }
-            let focusedIndex = min(max(workspace.activeColumn, 0), workspace.columns.count - 1)
-            let focusedWindow = workspaceBarWindow(workspace.columns[focusedIndex])
+    func workspaceSummaries() -> [MiriWorkspaceSummary] {
+        workspaces.enumerated().map { index, workspace in
+            let focusedWindow: MiriWorkspaceBarWindow?
+            if workspace.columns.isEmpty {
+                focusedWindow = nil
+            } else {
+                let focusedIndex = min(max(workspace.activeColumn, 0), workspace.columns.count - 1)
+                focusedWindow = workspaceBarWindow(workspace.columns[focusedIndex])
+            }
             let appNames = Array(NSOrderedSet(array: workspace.columns.map(\.appName))) as? [String] ?? workspace.columns.map(\.appName)
             return MiriWorkspaceSummary(
                 workspace: index + 1,
@@ -81,11 +85,11 @@ extension Miri {
     }
 
     func currentStatus() -> MiriStatus {
-        let nonEmptyWorkspaceCount = max(1, workspaces.filter { !$0.columns.isEmpty }.count)
+        let workspaceCount = max(1, workspaces.count)
         guard let window = activeWindow() else {
             return MiriStatus(
                 workspace: activeWorkspace + 1,
-                workspaceCount: nonEmptyWorkspaceCount,
+                workspaceCount: workspaceCount,
                 focusedWindow: "None",
                 widthPercent: nil
             )
@@ -94,7 +98,7 @@ extension Miri {
         let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
         return MiriStatus(
             workspace: activeWorkspace + 1,
-            workspaceCount: nonEmptyWorkspaceCount,
+            workspaceCount: workspaceCount,
             focusedWindow: title,
             widthPercent: Int((widthRatio(for: window) * 100).rounded())
         )
@@ -237,6 +241,7 @@ extension Miri {
         }
 
         loadedConfig = reloaded
+        reconcileWorkspaceCapacity()
         configureInput()
         installInputBackend()
 

@@ -102,6 +102,15 @@ layout code separates three ideas:
 - Presentation layout: snapshot-layer frames used while animation is running.
 - AX-applied layout: real macOS window frames.
 
+Workspace numbers are stable within a logical Space context. Miri maintains
+the configured `minimum_workspace_count`, creates every missing slot through a
+higher destination when a column or rule targets it, and removes only unused
+trailing dynamic workspaces. Interior empty slots are retained so occupied
+workspaces cannot be renumbered. Selecting an empty workspace gives it temporary
+focus authority: stale AX focus and reconciliation signals cannot return to a
+parked window, and the authority is retired when a new window is inserted into
+the selected workspace.
+
 During snapshot animation, miri may focus the requested real window, but it
 defers final real-window position and size changes until the animation settles.
 This prevents AX frame writes from fighting the overlay animation.

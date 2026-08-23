@@ -23,7 +23,7 @@ extension Miri {
         appliedFrames.removeAll()
         appliedVisibility.removeAll()
         hiddenWorkspaceWindowIDs.removeAll()
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
     }
 
     func cloneWorkspaces(_ source: [Workspace]) -> [Workspace] {

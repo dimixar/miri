@@ -294,7 +294,7 @@ extension Miri {
             changed = upsertDiscoveredWindow(found) || changed
         }
 
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
         if adoptFocused {
             let previousWorkspace = activeWorkspace
             let previousActiveColumn = workspaces[activeWorkspace].activeColumn
@@ -476,7 +476,7 @@ extension Miri {
         }
 
         let restoredPersistentLayout = applyPersistentLayoutSnapshotIfNeeded()
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
 
         if adoptFocused {
             let restoredPersistentFocus: Bool

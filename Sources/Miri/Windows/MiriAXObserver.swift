@@ -177,6 +177,10 @@ extension Miri {
         guard let pid else {
             return false
         }
+        guard !activeEmptyWorkspaceHasFocusAuthority else {
+            debugLog("focus adoption suppressed reason=explicit-empty-workspace pid=\(pid) workspace=\(activeWorkspace + 1)")
+            return false
+        }
         if fullscreenSpaceChangeGuardIsActive() {
             debugLog("suppressing focus adoption during fullscreen space guard")
             return false

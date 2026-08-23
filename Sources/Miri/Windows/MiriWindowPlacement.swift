@@ -37,10 +37,14 @@ extension Miri {
             workspace.activeColumn += 1
         }
         workspace.scrollOffset = nil
+        if emptyWorkspaceFocusAuthority === workspace {
+            emptyWorkspaceFocusAuthority = nil
+            debugLog("empty workspace focus protection completed reason=window-inserted")
+        }
         if focusNewWindow, let workspaceIndex = workspaces.firstIndex(where: { $0 === workspace }) {
             setActiveWorkspace(workspaceIndex, rememberPrevious: false)
         }
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
         if applyLayout {
             projectLayout(focusActiveWindow: focusNewWindow)
         }
@@ -115,7 +119,7 @@ extension Miri {
                 break
             }
         }
-        ensureTrailingEmptyWorkspace()
+        reconcileWorkspaceCapacity()
     }
 
     func rememberFullscreenWindowState(_ window: ManagedWindow) {
@@ -223,32 +227,20 @@ extension Miri {
         window.manualWidthRatio = state.manualWidthRatio
     }
 
-    func ensureTrailingEmptyWorkspace() {
+    func reconcileWorkspaceCapacity() {
         if workspaces.isEmpty {
             workspaces = [Workspace()]
             activeWorkspace = 0
             previousWorkspace = nil
-            return
+            emptyWorkspaceFocusAuthority = nil
         }
 
-        if !workspaces.last!.isEmpty {
-            workspaces.append(Workspace())
-        }
+        ensureWorkspaceExists(minimumWorkspaceCount - 1)
 
-        if workspaces.count > 1 {
-            var index = workspaces.count - 2
-            while index >= 0 {
-                if index != activeWorkspace && workspaces[index].isEmpty {
-                    workspaces.remove(at: index)
-                    if activeWorkspace > index {
-                        activeWorkspace -= 1
-                    }
-                }
-                if index == 0 {
-                    break
-                }
-                index -= 1
-            }
+        let highestOccupiedIndex = workspaces.lastIndex(where: { !$0.isEmpty }) ?? 0
+        let requiredLastIndex = max(minimumWorkspaceCount - 1, highestOccupiedIndex, activeWorkspace)
+        while workspaces.count - 1 > requiredLastIndex, workspaces.last?.isEmpty == true {
+            workspaces.removeLast()
         }
 
         activeWorkspace = min(max(activeWorkspace, 0), workspaces.count - 1)

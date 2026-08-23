@@ -25,7 +25,7 @@ struct MiriWorkspaceBarStatus: Equatable {
     let workspace: Int
     let focusedIndex: Int?
     let windows: [MiriWorkspaceBarWindow]
-    let occupiedWorkspaces: [MiriWorkspaceSummary]
+    let workspaceSummaries: [MiriWorkspaceSummary]
     let fullscreenWindows: [MiriWorkspaceBarFullscreenWindow]
 }
 

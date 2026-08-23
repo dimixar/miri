@@ -136,6 +136,7 @@ struct MiriConfig: Codable {
     var animationFPS: Int?
     var animationPixelThreshold: CGFloat?
     var workspaceAutoBackAndForth: Bool?
+    var minimumWorkspaceCount: Int?
     var focusAlignment: FocusAlignment?
     var newWindowPosition: NewWindowPosition?
     var innerGap: CGFloat?
@@ -179,7 +180,8 @@ struct MiriConfig: Codable {
         snapshotAnimationSpeed: 50,
         animationFPS: 60,
         animationPixelThreshold: 0.5,
-        workspaceAutoBackAndForth: true,
+        workspaceAutoBackAndForth: false,
+        minimumWorkspaceCount: 1,
         focusAlignment: .default,
         newWindowPosition: .afterActive,
         innerGap: 0,
@@ -309,6 +311,7 @@ struct MiriConfig: Codable {
         config.snapshotAnimationSpeed = config.snapshotAnimationSpeed.map { min(max($0, 1), 100) }
         config.animationFPS = config.animationFPS.map { min(max($0, 1), 120) }
         config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
+        config.minimumWorkspaceCount = config.minimumWorkspaceCount.map { min(max($0, 1), 9) }
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
@@ -420,6 +423,7 @@ struct MiriConfig: Codable {
         case animationFPS = "animation_fps"
         case animationPixelThreshold = "animation_pixel_threshold"
         case workspaceAutoBackAndForth = "workspace_auto_back_and_forth"
+        case minimumWorkspaceCount = "minimum_workspace_count"
         case focusAlignment = "focus_alignment"
         case newWindowPosition = "new_window_position"
         case innerGap = "inner_gap"

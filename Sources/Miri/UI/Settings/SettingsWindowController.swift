@@ -156,6 +156,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Width resize mode", popup("widthResizeMode", WidthResizeMode.allCasesStrings, draft.widthResizeMode?.rawValue ?? MiriConfig.fallback.widthResizeMode?.rawValue ?? "default")),
         ("Focus alignment", focusAlignmentPopup()),
         ("New window position", popup("newWindowPosition", NewWindowPosition.allCasesStrings, draft.newWindowPosition?.rawValue ?? "after_active")),
+        ("Pre-created workspaces", slider("minimumWorkspaceCount", draft.minimumWorkspaceCount ?? MiriConfig.fallback.minimumWorkspaceCount ?? 1, min: 1, max: 9)),
+        ("Active workspace goes to previous", checkbox("workspaceAutoBackAndForth", draft.workspaceAutoBackAndForth ?? MiriConfig.fallback.workspaceAutoBackAndForth ?? false)),
         ("Inner gap px", doubleField("innerGap", Double(draft.innerGap ?? 0))),
         ("Outer gap px", doubleField("outerGap", Double(draft.outerGap ?? 0))),
         ("Parked sliver px", doubleField("parkedSliverWidth", Double(draft.parkedSliverWidth ?? 1))),
@@ -349,6 +351,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             .selectedItem?.representedObject as? String
         draft.focusAlignment = FocusAlignment(rawValue: focusAlignmentRawValue ?? FocusAlignment.default.rawValue)
         draft.newWindowPosition = NewWindowPosition(rawValue: string("newWindowPosition"))
+        draft.minimumWorkspaceCount = max(1, min(int("minimumWorkspaceCount"), 9))
+        draft.workspaceAutoBackAndForth = bool("workspaceAutoBackAndForth")
         draft.innerGap = CGFloat(double("innerGap"))
         draft.outerGap = CGFloat(double("outerGap"))
         draft.parkedSliverWidth = CGFloat(double("parkedSliverWidth"))

@@ -45,7 +45,11 @@ extension Miri {
     }
 
     var workspaceAutoBackAndForth: Bool {
-        config.workspaceAutoBackAndForth ?? MiriConfig.fallback.workspaceAutoBackAndForth ?? true
+        config.workspaceAutoBackAndForth ?? MiriConfig.fallback.workspaceAutoBackAndForth ?? false
+    }
+
+    var minimumWorkspaceCount: Int {
+        min(max(config.minimumWorkspaceCount ?? MiriConfig.fallback.minimumWorkspaceCount ?? 1, 1), 9)
     }
 
     var focusAlignment: FocusAlignment {
