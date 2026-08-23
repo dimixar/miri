@@ -159,6 +159,7 @@ extension Miri {
         reconciliationTimer = nil
         activeRescanTimer?.invalidate()
         activeRescanTimer = nil
+        cancelAppLaunchSettlingForUnavailableSession()
         manualResizeEndTimer?.cancel()
         manualResizeEndTimer = nil
         manualResizeElement = nil

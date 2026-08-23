@@ -23,8 +23,9 @@ is sleeping, discovery waits for session recovery instead.
 
 NSWorkspace events provide process-level signals:
 
-- Launch: start observing the app and schedule the same coalesced settle
-  sequence used for delayed created windows.
+- Launch: track the app PID for a 30-second settling period and reconcile only
+  that process once per second. The period continues after the first window is
+  found so later windows and changing metadata are still adopted.
 - Activation: reconcile the previously active app, then reconcile and adopt
   focus for the newly active app. This catches windows that vanished while their
   former app was frontmost. The delayed activation settle verifies that the app
@@ -104,12 +105,21 @@ placeholder windows such as `64x64` title-empty AX windows.
 
 miri treats real, manageable, or plausible first-window `AXCreated` events from
 regular apps as process-level hints and schedules a coalesced settle sequence
-for that PID. New PIDs get a longer backoff window because apps such as
-JetBrains IDEs can expose only placeholder AX windows for several seconds before
-their real window is manageable. PIDs that already have managed windows use a
-short placeholder probe, rate-limited by
+for that PID. Independently, an observed application launch starts a targeted
+30-second scan period for its PID. This launch period does not stop when the
+first window appears, because apps such as JetBrains IDEs and Electron apps can
+expose placeholders or only part of their final window set before settling.
+PIDs that already have managed windows use a short placeholder probe,
+rate-limited by
 `ax_created_placeholder_probe_cooldown_ms`, so bursts during focus movement do
 not build a large reconciliation backlog.
+
+During the launch-settling period, a valid new window is adopted immediately.
+A previously managed window missing from a scan is retained for a short grace
+period before removal, preventing one transiently incomplete AX enumeration
+from causing layout churn. The settling state is removed when its deadline
+expires or the process terminates, and a new process lifetime receives a fresh
+period.
 
 Non-regular apps and helper processes are logged but do not enter the settle
 retry path. This avoids spending background work on menu-bar helpers, text input

@@ -87,12 +87,7 @@ extension Miri {
             }
             return
         }
-        startObservingApp(pid: app.processIdentifier)
-        scheduleAXCreationReconciliation(
-            pid: app.processIdentifier,
-            adoptFocused: true,
-            reason: "NSWorkspaceDidLaunch"
-        )
+        beginAppLaunchSettling(for: app, reason: "NSWorkspaceDidLaunch")
     }
 
     @objc func applicationTerminated(_ notification: Notification) {
@@ -100,6 +95,13 @@ extension Miri {
             return
         }
         pendingSessionRecoveryLaunchedPIDs.remove(app.processIdentifier)
+        finishAppLaunchSettling(
+            pid: app.processIdentifier,
+            reason: "NSWorkspaceDidTerminate",
+            allowFutureLaunch: true
+        )
+        pendingAXCreationSettleGenerations.removeValue(forKey: app.processIdentifier)
+        lastAXCreatedPlaceholderProbeAt.removeValue(forKey: app.processIdentifier)
         guard isLayoutTrackingAllowed else {
             observers.removeValue(forKey: app.processIdentifier)
             return
@@ -198,6 +200,12 @@ extension Miri {
             guard !windowHasCGInfo(window) else {
                 continue
             }
+            guard !shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
+                window,
+                reason: reason
+            ) else {
+                continue
+            }
 
             let wasActiveWindow = activeWindow().map { $0 === window } == true
             debugLog(
@@ -229,6 +237,10 @@ extension Miri {
 
         var changed = false
         var shouldSaveLogicalSpaceContext = true
+
+        for found in discovered {
+            noteAppLaunchSettlingWindowObserved(found)
+        }
 
         for window in allWindows().filter({ $0.pid == pid }) {
             if discovered.contains(where: { sameWindow($0.element, window.element) }) {
@@ -263,6 +275,14 @@ extension Miri {
             }
             if temporarilyHidden {
                 rememberMinimizedWindowState(window)
+            }
+            if !temporarilyHidden,
+               shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
+                   window,
+                   reason: "valid-ax-enumeration"
+               )
+            {
+                continue
             }
             removeWindow(window, preferRightFocus: temporarilyHidden)
             changed = true
@@ -368,6 +388,9 @@ extension Miri {
         }
 
         let discovered = discoverWindows()
+        for found in discovered {
+            noteAppLaunchSettlingWindowObserved(found)
+        }
         let restoredPersistentLogicalSpace = restorePersistentLogicalSpaceContextsIfNeeded(discovered: discovered)
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
@@ -432,6 +455,14 @@ extension Miri {
                 }
                 if temporarilyHidden {
                     rememberMinimizedWindowState(window)
+                }
+                if !temporarilyHidden,
+                   shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
+                       window,
+                       reason: "full-rescan"
+                   )
+                {
+                    continue
                 }
                 removeWindow(window, preferRightFocus: temporarilyHidden)
                 changed = true

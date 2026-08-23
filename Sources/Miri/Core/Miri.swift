@@ -48,6 +48,10 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var excludedKeybindingSet = Set<String>()
     var reconciliationTimer: Timer?
     var activeRescanTimer: Timer?
+    var appLaunchSettlingTimer: Timer?
+    var appLaunchSettlingDeadlines: [pid_t: CFAbsoluteTime] = [:]
+    var appLaunchObservedPIDs = Set<pid_t>()
+    var appLaunchMissingWindowSince: [pid_t: [ObjectIdentifier: CFAbsoluteTime]] = [:]
     var isScreenLocked = false
     var isWorkspaceSessionActive = true
     var isSystemSleeping = false
@@ -135,6 +139,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         snapshotWriteTimer?.cancel()
         logicalSpaceSnapshotTimer?.cancel()
         activeRescanTimer?.invalidate()
+        appLaunchSettlingTimer?.invalidate()
         uninstallFocusedWindowInputMonitor()
         uninstallSessionRecoveryEventTap()
         uninstallEventTap()

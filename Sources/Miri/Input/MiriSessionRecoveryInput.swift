@@ -337,6 +337,7 @@ extension Miri {
 
         let commands = pendingSessionRecoveryCommands
         pendingSessionRecoveryCommands.removeAll()
+        let launchedWhileUnavailable = pendingSessionRecoveryLaunchedPIDs
         pendingSessionRecoveryLaunchedPIDs.removeAll()
         isSessionRecoveryResumeScheduled = false
         isAwaitingSessionRecoveryInteraction = false
@@ -344,6 +345,12 @@ extension Miri {
 
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         rescanWindows(adoptFocused: true)
+        for pid in launchedWhileUnavailable {
+            guard let app = NSRunningApplication(processIdentifier: pid) else {
+                continue
+            }
+            beginAppLaunchSettling(for: app, reason: "session-recovery")
+        }
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
         for command in commands {
