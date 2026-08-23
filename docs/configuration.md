@@ -177,7 +177,13 @@ a relevant managed window. See
 
 ## Menu Bar
 
-- `workspace_bar_highlight_color`: named color or `#RRGGBB`.
+- `workspace_bar_use_custom_colors`: use the saved highlight and
+  delimiter/border colors instead of the current macOS system accent color.
+  Defaults to `false`. In system-color mode, low-contrast accents are lightened
+  in dark appearance and darkened in light appearance. Text always uses
+  adaptive system label colors.
+- `workspace_bar_highlight_color`: custom focused-window accent, as a named
+  color or `#RRGGBB`. Used only when `workspace_bar_use_custom_colors` is true.
 - `workspace_bar_visible_icon_count`: visible app icons per workspace, clamped
   to `1...6`.
 - `workspace_bar_overflow_style`: `plus_count`, `dots_count`, `chevron`, or
@@ -186,6 +192,8 @@ a relevant managed window. See
 - `workspace_bar_active_style`: `braces`, `filled_pointer`, `filled_dot`,
   `square_brackets`, `angle_brackets`, `outline`, or `filled_outline`.
 - `workspace_bar_center_style`: `delimiter`, `border`, or `filled_border`.
-- `workspace_bar_delimiter_color`: named color or `#RRGGBB`.
+- `workspace_bar_delimiter_color`: custom delimiter and workspace-border
+  accent, as a named color or `#RRGGBB`. Used only when
+  `workspace_bar_use_custom_colors` is true.
 - `workspace_bar_center_border_outset`: `0...5`.
 - `workspace_bar_center_border_thickness`: `1...3`.

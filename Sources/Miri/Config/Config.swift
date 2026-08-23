@@ -157,6 +157,7 @@ struct MiriConfig: Codable {
     var statePath: String?
     var debugLogging: Bool?
     var widthResizeMode: WidthResizeMode?
+    var workspaceBarUseCustomColors: Bool?
     var workspaceBarHighlightColor: String?
     var workspaceBarVisibleIconCount: Int?
     var workspaceBarOverflowStyle: WorkspaceBarOverflowStyle?
@@ -202,6 +203,7 @@ struct MiriConfig: Codable {
         statePath: nil,
         debugLogging: false,
         widthResizeMode: .default,
+        workspaceBarUseCustomColors: false,
         workspaceBarHighlightColor: "#5FFF84",
         workspaceBarVisibleIconCount: 6,
         workspaceBarOverflowStyle: .chevron,
@@ -444,6 +446,7 @@ struct MiriConfig: Codable {
         case statePath = "state_path"
         case debugLogging = "debug_logging"
         case widthResizeMode = "width_resize_mode"
+        case workspaceBarUseCustomColors = "workspace_bar_use_custom_colors"
         case workspaceBarHighlightColor = "workspace_bar_highlight_color"
         case workspaceBarVisibleIconCount = "workspace_bar_visible_icon_count"
         case workspaceBarOverflowStyle = "workspace_bar_overflow_style"

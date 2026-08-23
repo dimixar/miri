@@ -12,6 +12,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var lastWorkspaceBarSignature: WorkspaceBarRenderSignature?
     private var workspaceBarRefreshScheduled = false
     private var iconCache: [String: NSImage] = [:]
+    private var statusButtonAppearanceObserver: StatusBarAppearanceObserverView?
     private lazy var fallbackIcon = NSWorkspace.shared.icon(for: .application)
 
     init(miri: Miri) {
@@ -24,11 +25,32 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             name: .miriWorkspaceBarNeedsRefresh,
             object: miri
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemColorsDidChange(_:)),
+            name: NSColor.systemColorsDidChangeNotification,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemColorsDidChange(_:)),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: NSWorkspace.shared
+        )
+        if let button = statusItem.button {
+            let observer = StatusBarAppearanceObserverView(frame: .zero)
+            observer.onAppearanceChange = { [weak self] in
+                self?.invalidateWorkspaceBarAppearance()
+            }
+            button.addSubview(observer)
+            statusButtonAppearanceObserver = observer
+        }
         refreshWorkspaceBar(force: true)
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     private func configureMenu() {
@@ -105,6 +127,15 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         scheduleWorkspaceBarRefresh()
     }
 
+    @objc private func systemColorsDidChange(_ notification: Notification) {
+        invalidateWorkspaceBarAppearance()
+    }
+
+    private func invalidateWorkspaceBarAppearance() {
+        lastWorkspaceBarSignature = nil
+        scheduleWorkspaceBarRefresh()
+    }
+
     private func scheduleWorkspaceBarRefresh() {
         guard !workspaceBarRefreshScheduled else {
             return
@@ -137,6 +168,19 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func drawWorkspaceBar(_ status: MiriWorkspaceBarStatus, config: MiriConfig) -> NSImage {
+        let appearance = statusItem.button?.effectiveAppearance ?? NSApp.effectiveAppearance
+        var renderedImage: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            renderedImage = renderWorkspaceBar(status, config: config, appearance: appearance)
+        }
+        return renderedImage ?? NSImage()
+    }
+
+    private func renderWorkspaceBar(
+        _ status: MiriWorkspaceBarStatus,
+        config: MiriConfig,
+        appearance: NSAppearance
+    ) -> NSImage {
         let maxIcons = config.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3
         let iconSize: CGFloat = 16
         let iconBox: CGFloat = 20
@@ -156,7 +200,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             .font: font,
             .foregroundColor: NSColor.labelColor,
         ]
-        let delimiterColor = highlightColor(config.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor)
+        let useCustomColors = config.workspaceBarUseCustomColors
+            ?? MiriConfig.fallback.workspaceBarUseCustomColors
+            ?? false
+        let systemAccentColor = adaptiveSystemAccentColor(for: appearance)
+        let delimiterColor = useCustomColors
+            ? highlightColor(config.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor)
+            : systemAccentColor
+        let focusedWindowColor = useCustomColors
+            ? highlightColor(config.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor)
+            : systemAccentColor
         let separatorAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: delimiterColor,
@@ -311,7 +364,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                     let isFocused = index == focused
                     let box = NSRect(x: x, y: yIconBox, width: iconBox, height: iconBox)
                     if isFocused {
-                        highlightColor(config.workspaceBarHighlightColor).withAlphaComponent(0.55).setFill()
+                        let alpha: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.62 : 0.42
+                        focusedWindowColor.withAlphaComponent(alpha).setFill()
                         NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
                     }
 
@@ -383,6 +437,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private struct WorkspaceBarRenderSignature: Equatable {
         let status: MiriWorkspaceBarStatus
+        let useCustomColors: Bool?
         let highlightColor: String?
         let visibleIconCount: Int?
         let overflowStyle: WorkspaceBarOverflowStyle?
@@ -395,6 +450,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         init(status: MiriWorkspaceBarStatus, config: MiriConfig) {
             self.status = status
+            useCustomColors = config.workspaceBarUseCustomColors
             highlightColor = config.workspaceBarHighlightColor
             visibleIconCount = config.workspaceBarVisibleIconCount
             overflowStyle = config.workspaceBarOverflowStyle
@@ -525,9 +581,63 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
+    private func adaptiveSystemAccentColor(for appearance: NSAppearance) -> NSColor {
+        guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else {
+            return NSColor.controlAccentColor
+        }
+
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let targetLuminance: CGFloat = isDark ? 0.52 : 0.24
+        let accentLuminance = relativeLuminance(of: accent)
+        if isDark ? accentLuminance >= targetLuminance : accentLuminance <= targetLuminance {
+            return accent
+        }
+
+        let fallbackEndpoint = isDark ? NSColor.white : NSColor.black
+        let endpoint = NSColor.labelColor.usingColorSpace(.sRGB)
+            ?? fallbackEndpoint.usingColorSpace(.sRGB)
+            ?? fallbackEndpoint
+        var lowerFraction: CGFloat = 0
+        var upperFraction: CGFloat = 1
+
+        for _ in 0..<12 {
+            let fraction = (lowerFraction + upperFraction) / 2
+            guard let candidate = accent.blended(withFraction: fraction, of: endpoint)?.usingColorSpace(.sRGB) else {
+                break
+            }
+            let candidateLuminance = relativeLuminance(of: candidate)
+            let reachedTarget = isDark
+                ? candidateLuminance >= targetLuminance
+                : candidateLuminance <= targetLuminance
+            if reachedTarget {
+                upperFraction = fraction
+            } else {
+                lowerFraction = fraction
+            }
+        }
+
+        return accent.blended(withFraction: upperFraction, of: endpoint) ?? accent
+    }
+
+    private func relativeLuminance(of color: NSColor) -> CGFloat {
+        guard let rgb = color.usingColorSpace(.sRGB) else {
+            return 0
+        }
+
+        func linearized(_ component: CGFloat) -> CGFloat {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+
+        return 0.2126 * linearized(rgb.redComponent)
+            + 0.7152 * linearized(rgb.greenComponent)
+            + 0.0722 * linearized(rgb.blueComponent)
+    }
+
     private func centerFillColor(_ color: NSColor) -> NSColor {
-        let base = color.usingColorSpace(.sRGB) ?? color
-        return (base.blended(withFraction: 0.45, of: .black) ?? base).withAlphaComponent(0.28)
+        let alpha: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.32 : 0.18
+        return color.withAlphaComponent(alpha)
     }
 
     private func colorFromHex(_ hex: String) -> NSColor? {
@@ -579,6 +689,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func quitMiri() {
         miri?.quitFromMenu()
+    }
+}
+
+@MainActor
+private final class StatusBarAppearanceObserverView: NSView {
+    var onAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChange?()
     }
 }
 

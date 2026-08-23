@@ -10,6 +10,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let activeRescanBundleTable = NSTableView()
     private weak var ruleTitleMatchHelpLabel: NSTextField?
     private weak var keyboardShortcutBackendHelpLabel: NSTextField?
+    private weak var workspaceBarCustomColorControls: NSView?
 
     private var controls: [String: NSControl] = [:]
 
@@ -179,13 +180,71 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         ("Show fullscreen apps", checkbox("workspaceBarShowFullscreen", draft.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true)),
         ("Active workspace style", popup("workspaceBarActiveStyle", WorkspaceBarActiveStyle.allCasesStrings, draft.workspaceBarActiveStyle?.rawValue ?? MiriConfig.fallback.workspaceBarActiveStyle?.rawValue ?? "braces")),
         ("Center app strip style", popup("workspaceBarCenterStyle", WorkspaceBarCenterStyle.allCasesStrings, draft.workspaceBarCenterStyle?.rawValue ?? MiriConfig.fallback.workspaceBarCenterStyle?.rawValue ?? "delimiter")),
-        ("Delimiter/border color", colorWell("workspaceBarDelimiterColor", draft.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor ?? "#FFD60A")),
+        ("Accent colors", workspaceBarColorSettings()),
         ("Center border size", slider("workspaceBarCenterBorderOutset", draft.workspaceBarCenterBorderOutset ?? MiriConfig.fallback.workspaceBarCenterBorderOutset ?? 0, min: 0, max: 5)),
         ("Center border thickness", slider("workspaceBarCenterBorderThickness", draft.workspaceBarCenterBorderThickness ?? MiriConfig.fallback.workspaceBarCenterBorderThickness ?? 1, min: 1, max: 3)),
-        ("Highlight color", colorWell("workspaceBarHighlightColor", draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "yellow")),
         ("Visible app window icons", slider("workspaceBarVisibleIconCount", draft.workspaceBarVisibleIconCount ?? MiriConfig.fallback.workspaceBarVisibleIconCount ?? 3, min: 1, max: 6)),
         ("Overflow style", popup("workspaceBarOverflowStyle", WorkspaceBarOverflowStyle.allCasesStrings, draft.workspaceBarOverflowStyle?.rawValue ?? MiriConfig.fallback.workspaceBarOverflowStyle?.rawValue ?? "plus_count")),
     ]) }
+
+    private func workspaceBarColorSettings() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        let useCustomColors = draft.workspaceBarUseCustomColors
+            ?? MiriConfig.fallback.workspaceBarUseCustomColors
+            ?? false
+        let toggle = NSButton(
+            checkboxWithTitle: "Use custom colors",
+            target: self,
+            action: #selector(workspaceBarCustomColorsChanged(_:))
+        )
+        toggle.state = useCustomColors ? .on : .off
+        controls["workspaceBarUseCustomColors"] = toggle
+        stack.addArrangedSubview(toggle)
+
+        let customControls = NSStackView()
+        customControls.orientation = .vertical
+        customControls.alignment = .leading
+        customControls.spacing = 6
+        customControls.addArrangedSubview(colorSettingRow(
+            "Focused window",
+            colorWell(
+                "workspaceBarHighlightColor",
+                draft.workspaceBarHighlightColor ?? MiriConfig.fallback.workspaceBarHighlightColor ?? "#FFD60A"
+            )
+        ))
+        customControls.addArrangedSubview(colorSettingRow(
+            "Borders and delimiters",
+            colorWell(
+                "workspaceBarDelimiterColor",
+                draft.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor ?? "#FFD60A"
+            )
+        ))
+        customControls.isHidden = !useCustomColors
+        stack.addArrangedSubview(customControls)
+        workspaceBarCustomColorControls = customControls
+        return stack
+    }
+
+    private func colorSettingRow(_ title: String, _ colorWell: NSColorWell) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        let label = NSTextField(labelWithString: title)
+        label.textColor = .secondaryLabelColor
+        label.widthAnchor.constraint(equalToConstant: 145).isActive = true
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(colorWell)
+        return row
+    }
+
+    @objc private func workspaceBarCustomColorsChanged(_ sender: NSButton) {
+        workspaceBarCustomColorControls?.isHidden = sender.state != .on
+    }
 
     private func keybindingsView() -> NSView {
         var rows: [(String, NSView)] = []
@@ -368,6 +427,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
         draft.workspaceBarActiveStyle = WorkspaceBarActiveStyle(rawValue: string("workspaceBarActiveStyle"))
         draft.workspaceBarCenterStyle = WorkspaceBarCenterStyle(rawValue: string("workspaceBarCenterStyle"))
+        draft.workspaceBarUseCustomColors = bool("workspaceBarUseCustomColors")
         draft.workspaceBarDelimiterColor = colorHex("workspaceBarDelimiterColor")
         draft.workspaceBarCenterBorderOutset = max(0, min(int("workspaceBarCenterBorderOutset"), 5))
         draft.workspaceBarCenterBorderThickness = max(1, min(int("workspaceBarCenterBorderThickness"), 3))

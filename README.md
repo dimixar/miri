@@ -148,7 +148,11 @@ See [Configuration](docs/configuration.md#shortcuts).
 
 The menu bar item shows every configured or dynamically existing workspace.
 The active workspace expands in place to show its window icons; inactive
-workspaces contract to their number and last-focused icon. It also exposes:
+workspaces contract to their number and last-focused icon. Its text and default
+accents adapt to the menu bar appearance and the current macOS system accent
+color. System accents are lightened in dark appearance and darkened in light
+appearance when needed for contrast. Optional custom workspace-bar colors are
+available in Settings. It also exposes:
 
 - current workspace, focused window, and active width;
 - empty and occupied workspace summaries with app names/icons;

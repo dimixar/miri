@@ -1,0 +1,55 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "MiriIcon-Zoom.svg",
+          "name" : "MiriIcon-Zoom"
+        },
+        {
+          "image-name" : "MiriIcon-Minimize.svg",
+          "name" : "MiriIcon-Minimize"
+        },
+        {
+          "image-name" : "MiriIcon-Close.svg",
+          "name" : "MiriIcon-Close"
+        },
+        {
+          "image-name" : "MiriIcon-CenterWindow.svg",
+          "name" : "MiriIcon-CenterWindow"
+        },
+        {
+          "image-name" : "MiriIcon-SideWindows.svg",
+          "name" : "MiriIcon-SideWindows"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "automatic"
+            }
+          ],
+          "image-name" : "MiriIcon-Background.svg",
+          "name" : "MiriIcon-Background"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
