@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./assets/MiriIcon.png" alt="Miri app icon" width="160">
+
 # miri
 
 [![License](https://img.shields.io/badge/license-MIT-111111?style=flat-square)](./LICENSE)
