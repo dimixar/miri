@@ -68,7 +68,7 @@ the independent Carbon recovery path.
 Check for the app in the log:
 
 ```bash
-rg "App Name|bundle.id|AXCreated|window discovered" ~/.config/miri/debug.log
+rg "App Name|bundle.id|AXCreated|window discovered|app launch settling" ~/.config/miri/debug.log
 ```
 
 Common causes:
@@ -81,6 +81,18 @@ Common causes:
 
 Look for `raw ax window source=...` and compare `manageable`, `known`, role,
 subrole, frame, minimized, and fullscreen fields.
+
+For an application launched while miri is already running, the log should show
+`app launch settling started`, followed by an initial reconciliation and
+targeted scans once per second for 30 seconds. Scanning deliberately continues
+after the first accepted window so secondary windows and late title, role, or
+rule metadata changes are still discovered. `app launch settling finished
+reason=deadline` confirms the bounded scan period ended normally.
+
+If a previously accepted window disappears from only one launch-settling scan,
+miri logs `preserving launch-settling window` and waits through a short grace
+period before treating the absence as authoritative. This avoids layout churn
+from one transiently incomplete Accessibility enumeration.
 
 ## Window Stayed In Layout After Closing
 

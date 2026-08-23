@@ -41,8 +41,11 @@ current scope and have not been tested.
   and scroll state.
 - **Logical Space contexts.** Separate Miri state per inferred macOS Space,
   without depending on private Space IDs.
-- **Event-driven discovery.** Startup does a full scan; normal updates are
-  driven by NSWorkspace and AX events with a long safety reconciliation timer.
+- **Event-driven discovery with bounded launch settling.** Startup does a full
+  scan, and each observed regular-app launch receives targeted per-PID scans for
+  30 seconds while its Accessibility windows and metadata settle. Normal
+  updates then remain driven by NSWorkspace and AX events with a long safety
+  reconciliation timer.
 - **Reliable same-app focus tracking.** Focus and main-window AX notifications
   are backed by lightweight probes after mouse clicks and macOS Command-based
   window switching, covering apps that miss useful focus notifications.

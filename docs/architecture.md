@@ -42,24 +42,33 @@ and performs a full window scan only if the console session is available. AX
 observers are attached as regular applications are discovered. Long-period
 safety timers run only while layout tracking is allowed.
 
-After startup, the normal path is event driven:
+After startup, the normal path is event driven with one bounded polling phase
+for newly launched applications:
 
 1. NSWorkspace reports app launch, termination, activation, or Space change.
-2. AX observers report window creation, destruction, focused/main-window
+2. A regular-app launch records that process lifetime and starts a 30-second
+   per-PID settling deadline. One shared timer reconciles only settling PIDs
+   once per second, continuing after the first window appears so later windows
+   and changing rule metadata are adopted. A valid new window is accepted
+   immediately; a previously managed window missing from a scan receives a
+   short grace period before removal.
+3. AX observers report window creation, destruction, focused/main-window
    changes, movement, resize, minimization, hiding, and showing.
-3. Mouse clicks and Command-based window switching schedule a lightweight AX
+4. Mouse clicks and Command-based window switching schedule a lightweight AX
    focused-window probe as a fallback for applications that miss focus events.
-4. miri adopts a different managed focused column only from the globally
+5. miri adopts a different managed focused column only from the globally
    frontmost application. App-local focus notifications from background
    processes may inform discovery but cannot change layout focus.
-5. Layout projection computes logical target frames using the configured focus
+6. Layout projection computes logical target frames using the configured focus
    alignment policy.
-6. Snapshot animation presents movement when configured; `off` applies final
+7. Snapshot animation presents movement when configured; `off` applies final
    AX frames immediately while retaining the layout/reconciliation lock.
-7. Final AX frames are committed once presentation work has settled.
+8. Final AX frames are committed once presentation work has settled.
 
 The periodic reconciliation timer remains as a safety net for missed or delayed
-Accessibility notifications.
+Accessibility notifications. The launch-settling deadline is retired after 30
+seconds and cannot restart for that PID until the application terminates. A
+relaunch receives a new PID and a fresh settling period.
 
 ## Session Availability Flow
 
@@ -78,7 +87,10 @@ and the target window are validated.
 After a qualifying interaction, miri performs one full rescan, restarts the
 safety timers, and runs the triggering Miri command if one was queued. Regular
 applications launched while waiting are remembered so their first valid window
-interaction can qualify.
+interaction can qualify. After recovery, each remembered live application also
+receives its own 30-second launch-settling period. Any settling periods that
+were already running when the session became unavailable are cancelled rather
+than rearmed after unlock or wake.
 
 ## Layout Pipeline
 

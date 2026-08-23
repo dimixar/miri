@@ -196,6 +196,14 @@ Useful log lines in `~/.config/miri/debug.log`:
 
 - `raw ax window source=...`: raw AX window details before filtering.
 - `window discovered`: a window accepted into the managed model.
+- `app launch settling started`: an observed regular-app launch opened its
+  30-second targeted reconciliation period.
+- `app launch settling reconciliation`: the initial or once-per-second scan ran
+  for a settling PID.
+- `preserving launch-settling window`: a known window was absent from one scan
+  and retained during the transient-miss grace period.
+- `app launch settling finished`: the deadline expired, the process terminated,
+  or the process became unavailable.
 - `ax creation reconciliation scheduled`: delayed per-PID creation retry.
 - `reconcile skipped reason=...`: per-app reconciliation was deliberately
   skipped, for example because the app was not regular yet or AX was in a
