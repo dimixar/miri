@@ -64,13 +64,11 @@ enum WindowRestoration {
 enum CleanupWatcher {
     static func run(parentPID: pid_t, snapshotPath: String) -> Never {
         while true {
-            if !FileManager.default.fileExists(atPath: snapshotPath) {
-                exit(0)
-            }
-
             if kill(parentPID, 0) == -1 && errno == ESRCH {
-                restore(snapshotPath: snapshotPath)
-                try? FileManager.default.removeItem(atPath: snapshotPath)
+                if FileManager.default.fileExists(atPath: snapshotPath) {
+                    restore(snapshotPath: snapshotPath)
+                    try? FileManager.default.removeItem(atPath: snapshotPath)
+                }
                 exit(0)
             }
 

@@ -170,12 +170,12 @@ struct MiriConfig: Codable {
     var rules: [WindowRule]
 
     static let fallback = MiriConfig(
-        defaultWidthRatio: 0.8,
-        presetWidthRatios: [0.5, 0.67, 0.8, 1.0],
-        animationDurationMS: 240,
-        keyboardAnimationMS: 240,
-        moveColumnAnimationMS: 240,
-        widthAnimationMS: 280,
+        defaultWidthRatio: 0.67,
+        presetWidthRatios: [0.33, 0.5, 0.67, 1.0],
+        animationDurationMS: 0,
+        keyboardAnimationMS: 0,
+        moveColumnAnimationMS: 0,
+        widthAnimationMS: 0,
         animationCurve: .smooth,
         animationStrategy: .snapshot,
         snapshotAnimationSpeed: 50,
@@ -192,7 +192,7 @@ struct MiriConfig: Codable {
         axCreatedPlaceholderProbeCooldownMS: 1000,
         activeRescanEnabled: true,
         activeRescanBundleIDs: ["notion.id"],
-        excludedKeybindings: ["lalt+shift+5"],
+        excludedKeybindings: ["cmd+shift+5"],
         keybindings: defaultKeybindings,
         windowReconciliationIntervalMS: 60000,
         likelyFullscreenTransitionGraceMS: 1500,
@@ -260,40 +260,6 @@ struct MiriConfig: Codable {
         "nudge_all_widths_wider": ["lalt+ctrl+shift+="],
     ]
 
-    static func load() -> MiriConfig {
-        loadWithMetadata().config
-    }
-
-    static func loadWithMetadata(logLoaded: Bool = true, logErrors: Bool = true) -> LoadedMiriConfig {
-        let candidates = configCandidates()
-        let decoder = JSONDecoder()
-
-        for url in candidates {
-            guard let data = try? Data(contentsOf: url) else {
-                continue
-            }
-
-            do {
-                let config = normalize(try decoder.decode(MiriConfig.self, from: data))
-                migrateLegacyFocusAlignmentIfNeeded(config, originalData: data, at: url, logErrors: logErrors)
-                if logLoaded {
-                    print("miri: loaded config \(url.path)")
-                }
-                return LoadedMiriConfig(
-                    config: config,
-                    sourceURL: url,
-                    sourceModificationDate: modificationDate(for: url)
-                )
-            } catch {
-                if logErrors {
-                    fputs("miri: failed to parse config \(url.path): \(error)\n", stderr)
-                }
-            }
-        }
-
-        return LoadedMiriConfig(config: .fallback, sourceURL: nil, sourceModificationDate: nil)
-    }
-
     static func modificationDate(for url: URL) -> Date? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
             return nil
@@ -301,7 +267,7 @@ struct MiriConfig: Codable {
         return attributes[.modificationDate] as? Date
     }
 
-    private static func normalize(_ loadedConfig: MiriConfig) -> MiriConfig {
+    static func normalize(_ loadedConfig: MiriConfig) -> MiriConfig {
         var config = loadedConfig
         config.focusAlignment = config.focusAlignment ?? .default
         config.defaultWidthRatio = config.defaultWidthRatio.clampedWidthRatio
@@ -334,7 +300,7 @@ struct MiriConfig: Codable {
         return config
     }
 
-    private static func migrateLegacyFocusAlignmentIfNeeded(
+    static func migrateLegacyFocusAlignmentIfNeeded(
         _ config: MiriConfig,
         originalData: Data,
         at url: URL,
@@ -395,7 +361,7 @@ struct MiriConfig: Codable {
         return unique
     }
 
-    private static func configCandidates() -> [URL] {
+    static func configCandidates() -> [URL] {
         var urls: [URL] = []
 
         if let path = ProcessInfo.processInfo.environment["MIRI_CONFIG"], !path.isEmpty {
@@ -412,7 +378,7 @@ struct MiriConfig: Codable {
         return urls
     }
 
-    private enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case defaultWidthRatio = "default_width_ratio"
         case presetWidthRatios = "preset_width_ratios"
         case animationDurationMS = "animation_duration_ms"
@@ -509,7 +475,7 @@ struct WindowRule: Codable {
         return bundleID != nil || appName != nil || titleContains != nil
     }
 
-    private enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case bundleID = "bundle_id"
         case appName = "app_name"
         case titleContains = "title_contains"

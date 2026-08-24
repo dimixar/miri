@@ -10,8 +10,8 @@ extension Miri {
         NotificationCenter.default.post(name: .miriWorkspaceBarNeedsRefresh, object: self)
     }
 
-    func currentConfigForStatusBar() -> MiriConfig {
-        config
+    func currentStatusMenuViewState() -> StatusMenuViewState {
+        StatusMenuViewState(status: currentStatus(), workspaceBar: currentWorkspaceBarStatus(), config: config)
     }
 
     func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
@@ -104,73 +104,47 @@ extension Miri {
         )
     }
 
-    func openConfigFromMenu() {
-        enqueue(.ui(.openConfig))
-    }
-
     func openConfigFromMenuImplementation() {
-        if let url = loadedConfig.sourceURL {
-            NSWorkspace.shared.open(url)
-            return
-        }
-
-        let fallbackURL = URL(fileURLWithPath: NSString(string: "~/.config/miri/config.json").expandingTildeInPath)
-        NSWorkspace.shared.open(fallbackURL)
-    }
-
-    func reloadFromMenu() {
-        enqueue(.ui(.reloadConfig))
+        NSWorkspace.shared.open(configStore.destinationURL)
     }
 
     func reloadFromMenuImplementation() {
-        loadedConfig.sourceModificationDate = nil
-        _ = reloadConfigIfNeeded()
-    }
-
-    func rescanFromMenu() {
-        enqueue(.ui(.rescanWindows))
-    }
-
-    @MainActor func showSettingsFromMenu() {
-        enqueue(.ui(.showSettings))
+        _ = reloadConfigIfNeeded(force: true, reportFailure: true)
     }
 
     @MainActor func showSettingsFromMenuImplementation() {
         let apps = availableRuleApps()
         if let settingsWindowController {
-            settingsWindowController.refresh(config: config, availableApps: apps)
+            settingsWindowController.refresh(config: configStore.documentConfig, availableApps: apps)
             settingsWindowController.showWindow(nil)
             settingsWindowController.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let controller = SettingsWindowController(miri: self, config: config, availableApps: apps)
+        let controller = SettingsWindowController(
+            config: configStore.documentConfig,
+            availableApps: apps,
+            actionSink: { [weak self] action in self?.enqueue(.ui(action)) }
+        )
         settingsWindowController = controller
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @MainActor func saveConfigFromSettings(_ updatedConfig: MiriConfig) {
-        enqueue(.ui(.saveConfig(updatedConfig)))
-    }
-
-    @MainActor func saveConfigFromSettingsImplementation(_ updatedConfig: MiriConfig) {
-        let url = loadedConfig.sourceURL ?? URL(fileURLWithPath: NSString(string: "~/.config/miri/config.json").expandingTildeInPath)
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(updatedConfig)
-            try data.write(to: url, options: [.atomic])
-            loadedConfig.sourceModificationDate = nil
-            _ = reloadConfigIfNeeded()
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Could not save Miri config"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
+    @MainActor func saveConfigFromSettingsImplementation(
+        _ updatedConfig: MiriConfig,
+        closeOnSuccess: Bool
+    ) {
+        switch configStore.save(updatedConfig) {
+        case .saved(let destination):
+            applyConfigChange(source: destination)
+            enqueue(.config(.saved(destination: destination)))
+            settingsWindowController?.presentSaveSuccess(closeOnSuccess: closeOnSuccess)
+        case .failed(let reason):
+            enqueue(.config(.saveFailed(reason: reason)))
+            settingsWindowController?.presentSaveFailure(reason: reason)
         }
     }
 
@@ -194,10 +168,6 @@ extension Miri {
         let apps = windowApps.isEmpty ? fallbackRunningApps : windowApps
         var seen = Set<String>()
         return apps.filter { seen.insert($0.bundleID).inserted }.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
-    }
-
-    @MainActor func quitFromMenu() {
-        enqueue(.ui(.quit))
     }
 
     func scheduleReconciliationTimer() {
@@ -236,50 +206,42 @@ extension Miri {
     }
 
     @discardableResult
-    func reloadConfigIfNeeded() -> Bool {
-        let previousSourceURL = loadedConfig.sourceURL
-        let previousModificationDate = loadedConfig.sourceModificationDate
-
-        if let previousSourceURL {
-            let currentModificationDate = MiriConfig.modificationDate(for: previousSourceURL)
-            guard currentModificationDate != previousModificationDate else {
-                return false
-            }
-
-            loadedConfig.sourceModificationDate = currentModificationDate
-        }
-
-        let previousReconciliationInterval = windowReconciliationInterval
-        let previousLogicalSpaceAutosaveInterval = logicalSpaceAutosaveInterval
-        let previousRestoreOnExit = restoreOnExit
-        let reloaded = MiriConfig.loadWithMetadata(logLoaded: false)
-
-        guard reloaded.sourceURL != nil else {
-            if previousSourceURL != nil {
-                fputs("miri: config reload skipped; keeping previous config\n", stderr)
+    func reloadConfigIfNeeded(force: Bool = false, reportFailure: Bool = false) -> Bool {
+        switch configStore.reloadCurrentSource(force: force) {
+        case .unchanged:
+            return false
+        case .failed(let reason):
+            fputs("miri: config reload failed; keeping previous config: \(reason)\n", stderr)
+            enqueue(.config(.reloadFailed(reason: reason)))
+            if reportFailure {
+                MainActor.assumeIsolated {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not reload Miri config"
+                    alert.informativeText = reason
+                    alert.runModal()
+                }
             }
             return false
+        case .reloaded(let source):
+            applyConfigChange(source: source)
+            enqueue(.config(.loaded(source: source)))
+            return true
         }
+    }
 
-        loadedConfig = reloaded
+    private func applyConfigChange(source: URL) {
+        // Reconfiguration order is deliberate: capacity first, then input,
+        // persistence policy/timers, reconciliation timers, and finally model
+        // discovery plus layout projection.
         reconcileWorkspaceCapacity()
         configureInput()
         installInputBackend()
-
-        if windowReconciliationInterval != previousReconciliationInterval {
-            scheduleReconciliationTimer()
-        }
+        persistenceController.reconfigure(PersistenceConfiguration(config: config))
+        scheduleReconciliationTimer()
         syncActiveRescanTimer()
-        if logicalSpaceAutosaveInterval != previousLogicalSpaceAutosaveInterval {
-            schedulePeriodicLogicalSpaceSnapshotWrite()
-        }
-        updateCleanupWatcher(previousRestoreOnExit: previousRestoreOnExit)
-
-        let sourcePath = loadedConfig.sourceURL?.path ?? "fallback"
-        print("miri: reloaded config \(sourcePath), \(inputController.commandCount) keybindings")
+        print("miri: reloaded config \(source.path), \(inputController.commandCount) keybindings")
         rescanWindows(adoptFocused: false)
         projectLayout(focusActiveWindow: false)
-        return true
     }
 
 }

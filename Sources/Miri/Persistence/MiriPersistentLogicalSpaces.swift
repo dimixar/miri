@@ -1,56 +1,8 @@
 import Foundation
 
 extension Miri {
-    var persistentLogicalSpaceStateURL: URL {
-        persistentLayoutStateURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("logical-spaces.json")
-    }
-
-    func readPersistentLogicalSpaceSnapshot() -> PersistentLogicalSpaceSnapshot? {
-        guard persistLayoutEnabled,
-              let data = try? Data(contentsOf: persistentLogicalSpaceStateURL),
-              let snapshot = try? JSONDecoder().decode(PersistentLogicalSpaceSnapshot.self, from: data),
-              snapshot.version == 1
-        else {
-            return nil
-        }
-        return sanitizedPersistentLogicalSpaceSnapshot(snapshot)
-    }
-
-    func sanitizedPersistentLogicalSpaceSnapshot(_ snapshot: PersistentLogicalSpaceSnapshot) -> PersistentLogicalSpaceSnapshot? {
-        var seen = Set<Int>()
-        let contexts = snapshot.contexts.filter { context in
-            guard context.id >= 0, !seen.contains(context.id) else {
-                debugLog("skipping invalid persisted logical macOS space id=\(context.id)")
-                return false
-            }
-            seen.insert(context.id)
-            return true
-        }
-        guard !contexts.isEmpty else {
-            return nil
-        }
-        let maxID = contexts.map(\.id).max() ?? 0
-        let activeID = contexts.contains(where: { $0.id == snapshot.activeContextID }) ? snapshot.activeContextID : contexts[0].id
-        return PersistentLogicalSpaceSnapshot(
-            version: snapshot.version,
-            activeContextID: activeID,
-            nextContextID: max(maxID + 1, snapshot.nextContextID, 0),
-            contexts: contexts
-        )
-    }
-
     func schedulePeriodicLogicalSpaceSnapshotWrite() {
-        logicalSpaceSnapshotTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        let interval = max(60, Int(logicalSpaceAutosaveInterval.rounded()))
-        timer.schedule(deadline: .now() + .seconds(interval), repeating: .seconds(interval), leeway: .seconds(30))
-        timer.setEventHandler { [weak self] in
-            self?.writePersistentLogicalSpaceSnapshotIfSafe()
-        }
-        logicalSpaceSnapshotTimer = timer
-        timer.resume()
+        persistenceController.schedulePeriodicLogicalSpaceAutosave()
     }
 
     func writePersistentLogicalSpaceSnapshotIfSafe() {
@@ -69,16 +21,12 @@ extension Miri {
     }
 
     func writePersistentLogicalSpaceSnapshot() {
-        guard persistLayoutEnabled else {
-            try? FileManager.default.removeItem(at: persistentLogicalSpaceStateURL)
-            return
-        }
         if logicalSpacePersistenceIsSafe() {
             saveActiveLogicalSpaceContext()
         }
         let validContexts = logicalSpaceContexts.filter { $0.id >= 0 }
         guard !validContexts.isEmpty else {
-            try? FileManager.default.removeItem(at: persistentLogicalSpaceStateURL)
+            persistenceController.writeLogicalSpaces(nil)
             return
         }
         let contexts = validContexts.map(persistentLogicalSpaceContext(from:))
@@ -89,17 +37,7 @@ extension Miri {
             nextContextID: max(nextLogicalSpaceContextID, maxID + 1, 0),
             contexts: contexts
         )
-        do {
-            let url = persistentLogicalSpaceStateURL
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: url, options: [.atomic])
-        } catch {
-            debugLog("failed to write persistent logical macOS spaces: \(error)")
-        }
+        persistenceController.writeLogicalSpaces(snapshot)
     }
 
     func persistentLogicalSpaceContext(from context: LogicalSpaceContext) -> PersistentLogicalSpaceContext {

@@ -14,6 +14,12 @@ struct MiriStatus {
     let widthPercent: Int?
 }
 
+struct StatusMenuViewState {
+    let status: MiriStatus
+    let workspaceBar: MiriWorkspaceBarStatus
+    let config: MiriConfig
+}
+
 struct MiriWorkspaceSummary: Equatable {
     let workspace: Int
     let isActive: Bool

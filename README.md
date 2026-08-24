@@ -196,12 +196,15 @@ preserving layout order and manual width state.
 
 ## Configuration
 
-miri loads the first readable config from:
+miri selects the first existing config path from:
 
 1. `MIRI_CONFIG`
 2. `./miri.config.json`
 3. `$XDG_CONFIG_HOME/miri/config.json`
 4. `~/.config/miri/config.json`
+
+A malformed selected file reports an error and does not silently fall through
+to a lower-priority path. Hot reload keeps the last known-good config active.
 
 The repository includes a complete default [`miri.config.json`](miri.config.json).
 See [Configuration](docs/configuration.md) for setting descriptions, focus

@@ -106,10 +106,10 @@ extension Miri {
             removeWindows(forPID: pid)
         case .layout(let layout):
             handleCoordinatorLayout(layout)
-        case .config, .persistence:
-            // Result contracts are established for the Phase 3 extractions.
-            // Existing config/persistence implementations remain synchronous.
-            break
+        case .config(let config):
+            handleCoordinatorConfig(config)
+        case .persistence(let persistence):
+            handleCoordinatorPersistence(persistence)
         case .timer(let timer):
             handleCoordinatorTimer(timer)
         case .ui(let action):
@@ -207,6 +207,32 @@ extension Miri {
         }
     }
 
+    @MainActor private func handleCoordinatorConfig(_ event: ConfigEvent) {
+        switch event {
+        case .loaded(let source):
+            debugLog("config adopted source=\(source?.path ?? "fallback")")
+        case .saved(let source):
+            debugLog("config saved source=\(source.path)")
+        case .reloadFailed(let reason), .saveFailed(let reason):
+            debugLog("config operation failed reason=\(reason)")
+        }
+    }
+
+    @MainActor private func handleCoordinatorPersistence(_ event: PersistenceEvent) {
+        switch event {
+        case .autosaveDue(.layout):
+            writePersistentLayoutSnapshot()
+        case .autosaveDue(.logicalSpaces):
+            writePersistentLogicalSpaceSnapshotIfSafe()
+        case .autosaveDue(.exitRestoration):
+            break
+        case .writeCompleted:
+            break
+        case .writeFailed(let kind, let reason):
+            debugLog("persistence write failed kind=\(kind.rawValue) reason=\(reason)")
+        }
+    }
+
     @MainActor private func handleCoordinatorUI(_ action: UIAction) {
         switch action {
         case .showSettings:
@@ -219,8 +245,8 @@ extension Miri {
             requestReconciliation(
                 .all(adoptFocused: true, source: .userInterface, reason: "menu-rescan")
             )
-        case .saveConfig(let config):
-            saveConfigFromSettingsImplementation(config)
+        case .saveConfig(let config, let closeOnSuccess):
+            saveConfigFromSettingsImplementation(config, closeOnSuccess: closeOnSuccess)
         case .quit:
             prepareForTermination(reason: "menu")
             NSApp.terminate(nil)
@@ -352,8 +378,7 @@ extension Miri {
         terminationPrepared = true
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
-        snapshotWriteTimer?.cancel()
-        logicalSpaceSnapshotTimer?.cancel()
+        persistenceController.stopTimers()
         reconciliationTimer?.invalidate()
         activeRescanTimer?.invalidate()
         appLaunchSettlingTimer?.invalidate()
@@ -368,6 +393,7 @@ extension Miri {
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
         restoreManagedWindowsForExit()
+        persistenceController.stopCleanupWatcher(removeRestoreFile: true)
         appPhase = .terminated
         debugLog("termination preparation complete source=\(reason)")
     }
@@ -528,6 +554,7 @@ private extension ConfigEvent {
 private extension PersistenceEvent {
     var logName: String {
         switch self {
+        case .autosaveDue: return "persistence.autosave-due"
         case .writeCompleted: return "persistence.write-completed"
         case .writeFailed: return "persistence.write-failed"
         }

@@ -3,57 +3,14 @@ import Foundation
 
 extension Miri {
     var persistLayoutEnabled: Bool {
-        config.persistLayout ?? MiriConfig.fallback.persistLayout ?? true
-    }
-
-    var persistentLayoutStateURL: URL {
-        if let statePath = config.statePath, !statePath.isEmpty {
-            return URL(fileURLWithPath: NSString(string: statePath).expandingTildeInPath)
-        }
-
-        let stateHome = ProcessInfo.processInfo.environment["XDG_STATE_HOME"]
-            .map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local")
-                .appendingPathComponent("state")
-        return stateHome
-            .appendingPathComponent("miri", isDirectory: true)
-            .appendingPathComponent("layout.json")
-    }
-
-    func readPersistentLayoutSnapshot() -> PersistentLayoutSnapshot? {
-        guard persistLayoutEnabled,
-              let data = try? Data(contentsOf: persistentLayoutStateURL),
-              let snapshot = try? JSONDecoder().decode(PersistentLayoutSnapshot.self, from: data),
-              (1...2).contains(snapshot.version)
-        else {
-            return nil
-        }
-        return snapshot
+        persistenceController.configuration.enabled
     }
 
     func schedulePersistentLayoutSnapshotWrite() {
-        snapshotWriteTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(300), leeway: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            guard let self else {
-                return
-            }
-            writePersistentLayoutSnapshot()
-            snapshotWriteTimer?.cancel()
-            snapshotWriteTimer = nil
-        }
-        snapshotWriteTimer = timer
-        timer.resume()
+        persistenceController.scheduleLayoutAutosave()
     }
 
     func writePersistentLayoutSnapshot() {
-        guard persistLayoutEnabled else {
-            try? FileManager.default.removeItem(at: persistentLayoutStateURL)
-            return
-        }
-
         let states = workspaces.enumerated().flatMap { workspaceIndex, workspace in
             workspace.columns.enumerated().map { columnIndex, window in
                 PersistentWindowState(
@@ -65,7 +22,7 @@ extension Miri {
             }
         }
         guard !states.isEmpty else {
-            try? FileManager.default.removeItem(at: persistentLayoutStateURL)
+            persistenceController.writeLayout(nil)
             return
         }
 
@@ -78,17 +35,7 @@ extension Miri {
             windows: states
         )
 
-        do {
-            let url = persistentLayoutStateURL
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: url, options: [.atomic])
-        } catch {
-            debugLog("failed to write persistent layout: \(error)")
-        }
+        persistenceController.writeLayout(snapshot)
     }
 
     @discardableResult

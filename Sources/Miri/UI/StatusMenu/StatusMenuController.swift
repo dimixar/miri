@@ -3,7 +3,8 @@ import AppKit
 @MainActor
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private weak var miri: Miri?
+    private let stateProvider: () -> StatusMenuViewState
+    private let actionSink: (UIAction) -> Void
     private let menu = NSMenu()
     private let workspaceItem = NSMenuItem(title: "Workspace: —", action: nil, keyEquivalent: "")
     private let focusedItem = NSMenuItem(title: "Focused: —", action: nil, keyEquivalent: "")
@@ -15,15 +16,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var statusButtonAppearanceObserver: StatusBarAppearanceObserverView?
     private lazy var fallbackIcon = NSWorkspace.shared.icon(for: .application)
 
-    init(miri: Miri) {
-        self.miri = miri
+    init(stateProvider: @escaping () -> StatusMenuViewState, actionSink: @escaping (UIAction) -> Void) {
+        self.stateProvider = stateProvider
+        self.actionSink = actionSink
         super.init()
         configureMenu()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(workspaceBarNeedsRefresh(_:)),
             name: .miriWorkspaceBarNeedsRefresh,
-            object: miri
+            object: nil
         )
         NotificationCenter.default.addObserver(
             self,
@@ -81,9 +83,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        guard let status = miri?.currentStatus() else {
-            return
-        }
+        let status = stateProvider().status
 
         workspaceItem.title = "Workspace: \(status.workspace) of \(status.workspaceCount)"
         focusedItem.title = "Focused: \(status.focusedWindow)"
@@ -98,7 +98,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         workspaceMenuItems.removeAll()
 
-        guard let barStatus = miri?.currentWorkspaceBarStatus(), !barStatus.workspaceSummaries.isEmpty else {
+        let barStatus = stateProvider().workspaceBar
+        guard !barStatus.workspaceSummaries.isEmpty else {
             return
         }
 
@@ -151,13 +152,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func refreshWorkspaceBar(force: Bool) {
-        guard let barStatus = miri?.currentWorkspaceBarStatus() else {
-            statusItem.button?.title = "Miri"
-            statusItem.button?.image = nil
-            lastWorkspaceBarSignature = nil
-            return
-        }
-        let config = miri?.currentConfigForStatusBar() ?? .fallback
+        let state = stateProvider()
+        let barStatus = state.workspaceBar
+        let config = state.config
         let signature = WorkspaceBarRenderSignature(status: barStatus, config: config)
         guard force || signature != lastWorkspaceBarSignature else {
             return
@@ -672,23 +669,23 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
-        miri?.showSettingsFromMenu()
+        actionSink(.showSettings)
     }
 
     @objc private func openConfig() {
-        miri?.openConfigFromMenu()
+        actionSink(.openConfig)
     }
 
     @objc private func reloadConfig() {
-        miri?.reloadFromMenu()
+        actionSink(.reloadConfig)
     }
 
     @objc private func rescanWindows() {
-        miri?.rescanFromMenu()
+        actionSink(.rescanWindows)
     }
 
     @objc private func quitMiri() {
-        miri?.quitFromMenu()
+        actionSink(.quit)
     }
 }
 

@@ -2,7 +2,7 @@ import AppKit
 
 @MainActor
 final class SettingsWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
-    private weak var miri: Miri?
+    private let actionSink: (UIAction) -> Void
     private var draft: MiriConfig
     private var availableApps: [RuleAppInfo]
     private let tabView = NSTabView()
@@ -14,8 +14,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private var controls: [String: NSControl] = [:]
 
-    init(miri: Miri, config: MiriConfig, availableApps: [RuleAppInfo]) {
-        self.miri = miri
+    init(config: MiriConfig, availableApps: [RuleAppInfo], actionSink: @escaping (UIAction) -> Void) {
+        self.actionSink = actionSink
         self.draft = config
         self.availableApps = availableApps
 
@@ -722,8 +722,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             showAlert(title: "Invalid Settings", message: validationError)
             return
         }
-        miri?.saveConfigFromSettings(draft)
-        showAlert(title: "Miri Settings Saved", message: "Config was saved and reloaded.")
+        actionSink(.saveConfig(draft, closeOnSuccess: false))
     }
 
     @objc private func save() {
@@ -732,8 +731,19 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             showAlert(title: "Invalid Settings", message: validationError)
             return
         }
-        miri?.saveConfigFromSettings(draft)
-        close()
+        actionSink(.saveConfig(draft, closeOnSuccess: true))
+    }
+
+    func presentSaveSuccess(closeOnSuccess: Bool) {
+        if closeOnSuccess {
+            close()
+        } else {
+            showAlert(title: "Miri Settings Saved", message: "Config was saved and reloaded.")
+        }
+    }
+
+    func presentSaveFailure(reason: String) {
+        showAlert(title: "Could not save Miri config", message: reason)
     }
 
     private func showAlert(title: String, message: String) {

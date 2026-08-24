@@ -30,14 +30,4 @@ extension Miri {
         }
     }
 
-    func updateCleanupWatcher(previousRestoreOnExit: Bool) {
-        guard restoreOnExit != previousRestoreOnExit else { return }
-        if restoreOnExit {
-            startCleanupWatcher()
-        } else {
-            cleanupWatcher?.terminate()
-            cleanupWatcher = nil
-            try? FileManager.default.removeItem(at: restoreStateURL)
-        }
-    }
 }

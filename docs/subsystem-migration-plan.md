@@ -5,7 +5,7 @@
 - Plan status: Proposed
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 3 — configuration, persistence, and UI boundaries
+- Current phase: Phase 4 — layout and presentation ownership
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -136,7 +136,7 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 | 0 | Correctness prerequisites and observability | Complete | 2026-08-24 | Layout ownership, snapshot consistency, reconciliation, termination, builds, and user-run smoke pass complete |
 | 1 | Coordinator contracts and event-routing seam | Complete | 2026-08-24 | Deterministic event queue/routing landed; user reported the application smoke pass healthy |
 | 2 | Input and session event sources | Complete | 2026-08-24 | Ownership extracted; debug/release builds and user-run focused runtime pass complete |
-| 3 | Configuration, persistence, and UI boundaries | Not started | 2026-08-24 | Remove storage/UI reach-through |
+| 3 | Configuration, persistence, and UI boundaries | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and focused user-run runtime pass complete |
 | 4 | Layout and presentation ownership | Not started | 2026-08-24 | One owner for layout request lifecycle |
 | 5 | Logical window and workspace ownership | Not started | 2026-08-24 | Move commands, placement, and Space state |
 | 6 | Window observation and reconciliation | Not started | 2026-08-24 | Complete the window-management boundary |
@@ -471,9 +471,9 @@ ownership.
 | Application phase and cross-domain pending intents | Transitional coordinator core in `Miri`; domain state remains in extensions | `AppCoordinator` | 1 | Complete |
 | Event tap, hotkeys, key maps, focused interaction monitor | `InputController`, with temporary lifecycle forwarding methods on `Miri` | `InputController` | 2 | Complete |
 | Lock/sleep/console/recovery input state | `SessionController`, with temporary state forwarding properties on `Miri` | `SessionController` | 2 | Complete |
-| Loaded config and modification tracking | `Miri`/`MiriConfig` | `ConfigStore` | 3 | Not started |
-| Persistent timers, state files, restore snapshot, watcher | `Miri` | `PersistenceController` | 3 | Not started |
-| Settings/status integration | UI controllers with direct `Miri` access | UI actions and immutable view state | 3 | Not started |
+| Loaded config and modification tracking | `ConfigStore`; `Miri.config` temporarily forwards the resolved runtime value | `ConfigStore` | 3 | Complete |
+| Persistent timers, state files, restore snapshot, watcher | `PersistenceController`; temporary restoration-state forwarding remains on `Miri` | `PersistenceController` | 3 | Complete |
+| Settings/status integration | Typed `UIAction` sink and immutable `StatusMenuViewState`; no UI controller retains `Miri` | UI actions and immutable view state | 3 | Complete |
 | Applied frames, visibility, transforms, layout lock | `Miri` | `LayoutController` | 4 | Not started |
 | Snapshot session, overlay, hidden windows, animation timer | `Miri` and snapshot helper objects | `LayoutController` | 4 | Not started |
 | Workspaces, active focus, floating windows, width state | `Miri` | `WorkspaceModel` | 5 | Not started |
@@ -504,11 +504,11 @@ scenarios affected by that phase; Phase 8 requires every applicable scenario.
 | Session | Lock and unlock, then recover by relevant interaction | Not run | Not run | |
 | Session | Sleep and wake, then recover by relevant interaction | Not run | Not run | |
 | Reliability | Active rescan for configured problematic app | Not run | Not run | |
-| Configuration | Reload valid config | Not run | Not run | |
-| Configuration | Reload malformed config and keep last known-good state | Not run | Not run | |
-| Configuration | Save valid and invalid Settings drafts | Not run | Not run | |
-| Persistence | Restart and restore persistent layout/Spaces | Not run | Not run | |
-| Termination | Normal menu quit restores managed windows once | Not run | Not run | |
+| Configuration | Reload valid config | Not run | Pass | User-reported Phase 3 focused pass |
+| Configuration | Reload malformed config and keep last known-good state | Not run | Pass | User-reported Phase 3 focused pass |
+| Configuration | Save valid and invalid Settings drafts | Not run | Pass | User-reported Phase 3 focused pass |
+| Persistence | Restart and restore persistent layout/Spaces | Not run | Pass | User-reported Phase 3 focused pass |
+| Termination | Normal menu quit restores managed windows once | Not run | Pass | User-reported Phase 3 focused pass |
 | Termination | Forced termination triggers cleanup restoration | Not run | Not run | |
 
 ## Runtime invariants
@@ -582,6 +582,60 @@ line counts. For example, "snapshot session state is now private to
 ## Progress log
 
 Add new entries above older entries.
+
+### 2026-08-24 — Phase 3: config, persistence, and UI ownership
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - `ConfigStore` now owns source selection, file metadata, strict decoding,
+    normalization, last-known-good document state, resolved runtime config, and
+    save/reload results.
+  - `PersistenceController` now owns state URLs, loaded restoration documents,
+    layout debounce and logical-Space autosave timers, the crash restore file,
+    and cleanup-watcher lifecycle.
+  - Settings and status-menu controllers no longer retain `Miri`; they consume
+    typed UI actions and immutable config/status values.
+- Contract changes:
+  - Persistence timers emit `autosaveDue` and the coordinator supplies a fresh
+    immutable layout or logical-Space snapshot before file encoding.
+  - Settings save actions carry close-on-success intent, and success/failure is
+    presented only after `ConfigStore` returns its result.
+  - Config changes return to the coordinator, which applies capacity, input,
+    persistence, timer, discovery, and projection reconfiguration in that order.
+- Intentional behavior changes:
+  - Unknown config root keys and unknown keys inside window rules are rejected;
+    the documented legacy focus-alignment key remains accepted for migration.
+  - A malformed selected source no longer falls through to a lower-priority
+    config, and a malformed reload retains the last known-good document.
+  - Removed the unsupported shipped `hide_method` key and aligned compiled
+    fallback defaults with the repository config, including the macOS screenshot
+    exclusion instead of disabling move-to-workspace-5.
+- Temporary compatibility:
+  - Restoration snapshots and restore-needed flags have computed forwarding
+    properties on `Miri` for Phase 5 call sites; file and timer state is not
+    duplicated there.
+  - Effective-setting accessors still live on `Miri` and read the single
+    resolved config until integration cleanup.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - Manual scenarios: Pass; user reported the focused valid/malformed reload,
+    Settings result, persistence restart, normal quit, and status-menu checks
+    working correctly
+  - Runtime invariants/log review: ownership audit confirms delayed persistence
+    closures only emit due events and UI source files contain no `Miri` reference
+  - Shadow comparison: Not applicable
+- Known issues and risks:
+  - Existing AppKit actor-isolation warnings in snapshot presentation remain for
+    Phase 7; no new warning source was introduced by this batch.
+  - Exact runtime logs were not retained; the complete trace review remains part
+    of Phase 8 stabilization.
+- Decisions:
+  - D-009 and D-010.
+- Next step:
+  - Begin Phase 4 by removing obsolete animation concepts and extracting layout
+    request and snapshot-presentation ownership.
 
 ### 2026-08-24 — Phase 2: input and session source ownership
 
@@ -744,3 +798,5 @@ so progress entries can refer to them.
 | D-006 | 2026-08-24 | Coalesce reconciliation at the coordinator into one bounded intent | Source-specific queues allowed competing sequencing decisions | Full scans dominate targeted scans, PID targets union, and focus adoption combines with logical OR |
 | D-007 | 2026-08-24 | Treat the monotonic layout generation as an exclusive request-ownership token | Delayed completion must prove it still owns the application gate | Old unlocks are ignored; preparation, completion, cancellation, and session interruption correlate to one request |
 | D-008 | 2026-08-24 | Give input and session sources typed event sinks plus narrow synchronous query closures | Event taps must return consumption synchronously while subsystem state remains private | Controllers do not retain `Miri` or mutate window/layout state; compatibility forwarding remains temporary |
+| D-009 | 2026-08-24 | Reject unknown config root/rule keys while retaining the one documented legacy migration key | Settings rewrites typed documents and cannot safely preserve semantics it does not understand | Unsupported keys produce visible load/reload failure instead of being silently dropped; shipped config contains only supported keys |
+| D-010 | 2026-08-24 | Make persistence timers emit due events and require coordinator-supplied immutable snapshots | Delayed callbacks must not capture and read mutable workspace or logical-Space collections | File/timer ownership is isolated while snapshot construction remains synchronized with coordinator model state |

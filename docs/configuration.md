@@ -1,14 +1,19 @@
 # Configuration
 
-miri loads JSON configuration from the first readable path in this order:
+miri selects the first existing JSON configuration path in this order:
 
 1. `MIRI_CONFIG`
 2. `./miri.config.json`
 3. `$XDG_CONFIG_HOME/miri/config.json`
 4. `~/.config/miri/config.json`
 
-The active config file is watched. Valid changes are hot-reloaded. If a save
-cannot be parsed, miri keeps running with the previous config.
+It does not skip a malformed selected file in favor of a lower-priority path.
+The active config file is watched and valid changes are hot-reloaded. If a
+change cannot be parsed, miri keeps running with the previous config and reports
+the failure. Unknown root keys and unknown keys inside `rules` are rejected
+instead of being silently discarded by Settings. The legacy
+`center_focused_column` key is accepted only for the documented
+focus-alignment migration.
 
 The repository includes a complete default config at
 [`miri.config.json`](../miri.config.json).

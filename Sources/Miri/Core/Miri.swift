@@ -15,9 +15,9 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var reconciliationDrainScheduled = false
     var reconciliationDrainGeneration: UInt64 = 0
     var terminationPrepared = false
-    var loadedConfig = MiriConfig.loadWithMetadata()
+    let configStore = ConfigStore()
     var config: MiriConfig {
-        loadedConfig.config
+        configStore.effectiveConfig
     }
     var workspaces: [Workspace] = [Workspace()]
     var floatingWindows: [ManagedWindow] = []
@@ -43,8 +43,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
-    var snapshotWriteTimer: DispatchSourceTimer?
-    var logicalSpaceSnapshotTimer: DispatchSourceTimer?
     @MainActor var settingsWindowController: SettingsWindowController?
     var reconciliationTimer: Timer?
     var activeRescanTimer: Timer?
@@ -87,15 +85,27 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
     var originalWindowTransforms: [UInt32: CGAffineTransform] = [:]
-    lazy var persistentLayoutSnapshot = readPersistentLayoutSnapshot()
-    var needsPersistentLayoutRestore = true
-    lazy var persistentLogicalSpaceSnapshot = readPersistentLogicalSpaceSnapshot()
-    var needsPersistentLogicalSpaceRestore = true
-    var pendingPersistentLogicalSpaceContexts: [PersistentLogicalSpaceContext] = []
+    var persistentLayoutSnapshot: PersistentLayoutSnapshot? { persistenceController.layoutSnapshot }
+    var needsPersistentLayoutRestore: Bool {
+        get { persistenceController.needsLayoutRestore }
+        set { persistenceController.needsLayoutRestore = newValue }
+    }
+    var persistentLogicalSpaceSnapshot: PersistentLogicalSpaceSnapshot? { persistenceController.logicalSpaceSnapshot }
+    var needsPersistentLogicalSpaceRestore: Bool {
+        get { persistenceController.needsLogicalSpaceRestore }
+        set { persistenceController.needsLogicalSpaceRestore = newValue }
+    }
+    var pendingPersistentLogicalSpaceContexts: [PersistentLogicalSpaceContext] {
+        get { persistenceController.pendingLogicalSpaceContexts }
+        set { persistenceController.pendingLogicalSpaceContexts = newValue }
+    }
     var signalSources: [DispatchSourceSignal] = []
-    let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
-    var cleanupWatcher: Process?
+
+    lazy var persistenceController = PersistenceController(
+        configuration: PersistenceConfiguration(config: config)
+    ) { [weak self] event in
+        self?.enqueue(.persistence(event))
+    }
 
     lazy var sessionController = SessionController { [weak self] event in
         self?.enqueue(event)
@@ -124,9 +134,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         observeWorkspace()
         observeSessionState()
         installTerminationHandlers()
-        if restoreOnExit {
-            startCleanupWatcher()
-        }
+        persistenceController.start()
         configureInput()
         installInputBackend()
         installFocusedWindowInputMonitor()
@@ -142,7 +150,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
-        schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")
         print("miri: loaded \(inputController.commandCount) keybindings")
@@ -198,32 +205,5 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
             signalSources.append(source)
         }
     }
-
-    func startCleanupWatcher() {
-        guard let executableURL = currentExecutableURL() else {
-            return
-        }
-
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = [
-            "--cleanup-watch",
-            "\(ProcessInfo.processInfo.processIdentifier)",
-            restoreStateURL.path,
-        ]
-
-        if let null = FileHandle(forWritingAtPath: "/dev/null") {
-            process.standardOutput = null
-            process.standardError = null
-        }
-
-        do {
-            try process.run()
-            cleanupWatcher = process
-        } catch {
-            fputs("miri: failed to start cleanup watcher: \(error)\n", stderr)
-        }
-    }
-
 
 }

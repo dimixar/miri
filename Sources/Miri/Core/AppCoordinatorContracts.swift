@@ -165,7 +165,7 @@ enum UIAction {
     case openConfig
     case reloadConfig
     case rescanWindows
-    case saveConfig(MiriConfig)
+    case saveConfig(MiriConfig, closeOnSuccess: Bool)
     case quit
 }
 
@@ -183,6 +183,7 @@ enum PersistenceEvent {
         case exitRestoration
     }
 
+    case autosaveDue(kind: SnapshotKind)
     case writeCompleted(kind: SnapshotKind)
     case writeFailed(kind: SnapshotKind, reason: String)
 }

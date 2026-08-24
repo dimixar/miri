@@ -70,7 +70,6 @@
   "restore_on_exit": true,
   "persist_layout": true,
   "state_path": null,
-  "hide_method": "skylight_alpha",
   "debug_logging": false,
   "width_resize_mode": "default",
   "workspace_bar_use_custom_colors": false,
