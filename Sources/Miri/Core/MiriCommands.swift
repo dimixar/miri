@@ -18,9 +18,7 @@ extension Miri {
 
     func drainPendingFocusCommands() {
         guard !pendingFocusCommands.isEmpty,
-              !isApplyingLayout,
-              animationTimer == nil,
-              snapshotAnimationSession == nil
+              !layoutController.activity.isActive
         else {
             return
         }
@@ -41,7 +39,6 @@ extension Miri {
         let previousState = captureLayoutState()
         var animated = false
         var frameAnimated = false
-        var duration = keyboardAnimationDuration
 
         switch command {
         case .focusWorkspace(let oneBasedIndex):
@@ -98,19 +95,15 @@ extension Miri {
             }
             animated = true
         case .moveColumnLeft:
-            duration = moveColumnAnimationDuration
             seedPresentationFrames(from: previousState)
             animated = moveActiveColumnHorizontally(by: -1)
         case .moveColumnRight:
-            duration = moveColumnAnimationDuration
             seedPresentationFrames(from: previousState)
             animated = moveActiveColumnHorizontally(by: 1)
         case .moveColumnToFirst:
-            duration = moveColumnAnimationDuration
             seedPresentationFrames(from: previousState)
             animated = moveActiveColumn(to: 0)
         case .moveColumnToLast:
-            duration = moveColumnAnimationDuration
             seedPresentationFrames(from: previousState)
             guard let workspace = activeWorkspaceObject() else {
                 return
@@ -123,56 +116,48 @@ extension Miri {
         case .moveColumnToWorkspaceUp:
             moveActiveColumnToWorkspace(relativeOffset: -1)
         case .cycleWidthPresetBackward:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { cycleActiveWidthPreset(direction: -1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .cycleWidthPresetForward:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { cycleActiveWidthPreset(direction: 1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .nudgeWidthNarrower:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { nudgeActiveWidth(by: -0.1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .nudgeWidthWider:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { nudgeActiveWidth(by: 0.1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .cycleAllWidthPresetsBackward:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { cycleAllWidthPresets(direction: -1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .cycleAllWidthPresetsForward:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { cycleAllWidthPresets(direction: 1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .nudgeAllWidthsNarrower:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { nudgeAllWidths(by: -0.1) }) else {
                 return
             }
             animated = true
             frameAnimated = true
         case .nudgeAllWidthsWider:
-            duration = widthAnimationDuration
             guard performAnimatedWidthChange(from: previousState, { nudgeAllWidths(by: 0.1) }) else {
                 return
             }
@@ -181,21 +166,17 @@ extension Miri {
         }
 
         let newState = captureLayoutState()
-        let newFocusedWindowID = activeWindow().map(ObjectIdentifier.init)
         projectLayout(
             focusActiveWindow: true,
             animated: animated && (previousState != newState || frameAnimated),
-            from: previousState,
-            animationDuration: duration,
-            animatedWindowIDs: nil,
-            resizingWindowID: newFocusedWindowID
+            from: previousState
         )
     }
 
     func performAnimatedWidthChange(from state: LayoutState, _ change: () -> Bool) -> Bool {
         seedPresentationFrames(from: state)
         guard change() else {
-            presentationFrames.removeAll()
+            layoutController.clearPresentationFrames()
             return false
         }
         return true
@@ -656,8 +637,10 @@ extension Miri {
 
     func seedPresentationFrames(from state: LayoutState) {
         let viewport = currentViewport()
-        let layout = layoutItems(viewport: viewport, state: state, parkHidden: false)
-        presentationFrames = Dictionary(uniqueKeysWithValues: layout.map { (ObjectIdentifier($0.window), $0.frame) })
+        let layout = layoutController.projectItems(viewport: viewport, state: state, parkHidden: false)
+        layoutController.seedPresentationFrames(
+            Dictionary(uniqueKeysWithValues: layout.map { (ObjectIdentifier($0.window), $0.frame) })
+        )
     }
 
 }

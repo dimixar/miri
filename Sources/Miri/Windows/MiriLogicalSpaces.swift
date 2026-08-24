@@ -20,9 +20,7 @@ extension Miri {
         floatingWindows = context.floatingWindows
         activeWorkspace = min(max(context.activeWorkspace, 0), max(workspaces.count - 1, 0))
         previousWorkspace = nil
-        appliedFrames.removeAll()
-        appliedVisibility.removeAll()
-        hiddenWorkspaceWindowIDs.removeAll()
+        layoutController.resetTracking()
         reconcileWorkspaceCapacity()
     }
 

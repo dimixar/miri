@@ -14,7 +14,7 @@ final class SnapshotAnimationSession: @unchecked Sendable {
     var startedAt: CFAbsoluteTime = 0
     var lastDebugTickAt: CFAbsoluteTime = 0
     var generation = 0
-    var requestGeneration: UInt64 = 0
+    var requestToken = LayoutRequestToken(rawValue: 0)
     var targetProjectedLayout: [LayoutItem] = []
     var finalLayout: [LayoutItem] = []
     var deferredFloatingRaise = false
@@ -23,10 +23,10 @@ final class SnapshotAnimationSession: @unchecked Sendable {
         self.overlay = overlay
     }
 
-    func updateTarget(projectedLayout: [LayoutItem], finalLayout: [LayoutItem], requestGeneration: UInt64, deferredFloatingRaise: Bool) {
+    func updateTarget(projectedLayout: [LayoutItem], finalLayout: [LayoutItem], requestToken: LayoutRequestToken, deferredFloatingRaise: Bool) {
         self.targetProjectedLayout = projectedLayout
         self.finalLayout = finalLayout
-        self.requestGeneration = requestGeneration
+        self.requestToken = requestToken
         self.deferredFloatingRaise = deferredFloatingRaise
     }
 
@@ -181,7 +181,7 @@ final class SnapshotOverlayWindow: @unchecked Sendable {
     }
 }
 
-extension Miri {
+extension LayoutController {
     func hideSnapshotWindows(_ windows: [ManagedWindow]) {
         let viewport = currentViewport()
         var hiddenIDs = Set(snapshotHiddenWindows.map(ObjectIdentifier.init))
@@ -206,7 +206,7 @@ extension Miri {
                 height: frame.height
             )
             resetCompositorTransform(for: window)
-            setAXFrame(parked, for: window)
+            windowSystem.setFrame(parked, for: window)
             applyCompositorParkingCorrection(to: parked, for: window)
             appliedFrames[id] = parked
         }
@@ -244,7 +244,7 @@ extension Miri {
                 continue
             }
             resetCompositorTransform(for: window)
-            setAXFrame(frame, for: window)
+            windowSystem.setFrame(frame, for: window)
             appliedFrames[id] = frame
             appliedVisibility[id] = true
             presentationFrames[id] = frame
@@ -260,7 +260,7 @@ extension Miri {
 
     func completeSnapshotAnimationSession(_ session: SnapshotAnimationSession) {
         guard snapshotAnimationSession === session, !session.cancelled else {
-            debugLog("snapshot completion ignored reason=session-replaced request=\(session.requestGeneration)")
+            debugLog("snapshot completion ignored reason=session-replaced request=\(session.requestToken)")
             session.cancel()
             return
         }
@@ -275,7 +275,7 @@ extension Miri {
         session.cancel()
         snapshotAnimationSession = nil
         snapshotOverlayWindow = nil
-        releaseLayoutLock(for: session.requestGeneration)
+        releaseLayoutLock(for: session.requestToken)
     }
 
     func median(_ values: [CGFloat]) -> CGFloat? {
@@ -447,7 +447,7 @@ extension Miri {
         assertSnapshotSessionMembership(session)
         if debugLogging {
             let activeMotions = motions.filter { targetWindowIDs.contains(ObjectIdentifier($0.window)) }
-            debugSnapshotMotions("snapshot target generation=\(session.generation) request=\(session.requestGeneration)", motions: activeMotions)
+            debugSnapshotMotions("snapshot target generation=\(session.generation) request=\(session.requestToken)", motions: activeMotions)
         }
     }
 
@@ -478,12 +478,12 @@ extension Miri {
         }
         if session.timer != nil {
             debugLog(
-                "snapshot runner retarget generation=\(session.generation) request=\(session.requestGeneration) speed=\(snapshotAnimationSpeed) pxPerSecond=\(String(format: "%.1f", session.pixelsPerSecond)) layers=\(session.layersByWindowID.count) targets=\(session.targetFramesByWindowID.count)"
+                "snapshot runner retarget generation=\(session.generation) request=\(session.requestToken) speed=\(snapshotAnimationSpeed) pxPerSecond=\(String(format: "%.1f", session.pixelsPerSecond)) layers=\(session.layersByWindowID.count) targets=\(session.targetFramesByWindowID.count)"
             )
             return
         }
         debugLog(
-            "snapshot runner start generation=\(session.generation) request=\(session.requestGeneration) speed=\(snapshotAnimationSpeed) fps=\(animationFPS) pxPerSecond=\(String(format: "%.1f", session.pixelsPerSecond)) layers=\(session.layersByWindowID.count) targets=\(session.targetFramesByWindowID.count) viewport=\(snapshotDebugFrame(viewport))"
+            "snapshot runner start generation=\(session.generation) request=\(session.requestToken) speed=\(snapshotAnimationSpeed) fps=\(animationFPS) pxPerSecond=\(String(format: "%.1f", session.pixelsPerSecond)) layers=\(session.layersByWindowID.count) targets=\(session.targetFramesByWindowID.count) viewport=\(snapshotDebugFrame(viewport))"
         )
         session.timer = AnimationTimer(preferredFPS: animationFPS) { [weak self, weak session] in
             guard let self, let session else {
@@ -500,9 +500,9 @@ extension Miri {
             session.timer = nil
             return
         }
-        guard layoutRequestGeneration == session.requestGeneration else {
+        guard activeRequestToken == session.requestToken else {
             debugLog(
-                "snapshot runner stale layoutRequest=\(layoutRequestGeneration) sessionRequest=\(session.requestGeneration)"
+                "snapshot runner stale layoutRequest=\(activeRequestToken?.description ?? "none") sessionRequest=\(session.requestToken)"
             )
             session.cancel()
             if snapshotAnimationSession === session {
@@ -575,17 +575,14 @@ extension Miri {
         to targetState: LayoutState,
         viewport: CGRect,
         focusActiveWindow: Bool,
-        duration: TimeInterval,
-        animatedWindowIDs: Set<ObjectIdentifier>?,
-        resizingWindowID: ObjectIdentifier?,
-        requestGeneration: UInt64
+        requestToken: LayoutRequestToken
     ) {
         let targetProjectedLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: false)
         let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
         let activeSnapshotSession = snapshotAnimationSession
 
         debugLog(
-            "snapshot request request=\(requestGeneration) activeSession=\(activeSnapshotSession != nil) focus=\(focusActiveWindow) speed=\(snapshotAnimationSpeed) fps=\(animationFPS) previousWorkspace=\(previousState.activeWorkspace + 1) targetWorkspace=\(targetState.activeWorkspace + 1) previousActiveColumns=\(previousState.activeColumns) targetActiveColumns=\(targetState.activeColumns)"
+            "snapshot request request=\(requestToken) activeSession=\(activeSnapshotSession != nil) focus=\(focusActiveWindow) speed=\(snapshotAnimationSpeed) fps=\(animationFPS) previousWorkspace=\(previousState.activeWorkspace + 1) targetWorkspace=\(targetState.activeWorkspace + 1) previousActiveColumns=\(previousState.activeColumns) targetActiveColumns=\(targetState.activeColumns)"
         )
         if focusActiveWindow, let activeWindow = activeWindow() {
             focus(activeWindow)
@@ -596,7 +593,7 @@ extension Miri {
         let targetByWindow = layoutByWindow(targetProjectedLayout)
         let activeSnapshotFrames = activeSnapshotSession
             .flatMap { session -> [ObjectIdentifier: CGRect]? in
-                guard !session.cancelled, resizingWindowID == nil else {
+                guard !session.cancelled else {
                     return nil
                 }
                 return currentSnapshotLayoutFrames(from: session)
@@ -623,19 +620,17 @@ extension Miri {
                 startFrame: startFrame,
                 endFrame: endFrame,
                 startsVisible: startByWindow[id]?.visible ?? false,
-                endsVisible: targetByWindow[id]?.visible ?? false,
-                participates: true,
-                sizeStable: true
+                endsVisible: targetByWindow[id]?.visible ?? false
             )
         }
 
         guard motions.contains(where: { $0.endsVisible && frameDelta(from: $0.startFrame, to: $0.endFrame) >= 1 }) else {
-            debugLog("snapshot no-op request=\(requestGeneration) motions=\(motions.count)")
+            debugLog("snapshot no-op request=\(requestToken) motions=\(motions.count)")
             if let activeSnapshotSession, !activeSnapshotSession.cancelled {
                 activeSnapshotSession.updateTarget(
                     projectedLayout: targetProjectedLayout,
                     finalLayout: finalLayout,
-                    requestGeneration: requestGeneration,
+                    requestToken: requestToken,
                     deferredFloatingRaise: focusActiveWindow
                 )
                 updateSnapshotAnimationTargets(motions, in: activeSnapshotSession)
@@ -648,7 +643,7 @@ extension Miri {
                 applyLayout(finalLayout, focusActiveWindow: focusActiveWindow)
                 restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
                 presentationFrames.removeAll()
-                releaseLayoutLock(for: requestGeneration)
+                releaseLayoutLock(for: requestToken)
             }
             return
         }
@@ -658,13 +653,13 @@ extension Miri {
             let frames = session.presentationFrames()
             presentationFrames = frames
             debugLog(
-                "snapshot retarget generation=\(session.generation) request=\(requestGeneration) motions=\(motions.count) sampledFrames=\(frames.count)"
+                "snapshot retarget generation=\(session.generation) request=\(requestToken) motions=\(motions.count) sampledFrames=\(frames.count)"
             )
             debugSnapshotMotions("snapshot retarget motion", motions: motions)
             session.updateTarget(
                 projectedLayout: targetProjectedLayout,
                 finalLayout: finalLayout,
-                requestGeneration: requestGeneration,
+                requestToken: requestToken,
                 deferredFloatingRaise: focusActiveWindow
             )
             for motion in motions {
@@ -680,13 +675,13 @@ extension Miri {
             return
         }
 
-        debugLog("snapshot start request=\(requestGeneration) motions=\(motions.count) targetWorkspaceWindows=\(targetWorkspaceWindowIDs.count)")
+        debugLog("snapshot start request=\(requestToken) motions=\(motions.count) targetWorkspaceWindows=\(targetWorkspaceWindowIDs.count)")
         debugSnapshotMotions("snapshot start motion", motions: motions)
         presentationFrames = Dictionary(uniqueKeysWithValues: motions.map { motion in
             (ObjectIdentifier(motion.window), motion.startFrame)
         })
         snapshotAnimationPreparing = true
-        snapshotAnimationPreparingRequestGeneration = requestGeneration
+        snapshotAnimationPreparingRequestGeneration = requestToken.rawValue
 
         let snapshotSourceMotions = motions
         DispatchQueue.main.async { [weak self] in
@@ -694,11 +689,10 @@ extension Miri {
                 return
             }
             guard snapshotAnimationSession == nil,
-                  isApplyingLayout,
-                  activeLayoutRequestGeneration == requestGeneration,
-                  layoutRequestGeneration == requestGeneration
+                  activeRequestToken != nil,
+                  activeRequestToken == requestToken
             else {
-                if snapshotAnimationPreparingRequestGeneration == requestGeneration {
+                if snapshotAnimationPreparingRequestGeneration == requestToken.rawValue {
                     snapshotAnimationPreparing = false
                     snapshotAnimationPreparingRequestGeneration = nil
                 }
@@ -721,13 +715,14 @@ extension Miri {
             }
 
             guard !snapshotMotions.isEmpty else {
-                debugLog("snapshot capture failed request=\(requestGeneration) motions=\(snapshotSourceMotions.count)")
+                debugLog("snapshot capture failed request=\(requestToken) motions=\(snapshotSourceMotions.count)")
                 snapshotAnimationPreparing = false
                 snapshotAnimationPreparingRequestGeneration = nil
                 applyLayout(finalLayout, focusActiveWindow: false)
                 restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
                 presentationFrames.removeAll()
-                releaseLayoutLock(for: requestGeneration)
+                emit(.captureFailed(token: requestToken, reason: "no-window-images"))
+                releaseLayoutLock(for: requestToken)
                 return
             }
 
@@ -748,7 +743,8 @@ extension Miri {
                 applyLayout(finalLayout, focusActiveWindow: false)
                 restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
                 presentationFrames.removeAll()
-                releaseLayoutLock(for: requestGeneration)
+                emit(.captureFailed(token: requestToken, reason: "overlay-unavailable"))
+                releaseLayoutLock(for: requestToken)
                 return
             }
 
@@ -761,7 +757,7 @@ extension Miri {
             session.updateTarget(
                 projectedLayout: targetProjectedLayout,
                 finalLayout: finalLayout,
-                requestGeneration: requestGeneration,
+                requestToken: requestToken,
                 deferredFloatingRaise: focusActiveWindow
             )
 
@@ -772,7 +768,7 @@ extension Miri {
                 (ObjectIdentifier(item.motion.window), item.layer)
             })
             debugLog(
-                "snapshot captured request=\(requestGeneration) images=\(snapshotLayers.count) overlay=\(snapshotDebugFrame(overlayFrame))"
+                "snapshot captured request=\(requestToken) images=\(snapshotLayers.count) overlay=\(snapshotDebugFrame(overlayFrame))"
             )
             overlay.show()
 

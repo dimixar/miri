@@ -22,7 +22,7 @@ extension Miri {
         guard isLayoutTrackingAllowed else {
             return
         }
-        guard !isApplyingLayout else {
+        guard !layoutController.activity.isActive else {
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
@@ -177,6 +177,17 @@ extension Miri {
 
     func reconcileWindows(for app: NSRunningApplication, adoptFocused: Bool) {
         guard isLayoutTrackingAllowed else {
+            return
+        }
+        guard !layoutController.activity.isActive else {
+            requestReconciliation(
+                .application(
+                    pid: app.processIdentifier,
+                    adoptFocused: adoptFocused,
+                    source: .accessibility,
+                    reason: "reconcile-gate"
+                )
+            )
             return
         }
         guard app.activationPolicy == .regular else {
@@ -400,6 +411,12 @@ extension Miri {
 
     func rescanWindows(adoptFocused: Bool) {
         guard isLayoutTrackingAllowed else {
+            return
+        }
+        guard !layoutController.activity.isActive else {
+            requestReconciliation(
+                .all(adoptFocused: adoptFocused, source: .periodicTimer, reason: "rescan-gate")
+            )
             return
         }
         guard !transientSystemWindowIsActive() else {

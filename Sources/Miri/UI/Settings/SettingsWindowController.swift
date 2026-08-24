@@ -166,14 +166,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func animationsView() -> NSView { form([
         ("Snapshot speed", slider("snapshotAnimationSpeed", draft.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50, min: 1, max: 100)),
-        ("Fallback AX duration ms", intField("animationDurationMS", draft.animationDurationMS ?? 0)),
-        ("Keyboard AX duration ms", intField("keyboardAnimationMS", draft.keyboardAnimationMS ?? 0)),
-        ("Move column AX duration ms", intField("moveColumnAnimationMS", draft.moveColumnAnimationMS ?? 0)),
-        ("Width animation ms", intField("widthAnimationMS", draft.widthAnimationMS ?? 0)),
         ("Strategy", popup("animationStrategy", AnimationStrategy.allCasesStrings, draft.animationStrategy?.rawValue ?? MiriConfig.fallback.animationStrategy?.rawValue ?? "snapshot")),
         ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 60)),
         ("Pixel threshold", doubleField("animationPixelThreshold", Double(draft.animationPixelThreshold ?? 0.5))),
-        ("Curve", popup("animationCurve", AnimationCurve.allCasesStrings, draft.animationCurve?.rawValue ?? "smooth")),
     ]) }
 
     private func workspaceBarView() -> NSView { form([
@@ -415,15 +410,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         draft.innerGap = CGFloat(double("innerGap"))
         draft.outerGap = CGFloat(double("outerGap"))
         draft.parkedSliverWidth = CGFloat(double("parkedSliverWidth"))
-        draft.animationDurationMS = int("animationDurationMS")
-        draft.keyboardAnimationMS = int("keyboardAnimationMS")
-        draft.moveColumnAnimationMS = int("moveColumnAnimationMS")
-        draft.widthAnimationMS = int("widthAnimationMS")
         draft.animationStrategy = AnimationStrategy(rawValue: string("animationStrategy"))
         draft.snapshotAnimationSpeed = max(1, min(int("snapshotAnimationSpeed"), 100))
         draft.animationFPS = int("animationFPS")
         draft.animationPixelThreshold = CGFloat(double("animationPixelThreshold"))
-        draft.animationCurve = AnimationCurve(rawValue: string("animationCurve"))
         draft.workspaceBarShowFullscreen = bool("workspaceBarShowFullscreen")
         draft.workspaceBarActiveStyle = WorkspaceBarActiveStyle(rawValue: string("workspaceBarActiveStyle"))
         draft.workspaceBarCenterStyle = WorkspaceBarCenterStyle(rawValue: string("workspaceBarCenterStyle"))
@@ -970,7 +960,6 @@ extension FocusAlignment {
     ]
 }
 extension NewWindowPosition { static let allCasesStrings = ["before_active", "after_active", "end"] }
-extension AnimationCurve { static let allCasesStrings = ["smooth", "snappy", "linear"] }
 extension AnimationStrategy { static let allCasesStrings = ["snapshot", "off"] }
 extension WorkspaceBarOverflowStyle { static let allCasesStrings = ["plus_count", "dots_count", "chevron", "none"] }
 extension WorkspaceBarActiveStyle { static let allCasesStrings = ["braces", "filled_pointer", "filled_dot", "square_brackets", "angle_brackets", "outline", "filled_outline"] }

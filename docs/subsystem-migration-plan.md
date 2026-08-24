@@ -5,7 +5,7 @@
 - Plan status: Proposed
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 4 — layout and presentation ownership
+- Current phase: Phase 5 — logical window and workspace ownership
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -55,7 +55,7 @@ the decision log.
 
 | Component | Owns | Does not own |
 | --- | --- | --- |
-| `AppCoordinator` | Application phase, event sequencing, layout/reconciliation admission, active request tokens, pending commands and reconciliation intents, startup and termination orchestration | Workspace collections, AX observers, CALayers, geometry, file encoding, menu rendering |
+| `AppCoordinator` | Application phase, event sequencing, layout/reconciliation admission, pending commands and reconciliation intents, startup and termination orchestration | Workspace collections, layout request tokens, AX observers, CALayers, geometry, file encoding, menu rendering |
 | `WindowManagement` | Canonical managed windows, workspace contents and focus, logical Space contexts, floating placement, Space buffer, fullscreen/minimized placement state, command mutation, reconciliation decisions | Applying real window frames, snapshot presentation, files, UI |
 | `LayoutController` | Layout request lifecycle, applied-frame and visibility caches, snapshot session, overlay, animation timer, hidden real windows, compositor transforms, managed-window focus and level application | Workspace mutation, discovery, persistence policy |
 | `SessionController` | Lock, sleep, console-session state, and recovery-input monitoring | Cancelling or restarting unrelated subsystems directly |
@@ -137,7 +137,7 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 | 1 | Coordinator contracts and event-routing seam | Complete | 2026-08-24 | Deterministic event queue/routing landed; user reported the application smoke pass healthy |
 | 2 | Input and session event sources | Complete | 2026-08-24 | Ownership extracted; debug/release builds and user-run focused runtime pass complete |
 | 3 | Configuration, persistence, and UI boundaries | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and focused user-run runtime pass complete |
-| 4 | Layout and presentation ownership | Not started | 2026-08-24 | One owner for layout request lifecycle |
+| 4 | Layout and presentation ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
 | 5 | Logical window and workspace ownership | Not started | 2026-08-24 | Move commands, placement, and Space state |
 | 6 | Window observation and reconciliation | Not started | 2026-08-24 | Complete the window-management boundary |
 | 7 | Integration cleanup and actor isolation | Not started | 2026-08-24 | Remove forwarding and obsolete state |
@@ -474,8 +474,8 @@ ownership.
 | Loaded config and modification tracking | `ConfigStore`; `Miri.config` temporarily forwards the resolved runtime value | `ConfigStore` | 3 | Complete |
 | Persistent timers, state files, restore snapshot, watcher | `PersistenceController`; temporary restoration-state forwarding remains on `Miri` | `PersistenceController` | 3 | Complete |
 | Settings/status integration | Typed `UIAction` sink and immutable `StatusMenuViewState`; no UI controller retains `Miri` | UI actions and immutable view state | 3 | Complete |
-| Applied frames, visibility, transforms, layout lock | `Miri` | `LayoutController` | 4 | Not started |
-| Snapshot session, overlay, hidden windows, animation timer | `Miri` and snapshot helper objects | `LayoutController` | 4 | Not started |
+| Applied frames, visibility, transforms, layout lock | `LayoutController`, through `LayoutWindowSystemAdapter` | `LayoutController` | 4 | Complete |
+| Snapshot session, overlay, hidden windows, animation timer | `LayoutController`; frame runner and CALayer bookkeeping stay internal | `LayoutController` | 4 | Complete |
 | Workspaces, active focus, floating windows, width state | `Miri` | `WorkspaceModel` | 5 | Not started |
 | Logical Space contexts and buffer | `Miri` | `WindowManagement` | 5 | Not started |
 | Fullscreen/minimized transition placement | `Miri` | `WindowManagement` | 5 | Not started |
@@ -491,14 +491,15 @@ scenarios affected by that phase; Phase 8 requires every applicable scenario.
 | --- | --- | --- | --- | --- |
 | Startup | Start with existing normal windows | Not run | Not run | |
 | Startup | Start with no manageable windows | Not run | Not run | |
-| Commands | Rapid left/right focus and snapshot retarget | Not run | Not run | |
+| Commands | Rapid left/right focus and snapshot retarget | Not run | Pass | User-reported Phase 4 focused pass |
 | Commands | Workspace focus, previous workspace, and empty workspace | Not run | Not run | |
-| Commands | Move and resize one/all columns | Not run | Not run | |
+| Commands | Move and resize one/all columns | Not run | Pass | User-reported Phase 4 focused pass |
 | Lifecycle | Launch app with delayed/placeholder AX windows | Not run | Not run | |
 | Lifecycle | Close one window and last window without quitting app | Not run | Not run | |
 | Lifecycle | Quit app with windows in active and inactive contexts | Not run | Not run | |
 | Window state | Minimize and restore a managed window | Not run | Not run | |
 | Window state | Enter and exit native fullscreen | Not run | Not run | |
+| Window state | Floating window during layout and workspace changes | Not run | Pass | User-reported Phase 4 focused pass |
 | Native Spaces | Move a managed window between macOS Spaces | Not run | Not run | |
 | Native Spaces | Switch Spaces with buffered and fullscreen windows | Not run | Not run | |
 | Session | Lock and unlock, then recover by relevant interaction | Not run | Not run | |
@@ -508,7 +509,7 @@ scenarios affected by that phase; Phase 8 requires every applicable scenario.
 | Configuration | Reload malformed config and keep last known-good state | Not run | Pass | User-reported Phase 3 focused pass |
 | Configuration | Save valid and invalid Settings drafts | Not run | Pass | User-reported Phase 3 focused pass |
 | Persistence | Restart and restore persistent layout/Spaces | Not run | Pass | User-reported Phase 3 focused pass |
-| Termination | Normal menu quit restores managed windows once | Not run | Pass | User-reported Phase 3 focused pass |
+| Termination | Normal menu quit restores managed windows once | Not run | Pass | User-reported Phase 3 and Phase 4 focused passes |
 | Termination | Forced termination triggers cleanup restoration | Not run | Not run | |
 
 ## Runtime invariants
@@ -582,6 +583,64 @@ line counts. For example, "snapshot session state is now private to
 ## Progress log
 
 Add new entries above older entries.
+
+### 2026-08-24 — Phase 4: layout and presentation ownership
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - `LayoutEngine` now projects immutable workspace/window geometry inputs,
+    viewport, and effective layout settings without reading coordinator state.
+  - `LayoutController` owns request tokens, deferred submissions, applied frame
+    and visibility caches, presentation frames, snapshot session/overlay/layers,
+    hidden windows, compositor transforms, floating raises, and focus requests.
+  - `LayoutWindowSystemAdapter` is the single managed-window frame, level, and
+    compositor write boundary used by layout and termination restoration.
+  - `ManualResizeController` owns resize observation/debounce and suppression;
+    model width mutation remains in window management and reapplication is
+    submitted to `LayoutController`.
+- Contract changes:
+  - `submit`, `cancel`, `restoreForTermination`, and the immutable `activity`
+    query are explicit controller operations.
+  - Every submission receives one `LayoutRequestToken`, including deferred
+    work; replacement, capture failure, completion, and cancellation emit typed
+    `LayoutEvent` values carrying that token.
+  - Deferred submissions retain their immutable captured layout state and
+    viewport instead of recapturing mutable model collections in a delayed
+    callback.
+  - Reconciliation entry points reject mutation while the controller activity
+    gate is owned and coalesce a typed reconciliation request instead.
+- Intentional behavior changes:
+  - Removed the dormant AX animation implementation and its unused motion flags
+    and controller parameters. Legacy AX duration/curve config keys remain
+    accepted for compatibility but are ignored and no longer appear in the
+    shipped config or Settings UI.
+- Temporary compatibility:
+  - Workspace collections and width rules remain on `Miri` until Phase 5;
+    `LayoutController` receives their captured values for projection but does
+    not mutate them.
+  - Geometry mutation helpers that update workspace scroll offsets remain with
+    command/model code; final projection is exclusively produced by
+    `LayoutEngine` through `LayoutController`.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - `git diff --check`: Pass
+  - Ownership audit: Pass; coordinator/window-management source contains no
+    snapshot layers, overlays, presentation/applied-frame caches, or compositor
+    transform storage, and managed layout writes resolve only through the
+    adapter
+  - Manual scenarios: Pass; user reported rapid snapshot retarget, column
+    move/resize, manual resize, floating-window, and termination checks working
+    correctly
+- Known issues and risks:
+  - Existing AppKit actor-isolation warnings in snapshot overlay code remain for
+    Phase 7.
+- Decisions:
+  - D-011 and D-012.
+- Next step:
+  - Begin Phase 5 by extracting logical window, workspace, focus, floating, and
+    logical-Space ownership from `Miri`.
 
 ### 2026-08-24 — Phase 3: config, persistence, and UI ownership
 
@@ -800,3 +859,5 @@ so progress entries can refer to them.
 | D-008 | 2026-08-24 | Give input and session sources typed event sinks plus narrow synchronous query closures | Event taps must return consumption synchronously while subsystem state remains private | Controllers do not retain `Miri` or mutate window/layout state; compatibility forwarding remains temporary |
 | D-009 | 2026-08-24 | Reject unknown config root/rule keys while retaining the one documented legacy migration key | Settings rewrites typed documents and cannot safely preserve semantics it does not understand | Unsupported keys produce visible load/reload failure instead of being silently dropped; shipped config contains only supported keys |
 | D-010 | 2026-08-24 | Make persistence timers emit due events and require coordinator-supplied immutable snapshots | Delayed callbacks must not capture and read mutable workspace or logical-Space collections | File/timer ownership is isolated while snapshot construction remains synchronized with coordinator model state |
+| D-011 | 2026-08-24 | Allocate one typed token at layout submission and retain immutable deferred request input | Generation integers and delayed model recapture made ownership and stale completion ambiguous | Completion, cancellation, capture failure, and replacement correlate to the submitted token; deferred work cannot read a later mutable model accidentally |
+| D-012 | 2026-08-24 | Split resize debounce, logical width mutation, and frame reapplication across `ManualResizeController`, window management, and `LayoutController` | AX resize handling previously mixed observation state, model mutation, presentation cache writes, and layout cancellation | Each part has one owner and external resize changes emit a typed layout event |

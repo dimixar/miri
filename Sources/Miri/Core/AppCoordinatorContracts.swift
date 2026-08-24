@@ -24,7 +24,7 @@ struct EventSequence: Hashable, Comparable, CustomStringConvertible {
 }
 
 struct LayoutRequest {
-    let id: EventSequence
+    let token: LayoutRequestToken
     let previousLayout: LayoutSnapshot?
     let currentLayout: LayoutSnapshot
     let focusActiveWindow: Bool
@@ -32,9 +32,9 @@ struct LayoutRequest {
 }
 
 enum LayoutEvent {
-    case completed(requestID: EventSequence)
-    case cancelled(requestID: EventSequence)
-    case captureFailed(requestID: EventSequence, reason: String)
+    case completed(token: LayoutRequestToken)
+    case cancelled(token: LayoutRequestToken)
+    case captureFailed(token: LayoutRequestToken, reason: String)
     case externallyResized(windowID: UInt32?)
 }
 

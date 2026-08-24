@@ -167,6 +167,4 @@ struct WindowMotion: Sendable {
     var endFrame: CGRect
     var startsVisible: Bool
     var endsVisible: Bool
-    var participates: Bool
-    var sizeStable: Bool
 }

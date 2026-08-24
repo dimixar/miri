@@ -111,12 +111,9 @@ The repository includes a complete default config at
 - `animation_fps`: manual snapshot runner frame rate, clamped to `1...120`.
 - `animation_pixel_threshold`: distance under which a snapshot layer snaps to
   its target.
-- `animation_curve`: `smooth`, `snappy`, or `linear`.
 - `animation_duration_ms`, `keyboard_animation_ms`,
-  `move_column_animation_ms`, and `width_animation_ms`: retained duration
-  settings for animated requests. They do not enable animation when
-  `animation_strategy` is `off`. Snapshot focus movement uses
-  `snapshot_animation_speed` instead.
+  `move_column_animation_ms`, `width_animation_ms`, and `animation_curve` are
+  accepted only for compatibility with older config files and are ignored.
 
 ## Shortcuts
 

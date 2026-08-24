@@ -4,21 +4,14 @@ import Foundation
 
 extension Miri {
     func restoreManagedWindowsForExit() {
-        for (windowID, transform) in originalWindowTransforms {
-            _ = SkyLight.shared.setTransform(transform, for: windowID)
-        }
-        originalWindowTransforms.removeAll()
-
-        guard restoreOnExit else {
-            return
-        }
-
         let viewport = currentViewport()
-        for window in tiledWindows() {
-            setAXFrame(viewport, for: window)
-        }
-        restoreFloatingVisibility(raise: true)
-        persistenceController.removeRestoreSnapshot()
+        layoutController.restoreForTermination(
+            tiledWindows: tiledWindows(),
+            floatingWindows: floatingWindows,
+            viewport: viewport,
+            restoreFrames: restoreOnExit
+        )
+        if restoreOnExit { persistenceController.removeRestoreSnapshot() }
     }
 
     func writeRestoreSnapshot(viewport: CGRect) {

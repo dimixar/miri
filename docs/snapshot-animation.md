@@ -96,9 +96,9 @@ Useful log lines:
 ## Disabled Animation
 
 If `animation_strategy` is `off`, snapshot animation is disabled and final AX
-frames are applied immediately under the normal layout lock. Duration settings
-do not override `off`; the following keys remain accepted for configuration
-compatibility and animated requests:
+frames are applied immediately under the normal layout lock. The following
+obsolete AX-animation keys remain accepted for configuration compatibility but
+are ignored:
 
 - `animation_duration_ms`
 - `keyboard_animation_ms`

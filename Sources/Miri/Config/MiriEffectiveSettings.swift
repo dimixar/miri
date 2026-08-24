@@ -2,32 +2,6 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
-    var animationDuration: TimeInterval {
-        TimeInterval(config.animationDurationMS ?? MiriConfig.fallback.animationDurationMS ?? 240) / 1000
-    }
-
-    var keyboardAnimationDuration: TimeInterval {
-        let fallback = config.animationDurationMS ?? MiriConfig.fallback.animationDurationMS ?? 240
-        return TimeInterval(config.keyboardAnimationMS ?? fallback) / 1000
-    }
-
-    var moveColumnAnimationDuration: TimeInterval {
-        let fallback = config.animationDurationMS ?? MiriConfig.fallback.animationDurationMS ?? 240
-        return TimeInterval(config.moveColumnAnimationMS ?? fallback) / 1000
-    }
-
-    var widthAnimationDuration: TimeInterval {
-        let fallback = config.keyboardAnimationMS
-            ?? config.animationDurationMS
-            ?? MiriConfig.fallback.widthAnimationMS
-            ?? 280
-        return TimeInterval(config.widthAnimationMS ?? fallback) / 1000
-    }
-
-    var animationCurve: AnimationCurve {
-        config.animationCurve ?? MiriConfig.fallback.animationCurve ?? .smooth
-    }
-
     var animationStrategy: AnimationStrategy {
         config.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snapshot
     }

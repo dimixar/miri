@@ -217,7 +217,7 @@ extension Miri {
         location.workspace.scrollOffset = newScrollOffset
         setActiveWorkspace(location.workspaceIndex)
         location.workspace.activeColumn = location.columnIndex
-        presentationFrames[ObjectIdentifier(location.window)] = frame
+        layoutController.recordPresentationFrame(frame, for: location.window)
 
         if let previousRatio,
            abs(previousRatio - ratio) < 0.005,
@@ -227,6 +227,7 @@ extension Miri {
             return false
         }
 
+        layoutController.externalResizeObserved(frame: frame, window: location.window)
         return true
     }
 
@@ -236,18 +237,12 @@ extension Miri {
             return
         }
         guard tiledWindow(for: element) != nil else {
-            restoreFloatingVisibility()
+            layoutController.restoreFloatingVisibility()
             return
         }
 
-        if let manualResizeElement, !sameWindow(manualResizeElement, element) {
-            return
-        }
-
-        manualResizeElement = element
-        manualResizeEndTimer?.cancel()
-        stopAnimation(clearPresentation: false)
-        cancelActiveLayoutRequest(reason: "manual-resize-interrupt")
+        guard manualResizeController.beginOrContinue(element) else { return }
+        layoutController.cancel(reason: "manual-resize-interrupt")
 
         if updateManualWidthRatio(for: element) {
             schedulePersistentLayoutSnapshotWrite()
@@ -255,46 +250,20 @@ extension Miri {
         }
         drainPendingCoordinatorWorkIfPossible()
 
-        scheduleManualResizeEnd(for: element)
-    }
-
-    var manualResizeNotificationsSuppressed: Bool {
-        CFAbsoluteTimeGetCurrent() < manualResizeSuppressedUntil
-    }
-
-    func suppressManualResizeNotifications(for duration: TimeInterval) {
-        guard duration > 0 else {
-            return
-        }
-        manualResizeSuppressedUntil = max(manualResizeSuppressedUntil, CFAbsoluteTimeGetCurrent() + duration)
-    }
-
-    func scheduleManualResizeEnd(for element: AXUIElement) {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(140), leeway: .milliseconds(20))
-        timer.setEventHandler { [weak self] in
-            self?.enqueue(.timer(.manualResizeEnded(element: element)))
-        }
-
-        manualResizeEndTimer = timer
-        timer.resume()
+        manualResizeController.scheduleEnd(for: element)
     }
 
     func handleManualResizeEnded(element: AXUIElement) {
-        manualResizeEndTimer?.cancel()
-        manualResizeEndTimer = nil
-
-        if manualResizeElement.map({ sameWindow($0, element) }) == true {
+        if manualResizeController.finish(element) {
             if updateManualWidthRatio(for: element) {
                 schedulePersistentLayoutSnapshotWrite()
             }
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
-            manualResizeElement = nil
         }
     }
 
     func isManualResizeElement(_ element: AXUIElement) -> Bool {
-        manualResizeElement.map { sameWindow($0, element) } ?? false
+        manualResizeController.isCurrent(element)
     }
 
     func frameWidthDiffersFromLayout(for element: AXUIElement) -> Bool {

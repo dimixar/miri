@@ -240,7 +240,9 @@ extension Miri {
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
         print("miri: reloaded config \(source.path), \(inputController.commandCount) keybindings")
-        rescanWindows(adoptFocused: false)
+        requestReconciliation(
+            .all(adoptFocused: false, source: .userInterface, reason: "config-changed")
+        )
         projectLayout(focusActiveWindow: false)
     }
 

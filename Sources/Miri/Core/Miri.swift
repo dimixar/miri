@@ -39,9 +39,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var fullscreenSpaceChangeGuardStartedGeneration: UInt64 = 0
     var fullscreenSpaceChangeGuardWorkspace: Int?
     var spaceChangeGeneration: UInt64 = 0
-    var appliedFrames: [ObjectIdentifier: CGRect] = [:]
-    var appliedVisibility: [ObjectIdentifier: Bool] = [:]
-    var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     @MainActor var settingsWindowController: SettingsWindowController?
     var reconciliationTimer: Timer?
@@ -53,38 +50,18 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingSessionRecoveryCommands: [Command] = []
     var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
     var debugLoggedWindowSignatures = Set<String>()
-    var isApplyingLayout = false
-    var animationTimer: AnimationTimer?
-    var snapshotAnimationSession: SnapshotAnimationSession?
-    var snapshotOverlayWindow: SnapshotOverlayWindow?
-    var snapshotHiddenWindows: [ManagedWindow] = []
-    var snapshotAnimationPreparing = false
-    var snapshotAnimationPreparingRequestGeneration: UInt64?
-    var pendingSnapshotDeferredLayout = false
-    var pendingSnapshotDeferredFocusActiveWindow = false
-    var pendingSnapshotDeferredLayoutLockDelay: TimeInterval = 0.08
-    var pendingSnapshotDeferredLayoutGeneration: UInt64 = 0
     var pendingAXCreationSettleGenerations: [pid_t: UInt64] = [:]
     var axCreationSettleGeneration: UInt64 = 0
     var lastAXCreatedPlaceholderProbeAt: [pid_t: CFAbsoluteTime] = [:]
     var transientWindowActive = false
-    var floatingRaiseGeneration: UInt64 = 0
-    var focusRequestGeneration: UInt64 = 0
     var lastActivatedApplicationPID: pid_t?
     var pendingFocusCommands: [Command] = []
     var keyboardFocusAuthorityUntil: CFAbsoluteTime = 0
-    var layoutRequestGeneration: UInt64 = 0
-    var activeLayoutRequestGeneration: UInt64?
     let floatingWindowLevel = Int32(CGWindowLevelForKey(.floatingWindow))
     var transientWindowStateCheckedAt: CFAbsoluteTime = 0
-    var manualResizeEndTimer: DispatchSourceTimer?
-    var manualResizeElement: AXUIElement?
-    var manualResizeSuppressedUntil: CFAbsoluteTime = 0
     var lastHorizontalFocusDirection: Int = 1
     var lastIntelligentResizeWindowID: ObjectIdentifier?
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
-    var presentationFrames: [ObjectIdentifier: CGRect] = [:]
-    var originalWindowTransforms: [UInt32: CGAffineTransform] = [:]
     var persistentLayoutSnapshot: PersistentLayoutSnapshot? { persistenceController.layoutSnapshot }
     var needsPersistentLayoutRestore: Bool {
         get { persistenceController.needsLayoutRestore }
@@ -106,6 +83,15 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     ) { [weak self] event in
         self?.enqueue(.persistence(event))
     }
+
+    lazy var layoutController = LayoutController(owner: self) { [weak self] event in
+        self?.enqueue(.layout(event))
+    }
+
+    lazy var manualResizeController = ManualResizeController(
+        sameWindow: { [weak self] lhs, rhs in self?.sameWindow(lhs, rhs) ?? false },
+        emitEnded: { [weak self] element in self?.enqueue(.timer(.manualResizeEnded(element: element))) }
+    )
 
     lazy var sessionController = SessionController { [weak self] event in
         self?.enqueue(event)

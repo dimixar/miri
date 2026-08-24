@@ -336,7 +336,9 @@ extension Miri {
         uninstallSessionRecoveryEventTap()
 
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        rescanWindows(adoptFocused: true)
+        requestReconciliation(
+            .all(adoptFocused: true, source: .sessionRecovery, reason: "session-recovery-complete")
+        )
         for pid in launchedWhileUnavailable {
             guard let app = NSRunningApplication(processIdentifier: pid) else {
                 continue

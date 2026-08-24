@@ -5,11 +5,7 @@ import Foundation
 
 extension Miri {
     var axReconciliationShouldDefer: Bool {
-        isApplyingLayout
-            || animationTimer != nil
-            || snapshotAnimationSession != nil
-            || snapshotAnimationPreparing
-            || pendingSnapshotDeferredLayout
+        layoutController.activity.isActive
     }
 
     func deferAXReconciliation(
@@ -204,8 +200,7 @@ extension Miri {
                 projectLayout(
                     focusActiveWindow: false,
                     animated: shouldAnimate,
-                    from: shouldAnimate ? previousState : nil,
-                    animationDuration: keyboardAnimationDuration
+                    from: shouldAnimate ? previousState : nil
                 )
             }
             return true
@@ -389,19 +384,19 @@ extension Miri {
                 return
             }
             guard tiledWindow(for: element) != nil else {
-                restoreFloatingVisibility()
+                layoutController.restoreFloatingVisibility()
                 return
             }
-            guard !manualResizeNotificationsSuppressed else {
+            guard !manualResizeController.notificationsSuppressed else {
                 return
             }
 
-            if manualResizeElement != nil {
+            if manualResizeController.isTracking {
                 guard isManualResizeElement(element) else {
                     return
                 }
                 beginOrContinueManualResize(for: element)
-            } else if !isApplyingLayout {
+            } else if !layoutController.activity.isActive {
                 beginOrContinueManualResize(for: element)
             }
         case kAXWindowMovedNotification:
@@ -418,18 +413,18 @@ extension Miri {
             if handleFullscreenTransitionIfNeeded(element) {
                 return
             }
-            if manualResizeNotificationsSuppressed, tiledWindow(for: element) != nil {
+            if manualResizeController.notificationsSuppressed, tiledWindow(for: element) != nil {
                 return
             }
 
-            if manualResizeElement != nil {
+            if manualResizeController.isTracking {
                 guard isManualResizeElement(element) else {
                     return
                 }
                 beginOrContinueManualResize(for: element)
-            } else if !isApplyingLayout {
+            } else if !layoutController.activity.isActive {
                 guard let window = tiledWindow(for: element) else {
-                    restoreFloatingVisibility()
+                    layoutController.restoreFloatingVisibility()
                     return
                 }
                 if frameWidthDiffersFromLayout(for: element) {
@@ -437,7 +432,7 @@ extension Miri {
                     return
                 }
                 if let frame = axFrame(element) {
-                    presentationFrames[ObjectIdentifier(window)] = frame
+                    layoutController.recordPresentationFrame(frame, for: window)
                 }
                 projectLayout(focusActiveWindow: false)
             }

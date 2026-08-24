@@ -99,16 +99,11 @@ extension Miri {
         activeRescanTimer?.invalidate()
         activeRescanTimer = nil
         cancelAppLaunchSettlingForUnavailableSession()
-        manualResizeEndTimer?.cancel()
-        manualResizeEndTimer = nil
-        manualResizeElement = nil
+        manualResizeController.cancel()
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil
         pendingAXCreationSettleGenerations.removeAll()
-        pendingSnapshotDeferredLayout = false
-        pendingSnapshotDeferredLayoutGeneration &+= 1
-        stopAnimation(clearPresentation: true)
-        cancelActiveLayoutRequest(reason: "session-unavailable")
+        layoutController.cancel(reason: "session-unavailable")
         syncSessionRecoveryInputTracking()
         debugLog("layout tracking paused for unavailable session")
     }
