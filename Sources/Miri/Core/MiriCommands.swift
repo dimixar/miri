@@ -70,7 +70,7 @@ extension Miri {
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
-            workspace.activeColumn = max(workspace.activeColumn - 1, 0)
+            _ = windowManagement.focusColumn(at: workspace.activeColumn - 1)
             revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             animated = true
         case .columnRight:
@@ -78,7 +78,7 @@ extension Miri {
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
-            workspace.activeColumn = min(workspace.activeColumn + 1, workspace.columns.count - 1)
+            _ = windowManagement.focusColumn(at: workspace.activeColumn + 1)
             revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             animated = true
         case .columnFirst:
@@ -166,11 +166,33 @@ extension Miri {
         }
 
         let newState = captureLayoutState()
-        projectLayout(
-            focusActiveWindow: true,
-            animated: animated && (previousState != newState || frameAnimated),
-            from: previousState
+        applyModelChange(
+            ModelChange(
+                previousLayout: previousState,
+                currentLayout: newState,
+                layoutRequired: true,
+                focusRequested: true,
+                persistenceChanged: previousState != newState || frameAnimated,
+                statusChanged: true
+            ),
+            animated: animated && (previousState != newState || frameAnimated)
         )
+    }
+
+    func applyModelChange(_ change: ModelChange, animated: Bool) {
+        if change.layoutRequired {
+            projectLayout(
+                focusActiveWindow: change.focusRequested,
+                animated: animated,
+                from: change.previousLayout
+            )
+        }
+        if change.persistenceChanged {
+            schedulePersistentLayoutSnapshotWrite()
+        }
+        if change.statusChanged, !change.layoutRequired {
+            notifyWorkspaceBarNeedsRefresh()
+        }
     }
 
     func performAnimatedWidthChange(from state: LayoutState, _ change: () -> Bool) -> Bool {
@@ -220,73 +242,33 @@ extension Miri {
 
     @discardableResult
     func setActiveWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> Bool {
-        guard !workspaces.isEmpty else {
-            activeWorkspace = 0
-            previousWorkspace = nil
-            return false
-        }
-
-        guard workspaces.indices.contains(requestedIndex) else {
-            return false
-        }
-        let targetIndex = requestedIndex
-        guard targetIndex != activeWorkspace else {
-            return false
-        }
-
-        let currentWorkspace = activeWorkspaceObject()
-        emptyWorkspaceFocusAuthority = nil
-        activeWorkspace = targetIndex
-        if rememberPrevious {
-            previousWorkspace = currentWorkspace
-        }
-        return true
+        windowManagement.selectWorkspace(requestedIndex, rememberPrevious: rememberPrevious).changed
     }
 
     func previousWorkspaceIndex() -> Int? {
-        guard let previousWorkspace else {
-            return nil
-        }
-
-        return workspaces.firstIndex(where: { $0 === previousWorkspace })
+        windowManagement.previousWorkspaceIndex()
     }
 
     func protectActiveEmptyWorkspaceIfNeeded() {
-        guard let workspace = activeWorkspaceObject(), workspace.isEmpty else {
-            emptyWorkspaceFocusAuthority = nil
-            return
+        if windowManagement.protectActiveEmptyWorkspace() {
+            debugLog("empty workspace focus protected workspace=\(activeWorkspace + 1)")
         }
-        emptyWorkspaceFocusAuthority = workspace
-        debugLog("empty workspace focus protected workspace=\(activeWorkspace + 1)")
     }
 
     var activeEmptyWorkspaceHasFocusAuthority: Bool {
-        guard let authority = emptyWorkspaceFocusAuthority,
-              authority.isEmpty,
-              activeWorkspaceObject() === authority
-        else {
-            return false
-        }
-        return true
+        windowManagement.activeEmptyWorkspaceHasFocusAuthority
     }
 
     func focusColumn(at requestedIndex: Int) -> Bool {
-        guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
-            return false
-        }
-
-        let sourceIndex = workspace.activeColumn
-        let targetIndex = min(max(requestedIndex, 0), workspace.columns.count - 1)
-        if targetIndex < sourceIndex {
+        let result = windowManagement.focusColumn(at: requestedIndex)
+        if result.target < result.source {
             lastHorizontalFocusDirection = -1
             clearIntelligentResizeMemory()
-        } else if targetIndex > sourceIndex {
+        } else if result.target > result.source {
             lastHorizontalFocusDirection = 1
             clearIntelligentResizeMemory()
         }
-        workspace.activeColumn = targetIndex
-        workspace.scrollOffset = nil
-        return true
+        return result.changed
     }
 
     func moveActiveColumnHorizontally(by delta: Int) -> Bool {
@@ -306,20 +288,9 @@ extension Miri {
         workspace.clampFocus()
         let sourceIndex = workspace.activeColumn
         let targetIndex = min(max(requestedIndex, 0), workspace.columns.count - 1)
-        guard sourceIndex != targetIndex else {
-            return false
-        }
-        guard workspace.columns.indices.contains(targetIndex) else {
-            return false
-        }
-
-        let window = workspace.columns.remove(at: sourceIndex)
-        workspace.columns.insert(window, at: targetIndex)
-        workspace.activeColumn = targetIndex
+        guard windowManagement.moveActiveColumn(to: targetIndex) else { return false }
         lastHorizontalFocusDirection = targetIndex < sourceIndex ? -1 : 1
         clearIntelligentResizeMemory()
-        workspace.scrollOffset = nil
-        schedulePersistentLayoutSnapshotWrite()
         return true
     }
 
@@ -375,9 +346,7 @@ extension Miri {
             return false
         }
 
-        for workspace in workspaces {
-            workspace.scrollOffset = nil
-        }
+        windowManagement.resetAllScrollOffsets()
         return true
     }
 
@@ -406,7 +375,7 @@ extension Miri {
                 windowID: ObjectIdentifier(window)
             )
         } else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
         }
         return true
     }
@@ -423,7 +392,7 @@ extension Miri {
         guard viewport.width > 0,
               workspace.columns.indices.contains(activeColumn)
         else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
             return
         }
 
@@ -431,7 +400,7 @@ extension Miri {
         guard oldMetrics.origins.indices.contains(activeColumn),
               oldMetrics.widths.indices.contains(activeColumn)
         else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
             return
         }
 
@@ -471,17 +440,17 @@ extension Miri {
         guard newMetrics.origins.indices.contains(activeColumn),
               newMetrics.widths.indices.contains(activeColumn)
         else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
             return
         }
 
         if shouldCenterColumn(width: newMetrics.widths[activeColumn], viewport: viewport) {
             clearIntelligentResizeMemory()
-            workspace.scrollOffset = centeredScrollOffset(
+            windowManagement.setScrollOffset(centeredScrollOffset(
                 columnMinX: newMetrics.origins[activeColumn],
                 columnWidth: newMetrics.widths[activeColumn],
                 viewport: viewport
-            )
+            ), in: workspace)
             return
         }
 
@@ -499,7 +468,10 @@ extension Miri {
             viewport: viewport,
             preferredOffset: targetOffset
         )
-        workspace.scrollOffset = min(max(targetOffset, 0), maxHorizontalCameraOffset(for: workspace, viewport: viewport))
+        windowManagement.setScrollOffset(
+            min(max(targetOffset, 0), maxHorizontalCameraOffset(for: workspace, viewport: viewport)),
+            in: workspace
+        )
     }
 
     func scrollOffsetEnsuringFullVisibility(
@@ -551,9 +523,7 @@ extension Miri {
             return false
         }
 
-        for workspace in workspaces {
-            workspace.scrollOffset = nil
-        }
+        windowManagement.resetAllScrollOffsets()
         return true
     }
 
@@ -564,8 +534,7 @@ extension Miri {
             return false
         }
 
-        window.manualWidthRatio = newRatio
-        schedulePersistentLayoutSnapshotWrite()
+        windowManagement.setWidthRatio(newRatio, for: window)
         return true
     }
 
@@ -583,56 +552,17 @@ extension Miri {
 
     @discardableResult
     func moveActiveColumnToWorkspace(zeroBasedIndex requestedIndex: Int) -> Bool {
-        guard workspaces.indices.contains(activeWorkspace),
-              let sourceWorkspace = activeWorkspaceObject(),
-              !sourceWorkspace.columns.isEmpty
-        else {
-            return false
-        }
-
-        sourceWorkspace.clampFocus()
-        guard requestedIndex >= 0 else {
-            return false
-        }
-        ensureWorkspaceExists(requestedIndex)
-        let targetIndex = requestedIndex
-        guard targetIndex != activeWorkspace else {
-            return false
-        }
-
-        let targetWorkspace = workspaces[targetIndex]
-        let movingWindow = sourceWorkspace.columns.remove(at: sourceWorkspace.activeColumn)
-        sourceWorkspace.scrollOffset = nil
-        sourceWorkspace.clampFocus()
-
-        targetWorkspace.clampFocus()
-        let insertionIndex = targetWorkspace.columns.isEmpty
-            ? 0
-            : min(targetWorkspace.activeColumn + 1, targetWorkspace.columns.count)
-        targetWorkspace.columns.insert(movingWindow, at: insertionIndex)
-        targetWorkspace.activeColumn = insertionIndex
-        targetWorkspace.scrollOffset = nil
-
-        setActiveWorkspace(targetIndex)
+        guard windowManagement.moveActiveColumn(toWorkspace: requestedIndex) else { return false }
         reconcileWorkspaceCapacity()
-        activeWorkspace = workspaces.firstIndex(where: { $0 === targetWorkspace }) ?? activeWorkspace
-        schedulePersistentLayoutSnapshotWrite()
         return true
     }
 
     func activeWorkspaceObject() -> Workspace? {
-        guard workspaces.indices.contains(activeWorkspace) else {
-            return nil
-        }
-        return workspaces[activeWorkspace]
+        windowManagement.activeWorkspaceObject()
     }
 
     func captureLayoutState() -> LayoutState {
-        LayoutState(
-            activeWorkspace: min(max(activeWorkspace, 0), max(workspaces.count - 1, 0)),
-            activeColumns: workspaces.map(\.activeColumn),
-            scrollOffsets: workspaces.map(\.scrollOffset)
-        )
+        windowManagement.snapshot().layoutState
     }
 
     func seedPresentationFrames(from state: LayoutState) {

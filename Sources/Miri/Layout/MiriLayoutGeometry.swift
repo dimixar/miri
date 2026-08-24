@@ -117,7 +117,7 @@ extension Miri {
               workspace.columns.indices.contains(workspace.activeColumn),
               viewport.width > 0
         else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
             return
         }
 
@@ -125,7 +125,7 @@ extension Miri {
         guard metrics.origins.indices.contains(workspace.activeColumn),
               metrics.widths.indices.contains(workspace.activeColumn)
         else {
-            workspace.scrollOffset = nil
+            windowManagement.setScrollOffset(nil, in: workspace)
             return
         }
 
@@ -133,11 +133,11 @@ extension Miri {
         let columnMinX = metrics.origins[workspace.activeColumn]
         let columnMaxX = columnMinX + metrics.widths[workspace.activeColumn]
         if shouldCenterColumn(width: metrics.widths[workspace.activeColumn], viewport: viewport) {
-            workspace.scrollOffset = centeredScrollOffset(
+            windowManagement.setScrollOffset(centeredScrollOffset(
                 columnMinX: columnMinX,
                 columnWidth: metrics.widths[workspace.activeColumn],
                 viewport: viewport
-            )
+            ), in: workspace)
             return
         }
 
@@ -151,7 +151,7 @@ extension Miri {
 
         let maxOffset = maxHorizontalCameraOffset(for: workspace, viewport: viewport)
         targetOffset = min(max(targetOffset, 0), maxOffset)
-        workspace.scrollOffset = targetOffset
+        windowManagement.setScrollOffset(targetOffset, in: workspace)
     }
 
     func horizontalCameraOffset(for workspace: Workspace, viewport: CGRect) -> CGFloat {

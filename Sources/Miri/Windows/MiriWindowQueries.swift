@@ -45,19 +45,15 @@ extension Miri {
     }
 
     func activeWindow() -> ManagedWindow? {
-        guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
-            return nil
-        }
-        workspace.clampFocus()
-        return workspace.columns[workspace.activeColumn]
+        windowManagement.activeWindow()
     }
 
     func allWindows() -> [ManagedWindow] {
-        workspaces.flatMap(\.columns) + floatingWindows
+        windowManagement.allWindows()
     }
 
     func tiledWindows() -> [ManagedWindow] {
-        workspaces.flatMap(\.columns)
+        windowManagement.tiledWindows()
     }
 
 }

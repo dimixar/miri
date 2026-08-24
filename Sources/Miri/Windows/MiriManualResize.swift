@@ -6,7 +6,7 @@ import Foundation
 extension Miri {
     func handleFullscreenTransitionIfNeeded(_ element: AXUIElement) -> Bool {
         if isFullscreenWindow(element), let location = tiledWindowLocation(for: element) {
-            pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(location.window))
+            windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(location.window))
             fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, CFAbsoluteTimeGetCurrent() + fullscreenTransitionGrace)
             rememberFullscreenWindowState(location.window)
             removeWindow(location.window, preferRightFocus: true)
@@ -35,8 +35,8 @@ extension Miri {
     func beginPendingFullscreenTransition(for window: ManagedWindow) {
         let id = ObjectIdentifier(window)
         let now = CFAbsoluteTimeGetCurrent()
-        if pendingFullscreenTransitionSince[id] == nil {
-            pendingFullscreenTransitionSince[id] = now
+        if windowManagement.pendingFullscreenTransition(for: id) == nil {
+            windowManagement.recordPendingFullscreenTransition(for: id, at: now)
             debugLog("pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
             DispatchQueue.main.asyncAfter(deadline: .now() + fullscreenTransitionGrace) { [weak self] in
                 self?.requestReconciliation(
@@ -107,7 +107,7 @@ extension Miri {
             return
         }
         debugLog("restoring fullscreen miri workspace=\(state.workspace + 1) while focused on remembered fullscreen app='\(state.appName)' bundle='\(state.bundleID ?? "nil")'")
-        activeWorkspace = state.workspace
+        _ = windowManagement.selectWorkspace(state.workspace)
     }
 
     func enforceFullscreenSpaceGuardWorkspace() {
@@ -119,7 +119,7 @@ extension Miri {
             return
         }
         debugLog("restoring guarded miri workspace=\(workspace + 1) during fullscreen space guard")
-        activeWorkspace = workspace
+        _ = windowManagement.selectWorkspace(workspace)
     }
 
     func noteFullscreenSpaceHelperIfNeeded(_ element: AXUIElement) {
@@ -139,7 +139,7 @@ extension Miri {
         fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, fullscreenSpaceChangeGuardUntil)
         if !wasActive {
             fullscreenSpaceChangeGuardStartedGeneration = spaceChangeGeneration
-            fullscreenSpaceChangeGuardWorkspace = activeWorkspace
+            windowManagement.setFullscreenSpaceChangeGuardWorkspace(activeWorkspace)
             debugLog("fullscreen space helper guard started workspace=\(activeWorkspace + 1) generation=\(spaceChangeGeneration)")
             DispatchQueue.main.asyncAfter(deadline: .now() + fullscreenSpaceChangeGuardDuration) { [weak self] in
                 self?.finishFullscreenSpaceChangeGuardIfExpired()
@@ -157,7 +157,7 @@ extension Miri {
         }
         let changed = spaceChangeGeneration != fullscreenSpaceChangeGuardStartedGeneration
         debugLog("fullscreen space helper guard ended spaceChanged=\(changed) generation=\(spaceChangeGeneration)")
-        fullscreenSpaceChangeGuardWorkspace = nil
+        windowManagement.setFullscreenSpaceChangeGuardWorkspace(nil)
     }
 
     func windowHasCGInfo(_ window: ManagedWindow) -> Bool {
@@ -208,15 +208,15 @@ extension Miri {
         let ratio = (frame.width / viewport.width).clampedManualWidthRatio
         let previousRatio = location.window.manualWidthRatio
         let oldScrollOffset = location.workspace.scrollOffset
-        location.window.manualWidthRatio = ratio
+        windowManagement.setWidthRatio(ratio, for: location.window)
 
         let metrics = stripMetrics(for: location.workspace, viewport: viewport)
         let virtualOrigin = metrics.origins[location.columnIndex]
         let newScrollOffset = virtualOrigin - (frame.minX - viewport.minX)
 
-        location.workspace.scrollOffset = newScrollOffset
+        windowManagement.setScrollOffset(newScrollOffset, in: location.workspace)
         setActiveWorkspace(location.workspaceIndex)
-        location.workspace.activeColumn = location.columnIndex
+        windowManagement.setActiveColumn(location.columnIndex, in: location.workspace)
         layoutController.recordPresentationFrame(frame, for: location.window)
 
         if let previousRatio,

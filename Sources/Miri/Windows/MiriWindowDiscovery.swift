@@ -146,7 +146,7 @@ extension Miri {
         } else {
             saveActiveLogicalSpaceContext()
         }
-        pendingLogicalSpaceSwitch = true
+        windowManagement.beginLogicalSpaceSwitch()
         spaceChangeGeneration &+= 1
         debugLog("active macOS space changed generation=\(spaceChangeGeneration)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
@@ -284,7 +284,7 @@ extension Miri {
             let now = CFAbsoluteTimeGetCurrent()
 
             if isFullscreenWindow(window.element) {
-                pendingFullscreenTransitionSince.removeValue(forKey: windowID)
+                windowManagement.clearPendingFullscreenTransition(for: windowID)
                 fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
                 rememberFullscreenWindowState(window)
                 removeWindow(window, preferRightFocus: true)
@@ -292,11 +292,11 @@ extension Miri {
                 continue
             }
 
-            if let pendingSince = pendingFullscreenTransitionSince[windowID], now - pendingSince < fullscreenTransitionGrace {
+            if let pendingSince = windowManagement.pendingFullscreenTransition(for: windowID), now - pendingSince < fullscreenTransitionGrace {
                 debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
                 continue
             }
-            pendingFullscreenTransitionSince.removeValue(forKey: windowID)
+            windowManagement.clearPendingFullscreenTransition(for: windowID)
 
             if bufferWindowInUnknownSpaceIfNeeded(window) {
                 changed = true
@@ -349,7 +349,7 @@ extension Miri {
     @discardableResult
     func upsertDiscoveredWindow(_ found: ManagedWindow) -> Bool {
         if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
-            pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(existing))
+            windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(existing))
             _ = consumeBufferedWindowIfNeeded(existing)
             let previousBehavior = behavior(for: existing)
             let metadataChanged = existing.title != found.title
@@ -394,16 +394,11 @@ extension Miri {
     }
 
     func removeWindows(forPID pid: pid_t) {
-        var changed = false
-        for window in allWindows().filter({ $0.pid == pid }) {
-            removeWindow(window, preferRightFocus: true)
-            changed = true
-        }
-        let previousFullscreenCount = fullscreenWindowStates.count
-        fullscreenWindowStates = fullscreenWindowStates.filter { $0.value.pid != pid }
-        changed = changed || fullscreenWindowStates.count != previousFullscreenCount
+        let cleanup = windowManagement.removeGlobally(pid: pid)
+        for window in cleanup.removedWindows { layoutController.removeTracking(for: window) }
+        reconcileWorkspaceCapacity()
         observers.removeValue(forKey: pid)
-        if changed {
+        if cleanup.changed {
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0.08)
             saveActiveLogicalSpaceContext()
         }
@@ -466,7 +461,7 @@ extension Miri {
                 let now = CFAbsoluteTimeGetCurrent()
 
                 if isFullscreenWindow(window.element) {
-                    pendingFullscreenTransitionSince.removeValue(forKey: windowID)
+                    windowManagement.clearPendingFullscreenTransition(for: windowID)
                     fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
                     rememberFullscreenWindowState(window)
                     removeWindow(window, preferRightFocus: true)
@@ -474,11 +469,11 @@ extension Miri {
                     continue
                 }
 
-                if let pendingSince = pendingFullscreenTransitionSince[windowID], now - pendingSince < fullscreenTransitionGrace {
+                if let pendingSince = windowManagement.pendingFullscreenTransition(for: windowID), now - pendingSince < fullscreenTransitionGrace {
                     debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
                     continue
                 }
-                pendingFullscreenTransitionSince.removeValue(forKey: windowID)
+                windowManagement.clearPendingFullscreenTransition(for: windowID)
 
                 if runningApp != nil,
                    !temporarilyHidden,

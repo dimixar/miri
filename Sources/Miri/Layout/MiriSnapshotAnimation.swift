@@ -319,8 +319,7 @@ extension LayoutController {
             frame.union(motion.startFrame).union(motion.endFrame)
         }
 
-        if workspaces.indices.contains(workspaceIndex) {
-            let workspace = workspaces[workspaceIndex]
+        if let workspace = workspaceProjection(at: workspaceIndex) {
             let metrics = stripMetrics(for: workspace, viewport: viewport)
             let maxOffset = maxHorizontalCameraOffset(for: workspace, viewport: viewport)
 

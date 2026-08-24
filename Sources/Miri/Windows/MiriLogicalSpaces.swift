@@ -5,33 +5,13 @@ import Foundation
 
 extension Miri {
     func saveActiveLogicalSpaceContext() {
-        guard let context = logicalSpaceContexts.first(where: { $0.id == activeLogicalSpaceContextID }) else {
-            return
-        }
-        context.workspaces = cloneWorkspaces(workspaces)
-        context.floatingWindows = floatingWindows
-        context.activeWorkspace = activeWorkspace
-        context.signature = currentLogicalSpaceSignature()
+        windowManagement.saveActiveContext(signature: currentLogicalSpaceSignature())
     }
 
     func loadLogicalSpaceContext(_ context: LogicalSpaceContext) {
-        activeLogicalSpaceContextID = context.id
-        workspaces = cloneWorkspaces(context.workspaces)
-        floatingWindows = context.floatingWindows
-        activeWorkspace = min(max(context.activeWorkspace, 0), max(workspaces.count - 1, 0))
-        previousWorkspace = nil
+        windowManagement.activateContext(context)
         layoutController.resetTracking()
         reconcileWorkspaceCapacity()
-    }
-
-    func cloneWorkspaces(_ source: [Workspace]) -> [Workspace] {
-        source.map { workspace in
-            let clone = Workspace()
-            clone.columns = workspace.columns
-            clone.activeColumn = workspace.activeColumn
-            clone.scrollOffset = workspace.scrollOffset
-            return clone
-        }
     }
 
     func currentLogicalSpaceSignature() -> Set<UInt32> {
@@ -43,10 +23,7 @@ extension Miri {
     }
 
     func handlePendingLogicalSpaceSwitch(discovered: [ManagedWindow]) -> Bool {
-        guard pendingLogicalSpaceSwitch else {
-            return false
-        }
-        pendingLogicalSpaceSwitch = false
+        guard windowManagement.consumePendingLogicalSpaceSwitch() else { return false }
 
         let visibleSignature = discoveredSignature(discovered)
         let bufferedVisibleIDs = visibleSignature.intersection(Set(spaceBufferedWindows.keys))
@@ -80,10 +57,7 @@ extension Miri {
             return promoted
         }
 
-        nextLogicalSpaceContextID = max(nextLogicalSpaceContextID, 0)
-        let context = LogicalSpaceContext(id: nextLogicalSpaceContextID, signature: visibleSignature)
-        nextLogicalSpaceContextID += 1
-        logicalSpaceContexts.append(context)
+        let context = windowManagement.makeContext(signature: visibleSignature)
         debugLog(
             "logical macOS space created id=\(context.id) visible=\(visibleSignature.count) buffered=\(bufferedVisibleIDs.count)"
         )
@@ -155,14 +129,14 @@ extension Miri {
         }
 
         let placement = currentPlacement(for: window)
-        spaceBufferedWindows[windowID] = BufferedSpaceWindow(
+        windowManagement.buffer(BufferedSpaceWindow(
             window: window,
             sourceContextID: activeLogicalSpaceContextID,
             sourceWorkspace: placement.workspace,
             sourceColumn: placement.column,
             sourceFloatingIndex: placement.floatingIndex,
             bufferedAt: CFAbsoluteTimeGetCurrent()
-        )
+        ), windowID: windowID)
         debugLog(
             "buffering window in unknown macOS space app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)' id=\(windowID) sourceContext=\(activeLogicalSpaceContextID)"
         )
@@ -183,7 +157,7 @@ extension Miri {
     @discardableResult
     func consumeBufferedWindowIfNeeded(_ window: ManagedWindow) -> BufferedSpaceWindow? {
         guard let windowID = window.windowID,
-              let buffered = spaceBufferedWindows.removeValue(forKey: windowID)
+              let buffered = windowManagement.takeBufferedWindow(windowID: windowID)
         else {
             return nil
         }
@@ -199,18 +173,7 @@ extension Miri {
     }
 
     func removeWindowID(_ windowID: UInt32, from context: LogicalSpaceContext) {
-        if let index = context.floatingWindows.firstIndex(where: { $0.windowID == windowID }) {
-            context.floatingWindows.remove(at: index)
-        }
-        for workspace in context.workspaces {
-            if let index = workspace.columns.firstIndex(where: { $0.windowID == windowID }) {
-                workspace.columns.remove(at: index)
-                workspace.clampFocus()
-                workspace.scrollOffset = nil
-                break
-            }
-        }
-        context.signature.remove(windowID)
+        windowManagement.removeWindowID(windowID, from: context)
     }
 
     func activeContextHasBufferedSourceWindows() -> Bool {

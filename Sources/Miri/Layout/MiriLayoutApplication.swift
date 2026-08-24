@@ -1,7 +1,7 @@
 import Foundation
 
 extension Miri {
-    /// Captures the coordinator-owned logical state, then hands one immutable
+    /// Captures the window-management-owned logical state, then hands one immutable
     /// projection request to the presentation owner.
     func projectLayout(
         focusActiveWindow: Bool,

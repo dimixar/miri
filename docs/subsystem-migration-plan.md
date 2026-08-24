@@ -5,7 +5,7 @@
 - Plan status: Proposed
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 5 — logical window and workspace ownership
+- Current phase: Phase 6 — window observation and reconciliation
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -138,7 +138,7 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 | 2 | Input and session event sources | Complete | 2026-08-24 | Ownership extracted; debug/release builds and user-run focused runtime pass complete |
 | 3 | Configuration, persistence, and UI boundaries | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and focused user-run runtime pass complete |
 | 4 | Layout and presentation ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
-| 5 | Logical window and workspace ownership | Not started | 2026-08-24 | Move commands, placement, and Space state |
+| 5 | Logical window and workspace ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
 | 6 | Window observation and reconciliation | Not started | 2026-08-24 | Complete the window-management boundary |
 | 7 | Integration cleanup and actor isolation | Not started | 2026-08-24 | Remove forwarding and obsolete state |
 | 8 | Manual stabilization and migration closeout | Not started | 2026-08-24 | Full scenario pass and documentation |
@@ -476,9 +476,9 @@ ownership.
 | Settings/status integration | Typed `UIAction` sink and immutable `StatusMenuViewState`; no UI controller retains `Miri` | UI actions and immutable view state | 3 | Complete |
 | Applied frames, visibility, transforms, layout lock | `LayoutController`, through `LayoutWindowSystemAdapter` | `LayoutController` | 4 | Complete |
 | Snapshot session, overlay, hidden windows, animation timer | `LayoutController`; frame runner and CALayer bookkeeping stay internal | `LayoutController` | 4 | Complete |
-| Workspaces, active focus, floating windows, width state | `Miri` | `WorkspaceModel` | 5 | Not started |
-| Logical Space contexts and buffer | `Miri` | `WindowManagement` | 5 | Not started |
-| Fullscreen/minimized transition placement | `Miri` | `WindowManagement` | 5 | Not started |
+| Workspaces, active focus, floating windows, width state | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WorkspaceModel` | 5 | Complete |
+| Logical Space contexts and buffer | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WindowManagement` | 5 | Complete |
+| Fullscreen/minimized transition placement | Active `LogicalSpaceContext`, through `WindowManagement` | `WindowManagement` | 5 | Complete |
 | AX observers and discovered-window conversion | `Miri` | `WindowManagement`/`AXWindowMonitor` | 6 | Not started |
 | Reconciliation, active rescan, launch settling | `Miri` | `WindowManagement` plus coordinator admission | 6 | Not started |
 
@@ -492,16 +492,16 @@ scenarios affected by that phase; Phase 8 requires every applicable scenario.
 | Startup | Start with existing normal windows | Not run | Not run | |
 | Startup | Start with no manageable windows | Not run | Not run | |
 | Commands | Rapid left/right focus and snapshot retarget | Not run | Pass | User-reported Phase 4 focused pass |
-| Commands | Workspace focus, previous workspace, and empty workspace | Not run | Not run | |
+| Commands | Workspace focus, previous workspace, and empty workspace | Not run | Pass | User-reported Phase 5 focused pass |
 | Commands | Move and resize one/all columns | Not run | Pass | User-reported Phase 4 focused pass |
 | Lifecycle | Launch app with delayed/placeholder AX windows | Not run | Not run | |
 | Lifecycle | Close one window and last window without quitting app | Not run | Not run | |
-| Lifecycle | Quit app with windows in active and inactive contexts | Not run | Not run | |
-| Window state | Minimize and restore a managed window | Not run | Not run | |
-| Window state | Enter and exit native fullscreen | Not run | Not run | |
+| Lifecycle | Quit app with windows in active and inactive contexts | Not run | Pass | User-reported Phase 5 focused pass |
+| Window state | Minimize and restore a managed window | Not run | Pass | User-reported Phase 5 focused pass |
+| Window state | Enter and exit native fullscreen | Not run | Pass | User-reported Phase 5 focused pass |
 | Window state | Floating window during layout and workspace changes | Not run | Pass | User-reported Phase 4 focused pass |
-| Native Spaces | Move a managed window between macOS Spaces | Not run | Not run | |
-| Native Spaces | Switch Spaces with buffered and fullscreen windows | Not run | Not run | |
+| Native Spaces | Move a managed window between macOS Spaces | Not run | Pass | User-reported Phase 5 focused pass |
+| Native Spaces | Switch Spaces with buffered and fullscreen windows | Not run | Pass | User-reported Phase 5 focused pass |
 | Session | Lock and unlock, then recover by relevant interaction | Not run | Not run | |
 | Session | Sleep and wake, then recover by relevant interaction | Not run | Not run | |
 | Reliability | Active rescan for configured problematic app | Not run | Not run | |
@@ -583,6 +583,66 @@ line counts. For example, "snapshot session state is now private to
 ## Progress log
 
 Add new entries above older entries.
+
+### 2026-08-24 — Phase 5: logical window and workspace ownership
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - `WorkspaceModel` now owns the canonical logical-Space context graph. The
+    active workspace projection is the active context itself rather than a
+    cloned coordinator-owned mirror.
+  - `WindowManagement` is the side-effect-free mutation/query facade for
+    workspace selection and capacity, focus, column movement, insertion and
+    removal, floating placement, width metadata, logical-Space selection and
+    buffering, and fullscreen/minimized placement state.
+  - Fullscreen, minimized, and pending fullscreen-transition placement state is
+    scoped to its `LogicalSpaceContext`.
+  - PID cleanup now removes windows across active and inactive contexts, the
+    Space buffer, fullscreen/minimized placement, and transition records.
+  - Layout, status, and persistence consumers now capture immutable model
+    snapshots; persistent documents are constructed by `WindowManagement` and
+    handed to `PersistenceController` for file I/O.
+- Contract changes:
+  - Added immutable `WorkspaceModelSnapshot` and typed workspace-selection,
+    removal, and global-cleanup results.
+  - Command orchestration now constructs a `ModelChange`, then submits layout,
+    marks persistence dirty, and publishes status in the coordinator-defined
+    order.
+  - Debug invariants validate unique context IDs, valid workspace/column
+    indexes, unique tiled/floating membership, and cross-Space uniqueness with
+    an explicit exception for buffered transitions.
+- Intentional behavior changes:
+  - Process termination cleanup covers inactive logical Spaces and transition
+    stores instead of only the active projection.
+- Temporary compatibility:
+  - `Miri` retains read-only forwarding views and orchestration helpers for
+    legacy observation/reconciliation call sites; mutation storage and APIs are
+    owned by `WindowManagement`.
+  - AX observation and reconciliation scheduling remain on `Miri` until Phase 6.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - `git diff --check`: Pass
+  - Ownership audit: Pass; remaining direct workspace writes outside
+    `WindowManagement` construct detached restoration objects before atomic
+    adoption
+  - Manual scenarios: Pass; user reported workspace/previous/empty focus,
+    column movement and width changes, minimize/restore, fullscreen, floating,
+    native-Space switching/buffering, cross-context cleanup, and restart
+    behavior working correctly
+  - Runtime invariants/log review: Pass; debug-only model invariants remained
+    quiet during the focused user run
+  - Shadow comparison: Not applicable; the existing reference model and
+    placement algorithms were retained behind the new owner
+- Known issues and risks:
+  - Existing AppKit actor-isolation warnings in snapshot overlay code remain
+    assigned to Phase 7.
+- Decisions:
+  - D-013 and D-014.
+- Next step:
+  - Begin Phase 6 by moving AX observation and reconciliation behind the
+    window-management boundary.
 
 ### 2026-08-24 — Phase 4: layout and presentation ownership
 
@@ -861,3 +921,5 @@ so progress entries can refer to them.
 | D-010 | 2026-08-24 | Make persistence timers emit due events and require coordinator-supplied immutable snapshots | Delayed callbacks must not capture and read mutable workspace or logical-Space collections | File/timer ownership is isolated while snapshot construction remains synchronized with coordinator model state |
 | D-011 | 2026-08-24 | Allocate one typed token at layout submission and retain immutable deferred request input | Generation integers and delayed model recapture made ownership and stale completion ambiguous | Completion, cancellation, capture failure, and replacement correlate to the submitted token; deferred work cannot read a later mutable model accidentally |
 | D-012 | 2026-08-24 | Split resize debounce, logical width mutation, and frame reapplication across `ManualResizeController`, window management, and `LayoutController` | AX resize handling previously mixed observation state, model mutation, presentation cache writes, and layout cancellation | Each part has one owner and external resize changes emit a typed layout event |
+| D-013 | 2026-08-24 | Back the active workspace projection directly with the active `LogicalSpaceContext` | Cloning on every save/load created two mutable representations of one logical Space | Workspace and window reference identity is preserved while the context graph has one authoritative owner |
+| D-014 | 2026-08-24 | Treat process/window cleanup as a global model operation | Active-only cleanup could leave stale membership in inactive Spaces, buffers, and transition state | Termination cleanup returns one typed result after scanning every logical context and transition store |

@@ -11,30 +11,10 @@ extension Miri {
     }
 
     func writePersistentLayoutSnapshot() {
-        let states = workspaces.enumerated().flatMap { workspaceIndex, workspace in
-            workspace.columns.enumerated().map { columnIndex, window in
-                PersistentWindowState(
-                    identity: persistentIdentity(for: window),
-                    workspace: workspaceIndex,
-                    column: columnIndex,
-                    manualWidthRatio: widthRatio(for: window)
-                )
-            }
-        }
-        guard !states.isEmpty else {
-            persistenceController.writeLayout(nil)
-            return
-        }
-
-        let snapshot = PersistentLayoutSnapshot(
-            version: 2,
-            activeWorkspace: min(max(activeWorkspace, 0), max(workspaces.count - 1, 0)),
-            activeColumns: workspaces.map(\.activeColumn),
-            scrollOffsets: workspaces.map(\.scrollOffset),
-            focusedWindow: activeWindow().map(persistentIdentity(for:)),
-            windows: states
+        let snapshot = windowManagement.persistentLayoutSnapshot(
+            identity: persistentIdentity(for:),
+            widthRatio: widthRatio(for:)
         )
-
         persistenceController.writeLayout(snapshot)
     }
 
@@ -62,7 +42,7 @@ extension Miri {
                 ) else {
                     continue
                 }
-                window.manualWidthRatio = state.manualWidthRatio
+                windowManagement.setWidthRatio(state.manualWidthRatio, for: window)
                 placements.append((state, window))
             }
         }
@@ -100,9 +80,8 @@ extension Miri {
             workspace.columns.insert(placement.window, at: min(max(placement.state.column, 0), workspace.columns.count))
         }
 
-        workspaces = nextWorkspaces
-        activeWorkspace = min(max(snapshot.activeWorkspace, 0), workspaces.count - 1)
-        for (index, workspace) in workspaces.enumerated() {
+        let restoredActiveWorkspace = min(max(snapshot.activeWorkspace, 0), nextWorkspaces.count - 1)
+        for (index, workspace) in nextWorkspaces.enumerated() {
             if snapshot.activeColumns.indices.contains(index) {
                 workspace.activeColumn = snapshot.activeColumns[index]
             }
@@ -113,6 +92,10 @@ extension Miri {
             }
             workspace.clampFocus()
         }
+        windowManagement.replaceActiveProjection(
+            workspaces: nextWorkspaces,
+            activeWorkspace: restoredActiveWorkspace
+        )
         return true
     }
 
@@ -124,7 +107,7 @@ extension Miri {
         }
 
         setActiveWorkspace(location.workspaceIndex)
-        location.workspace.activeColumn = location.columnIndex
+        windowManagement.setActiveColumn(location.columnIndex, in: location.workspace)
         return true
     }
 

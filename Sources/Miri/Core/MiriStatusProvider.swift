@@ -15,9 +15,10 @@ extension Miri {
     }
 
     func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
-        guard workspaces.indices.contains(activeWorkspace) else {
+        let snapshot = windowManagement.snapshot()
+        guard snapshot.workspaces.indices.contains(snapshot.activeWorkspace) else {
             return MiriWorkspaceBarStatus(
-                workspace: activeWorkspace + 1,
+                workspace: snapshot.activeWorkspace + 1,
                 focusedIndex: nil,
                 windows: [],
                 workspaceSummaries: [],
@@ -25,18 +26,22 @@ extension Miri {
             )
         }
 
-        let workspace = workspaces[activeWorkspace]
+        let workspace = snapshot.workspaces[snapshot.activeWorkspace]
         return MiriWorkspaceBarStatus(
-            workspace: activeWorkspace + 1,
+            workspace: snapshot.activeWorkspace + 1,
             focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
             windows: workspace.columns.map(workspaceBarWindow),
-            workspaceSummaries: workspaceSummaries(),
+            workspaceSummaries: workspaceSummaries(snapshot: snapshot),
             fullscreenWindows: fullscreenWorkspaceBarWindows()
         )
     }
 
     func workspaceSummaries() -> [MiriWorkspaceSummary] {
-        workspaces.enumerated().map { index, workspace in
+        workspaceSummaries(snapshot: windowManagement.snapshot())
+    }
+
+    func workspaceSummaries(snapshot: WorkspaceModelSnapshot) -> [MiriWorkspaceSummary] {
+        snapshot.workspaces.enumerated().map { index, workspace in
             let focusedWindow: MiriWorkspaceBarWindow?
             if workspace.columns.isEmpty {
                 focusedWindow = nil
@@ -47,7 +52,7 @@ extension Miri {
             let appNames = Array(NSOrderedSet(array: workspace.columns.map(\.appName))) as? [String] ?? workspace.columns.map(\.appName)
             return MiriWorkspaceSummary(
                 workspace: index + 1,
-                isActive: index == activeWorkspace,
+                isActive: index == snapshot.activeWorkspace,
                 lastFocusedWindow: focusedWindow,
                 appNames: appNames
             )
@@ -85,19 +90,30 @@ extension Miri {
     }
 
     func currentStatus() -> MiriStatus {
-        let workspaceCount = max(1, workspaces.count)
-        guard let window = activeWindow() else {
+        let snapshot = windowManagement.snapshot()
+        let workspaceCount = max(1, snapshot.workspaces.count)
+        guard snapshot.workspaces.indices.contains(snapshot.activeWorkspace) else {
             return MiriStatus(
-                workspace: activeWorkspace + 1,
+                workspace: snapshot.activeWorkspace + 1,
                 workspaceCount: workspaceCount,
                 focusedWindow: "None",
                 widthPercent: nil
             )
         }
+        let workspace = snapshot.workspaces[snapshot.activeWorkspace]
+        guard workspace.columns.indices.contains(workspace.activeColumn) else {
+            return MiriStatus(
+                workspace: snapshot.activeWorkspace + 1,
+                workspaceCount: workspaceCount,
+                focusedWindow: "None",
+                widthPercent: nil
+            )
+        }
+        let window = workspace.columns[workspace.activeColumn]
 
         let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
         return MiriStatus(
-            workspace: activeWorkspace + 1,
+            workspace: snapshot.activeWorkspace + 1,
             workspaceCount: workspaceCount,
             focusedWindow: title,
             widthPercent: Int((widthRatio(for: window) * 100).rounded())

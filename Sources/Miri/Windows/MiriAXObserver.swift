@@ -187,7 +187,7 @@ extension Miri {
             let workspace = workspaces[loc.workspace]
             let changedFocus = activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
             setActiveWorkspace(loc.workspace)
-            workspace.activeColumn = loc.column
+            windowManagement.setActiveColumn(loc.column, in: workspace)
             if changedFocus {
                 revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             }

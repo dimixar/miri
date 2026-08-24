@@ -77,8 +77,8 @@ private struct LayoutSubmission {
     let lockDelay: TimeInterval
 }
 
-/// Owns the complete presentation lifecycle. Model state remains coordinator
-/// owned; every frame, visibility, snapshot, token and compositor artifact is
+/// Owns the complete presentation lifecycle. Model state remains owned by
+/// `WindowManagement`; every frame, visibility, snapshot, token and compositor artifact is
 /// retained here and is cleared through explicit controller operations.
 final class LayoutController: @unchecked Sendable {
     unowned let owner: Miri
@@ -157,7 +157,8 @@ final class LayoutController: @unchecked Sendable {
 
     func projectItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {
         let scale = max((owner.screenContaining(viewport) ?? NSScreen.main)?.backingScaleFactor ?? 1, 1)
-        let workspaces = owner.workspaces.map { workspace in
+        let modelSnapshot = owner.windowManagement.snapshot()
+        let workspaces = modelSnapshot.workspaces.map { workspace in
             LayoutEngineWorkspace(
                 columns: workspace.columns.map { window in
                     LayoutEngineWindow(
@@ -217,7 +218,7 @@ final class LayoutController: @unchecked Sendable {
         hideInactiveWorkspaceWindows(activeWorkspace: submission.targetState.activeWorkspace)
         let shouldAnimate = submission.animated && owner.animationStrategy == .snapshot
         owner.debugLog(
-            "layout request=\(submission.token) workspace=\(submission.targetState.activeWorkspace + 1) tiled=\(owner.tiledWindows().count) floating=\(owner.floatingWindows.count) animationRequested=\(submission.animated) animationStrategy=\(owner.animationStrategy.rawValue) animationActive=\(shouldAnimate)"
+            "layout request=\(submission.token) workspace=\(submission.targetState.activeWorkspace + 1) tiled=\(owner.windowManagement.snapshot().tiledWindows.count) floating=\(owner.windowManagement.snapshot().floatingWindows.count) animationRequested=\(submission.animated) animationStrategy=\(owner.animationStrategy.rawValue) animationActive=\(shouldAnimate)"
         )
         owner.manualResizeController.suppress(for: (shouldAnimate ? 0.25 : 0) + max(submission.lockDelay, 0.25))
         if shouldAnimate, let previousState = submission.previousState {
@@ -288,8 +289,9 @@ final class LayoutController: @unchecked Sendable {
     }
 
     func hideInactiveWorkspaceWindows(activeWorkspace activeIndex: Int) {
+        let snapshot = owner.windowManagement.snapshot()
         let activeIDs = workspaceWindowIDs(workspaceIndex: activeIndex)
-        for (workspaceIndex, workspace) in owner.workspaces.enumerated() where workspaceIndex != activeIndex {
+        for (workspaceIndex, workspace) in snapshot.workspaces.enumerated() where workspaceIndex != activeIndex {
             for window in workspace.columns {
                 let id = ObjectIdentifier(window)
                 appliedVisibility[id] = false
@@ -434,7 +436,7 @@ final class LayoutController: @unchecked Sendable {
     }
 
     func restoreFloatingVisibility(windows: [ManagedWindow]? = nil, raise: Bool = false, deferred: Bool = false) {
-        let windows = windows ?? owner.floatingWindows
+        let windows = windows ?? owner.windowManagement.snapshot().floatingWindows
         if raise {
             for window in windows {
                 windowSystem.setLevel(owner.floatingWindowLevel, for: window.windowID)
@@ -480,7 +482,7 @@ final class LayoutController: @unchecked Sendable {
     }
 
     private func scheduleFloatingWindowRaise() {
-        guard !owner.floatingWindows.isEmpty else { return }
+        guard !owner.windowManagement.snapshot().floatingWindows.isEmpty else { return }
         floatingRaiseGeneration &+= 1
         let generation = floatingRaiseGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
@@ -508,8 +510,7 @@ final class LayoutController: @unchecked Sendable {
 }
 
 extension LayoutController {
-    var activeWorkspace: Int { owner.activeWorkspace }
-    var workspaces: [Workspace] { owner.workspaces }
+    var activeWorkspace: Int { owner.windowManagement.snapshot().activeWorkspace }
     var debugLogging: Bool { owner.debugLogging }
     var snapshotAnimationSpeed: Int { owner.snapshotAnimationSpeed }
     var animationFPS: Int { owner.animationFPS }
@@ -545,7 +546,10 @@ extension LayoutController {
     }
     func activeWindow() -> ManagedWindow? { owner.activeWindow() }
     func workspaceWindowIDs(workspaceIndex: Int) -> Set<ObjectIdentifier> {
-        guard owner.workspaces.indices.contains(workspaceIndex) else { return [] }
-        return Set(owner.workspaces[workspaceIndex].columns.map(ObjectIdentifier.init))
+        let workspaces = owner.windowManagement.snapshot().workspaces
+        guard workspaces.indices.contains(workspaceIndex) else { return [] }
+        return Set(workspaces[workspaceIndex].columns.map(ObjectIdentifier.init))
     }
+
+    func workspaceProjection(at index: Int) -> Workspace? { owner.windowManagement.workspaceProjection(at: index) }
 }

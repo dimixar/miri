@@ -19,25 +19,26 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var config: MiriConfig {
         configStore.effectiveConfig
     }
-    var workspaces: [Workspace] = [Workspace()]
-    var floatingWindows: [ManagedWindow] = []
-    var activeWorkspace: Int = 0
-    weak var previousWorkspace: Workspace?
-    weak var emptyWorkspaceFocusAuthority: Workspace?
-    var logicalSpaceContexts: [LogicalSpaceContext] = [LogicalSpaceContext(id: 0)]
-    var activeLogicalSpaceContextID: Int = 0
-    var nextLogicalSpaceContextID: Int = 1
-    var pendingLogicalSpaceSwitch = false
-    var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] = [:]
+    let windowManagement = WindowManagement()
+    var workspaces: [Workspace] { windowManagement.workspaces }
+    var floatingWindows: [ManagedWindow] { windowManagement.floatingWindows }
+    var activeWorkspace: Int { windowManagement.activeWorkspace }
+    var previousWorkspace: Workspace? { windowManagement.previousWorkspace }
+    var emptyWorkspaceFocusAuthority: Workspace? { windowManagement.emptyWorkspaceFocusAuthority }
+    var logicalSpaceContexts: [LogicalSpaceContext] { windowManagement.logicalSpaceContexts }
+    var activeLogicalSpaceContextID: Int { windowManagement.activeLogicalSpaceContextID }
+    var nextLogicalSpaceContextID: Int { windowManagement.nextLogicalSpaceContextID }
+    var pendingLogicalSpaceSwitch: Bool { windowManagement.pendingLogicalSpaceSwitch }
+    var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] { windowManagement.spaceBufferedWindows }
     var observers: [pid_t: AXObserver] = [:]
     var focusedWindowProbeGeneration: UInt64 = 0
-    var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
-    var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
-    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:]
+    var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] { windowManagement.minimizedWindowStates }
+    var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { windowManagement.fullscreenWindowStates }
+    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] { windowManagement.pendingFullscreenTransitionSince }
     var fullscreenTransitionGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardStartedGeneration: UInt64 = 0
-    var fullscreenSpaceChangeGuardWorkspace: Int?
+    var fullscreenSpaceChangeGuardWorkspace: Int? { windowManagement.fullscreenSpaceChangeGuardWorkspace }
     var spaceChangeGeneration: UInt64 = 0
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     @MainActor var settingsWindowController: SettingsWindowController?

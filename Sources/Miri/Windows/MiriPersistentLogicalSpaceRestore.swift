@@ -14,15 +14,19 @@ extension Miri {
         let visibleSignature = discoveredSignature(discovered)
         guard let selected = bestPersistentLogicalSpaceContext(for: discovered, visibleSignature: visibleSignature, in: snapshot.contexts) else {
             pendingPersistentLogicalSpaceContexts = snapshot.contexts
-            nextLogicalSpaceContextID = max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
+            windowManagement.setNextLogicalSpaceContextID(
+                max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
+            )
             return false
         }
 
         let activeContext = logicalSpaceContext(from: selected, discovered: discovered)
-        logicalSpaceContexts = [activeContext]
-        activeLogicalSpaceContextID = activeContext.id
+        windowManagement.replaceContexts(
+            [activeContext],
+            activeID: activeContext.id,
+            nextID: max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
+        )
         pendingPersistentLogicalSpaceContexts = snapshot.contexts.filter { $0.id != selected.id }
-        nextLogicalSpaceContextID = max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
         loadLogicalSpaceContext(activeContext)
         needsPersistentLayoutRestore = false
         debugLog("restored persisted logical macOS space id=\(activeContext.id) visible=\(visibleSignature.count) pending=\(pendingPersistentLogicalSpaceContexts.count)")
@@ -42,9 +46,7 @@ extension Miri {
         }
         pendingPersistentLogicalSpaceContexts.removeAll { $0.id == pending.id }
         let context = logicalSpaceContext(from: pending, discovered: discovered)
-        logicalSpaceContexts.removeAll { $0.id == context.id }
-        logicalSpaceContexts.append(context)
-        nextLogicalSpaceContextID = max(nextLogicalSpaceContextID, context.id + 1, 0)
+        windowManagement.appendContext(context)
         debugLog("promoted persisted logical macOS space id=\(context.id) visible=\(visibleSignature.count) pending=\(pendingPersistentLogicalSpaceContexts.count)")
         return context
     }
@@ -109,7 +111,7 @@ extension Miri {
                 continue
             }
             used.insert(ObjectIdentifier(window))
-            window.manualWidthRatio = state.manualWidthRatio
+            windowManagement.setWidthRatio(state.manualWidthRatio, for: window)
             let workspaceIndex = min(max(state.workspace, 0), workspaces.count - 1)
             let workspace = workspaces[workspaceIndex]
             workspace.columns.insert(window, at: min(max(state.column, 0), workspace.columns.count))

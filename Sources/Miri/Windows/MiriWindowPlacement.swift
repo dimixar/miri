@@ -29,20 +29,10 @@ extension Miri {
         applyLayout: Bool,
         focusNewWindow: Bool
     ) {
-        let index = min(max(insertionIndex, 0), workspace.columns.count)
-        workspace.columns.insert(window, at: index)
-        if focusNewWindow {
-            workspace.activeColumn = index
-        } else if workspace.columns.count > 1, workspace.activeColumn >= index {
-            workspace.activeColumn += 1
-        }
-        workspace.scrollOffset = nil
-        if emptyWorkspaceFocusAuthority === workspace {
-            emptyWorkspaceFocusAuthority = nil
+        let completedEmptyWorkspaceProtection = emptyWorkspaceFocusAuthority === workspace
+        _ = windowManagement.insert(window, in: workspace, at: insertionIndex, focus: focusNewWindow)
+        if completedEmptyWorkspaceProtection {
             debugLog("empty workspace focus protection completed reason=window-inserted")
-        }
-        if focusNewWindow, let workspaceIndex = workspaces.firstIndex(where: { $0 === workspace }) {
-            setActiveWorkspace(workspaceIndex, rememberPrevious: false)
         }
         reconcileWorkspaceCapacity()
         if applyLayout {
@@ -61,9 +51,7 @@ extension Miri {
     }
 
     func ensureWorkspaceExists(_ index: Int) {
-        while workspaces.count <= index {
-            workspaces.append(Workspace())
-        }
+        windowManagement.ensureWorkspaceExists(index)
     }
 
     func newWindowInsertionIndex(in workspace: Workspace, for window: ManagedWindow) -> Int {
@@ -82,9 +70,7 @@ extension Miri {
     }
 
     func insertFloatingWindow(_ window: ManagedWindow, applyLayout: Bool = true) {
-        if !floatingWindows.contains(where: { $0 === window }) {
-            floatingWindows.append(window)
-        }
+        _ = windowManagement.insertFloating(window)
         if applyLayout {
             projectLayout(focusActiveWindow: false)
         }
@@ -93,26 +79,8 @@ extension Miri {
     func removeWindow(_ window: ManagedWindow, preferRightFocus: Bool = false) {
         let id = ObjectIdentifier(window)
         layoutController.removeTracking(for: window)
-        pendingFullscreenTransitionSince.removeValue(forKey: id)
-        if let index = floatingWindows.firstIndex(where: { $0 === window }) {
-            floatingWindows.remove(at: index)
-            return
-        }
-
-        for workspace in workspaces {
-            if let index = workspace.columns.firstIndex(where: { $0 === window }) {
-                let wasActive = workspace.activeColumn == index
-                workspace.columns.remove(at: index)
-                if wasActive && preferRightFocus {
-                    workspace.activeColumn = min(index, max(0, workspace.columns.count - 1))
-                } else if workspace.activeColumn >= index {
-                    workspace.activeColumn = max(0, workspace.activeColumn - 1)
-                }
-                workspace.scrollOffset = nil
-                workspace.clampFocus()
-                break
-            }
-        }
+        windowManagement.clearPendingFullscreenTransition(for: id)
+        _ = windowManagement.remove(window, preferRightFocus: preferRightFocus)
         reconcileWorkspaceCapacity()
     }
 
@@ -126,7 +94,7 @@ extension Miri {
         let left = leftWindow.map(persistentIdentity(for:))
         let right = rightWindow.map(persistentIdentity(for:))
         let identity = persistentIdentity(for: window)
-        fullscreenWindowStates[identity] = FullscreenWindowState(
+        windowManagement.rememberFullscreenState(FullscreenWindowState(
             identity: identity,
             element: window.element,
             pid: window.pid,
@@ -142,24 +110,23 @@ extension Miri {
             rightNeighbor: right,
             widthRatio: widthRatio(for: window),
             wasActive: activeWorkspace == location.workspaceIndex && workspace.activeColumn == location.columnIndex
-        )
+        ))
     }
 
     func restoreExitedFullscreenWindows(discovered: [ManagedWindow]) {
         for found in discovered {
-            guard let match = fullscreenWindowStates.first(where: { sameWindow($0.value.element, found.element) || persistentIdentity(for: found) == $0.key }) else {
+            guard let state = windowManagement.takeFullscreenState(matching: { identity, state in
+                sameWindow(state.element, found.element) || persistentIdentity(for: found) == identity
+            }) else {
                 continue
             }
-            fullscreenWindowStates.removeValue(forKey: match.key)
-            found.manualWidthRatio = match.value.widthRatio
-            insertRestoredFullscreenWindow(found, state: match.value)
+            windowManagement.setWidthRatio(state.widthRatio, for: found)
+            insertRestoredFullscreenWindow(found, state: state)
         }
     }
 
     func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {
-        while workspaces.count <= state.workspace {
-            workspaces.append(Workspace())
-        }
+        windowManagement.ensureWorkspaceExists(state.workspace)
         let workspace = workspaces[min(max(state.workspace, 0), workspaces.count - 1)]
         let index = restoredFullscreenInsertionIndex(in: workspace, state: state)
         insertWindow(window, in: workspace, at: index, applyLayout: false, focusNewWindow: state.wasActive)
@@ -205,42 +172,24 @@ extension Miri {
         guard let location = tiledWindowLocation(for: window.element) else {
             return
         }
-        minimizedWindowStates[persistentIdentity(for: window)] = PersistentWindowState(
+        windowManagement.rememberMinimizedState(PersistentWindowState(
             identity: persistentIdentity(for: window),
             workspace: location.workspaceIndex,
             column: location.columnIndex,
             manualWidthRatio: widthRatio(for: window)
-        )
+        ))
     }
 
     func restoreMinimizedWindowStateIfAvailable(for window: ManagedWindow) {
         let identity = persistentIdentity(for: window)
-        guard let state = minimizedWindowStates.removeValue(forKey: identity) else {
+        guard let state = windowManagement.takeMinimizedState(identity: identity) else {
             return
         }
-        window.manualWidthRatio = state.manualWidthRatio
+        windowManagement.setWidthRatio(state.manualWidthRatio, for: window)
     }
 
     func reconcileWorkspaceCapacity() {
-        if workspaces.isEmpty {
-            workspaces = [Workspace()]
-            activeWorkspace = 0
-            previousWorkspace = nil
-            emptyWorkspaceFocusAuthority = nil
-        }
-
-        ensureWorkspaceExists(minimumWorkspaceCount - 1)
-
-        let highestOccupiedIndex = workspaces.lastIndex(where: { !$0.isEmpty }) ?? 0
-        let requiredLastIndex = max(minimumWorkspaceCount - 1, highestOccupiedIndex, activeWorkspace)
-        while workspaces.count - 1 > requiredLastIndex, workspaces.last?.isEmpty == true {
-            workspaces.removeLast()
-        }
-
-        activeWorkspace = min(max(activeWorkspace, 0), workspaces.count - 1)
-        for workspace in workspaces {
-            workspace.clampFocus()
-        }
+        windowManagement.reconcileWorkspaceCapacity(minimumCount: minimumWorkspaceCount)
     }
 
 }
