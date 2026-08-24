@@ -77,38 +77,60 @@ extension Miri {
     }
 
     @objc private func screenDidLock(_ notification: Notification) {
-        updateSessionState(screenLocked: true, reason: notification.name.rawValue)
+        enqueue(.session(.stateChanged(
+            screenLocked: true,
+            workspaceActive: nil,
+            systemSleeping: nil,
+            reason: notification.name.rawValue
+        )))
     }
 
     @objc private func screenDidUnlock(_ notification: Notification) {
-        updateSessionState(screenLocked: false, reason: notification.name.rawValue)
+        enqueue(.session(.stateChanged(
+            screenLocked: false,
+            workspaceActive: nil,
+            systemSleeping: nil,
+            reason: notification.name.rawValue
+        )))
     }
 
     @objc private func workspaceSessionDidBecomeActive(_ notification: Notification) {
-        updateSessionState(
+        enqueue(.session(.stateChanged(
             screenLocked: currentConsoleLockState(),
             workspaceActive: true,
+            systemSleeping: nil,
             reason: notification.name.rawValue
-        )
+        )))
     }
 
     @objc private func workspaceSessionDidResignActive(_ notification: Notification) {
-        updateSessionState(workspaceActive: false, reason: notification.name.rawValue)
+        enqueue(.session(.stateChanged(
+            screenLocked: nil,
+            workspaceActive: false,
+            systemSleeping: nil,
+            reason: notification.name.rawValue
+        )))
     }
 
     @objc private func workspaceWillSleep(_ notification: Notification) {
-        updateSessionState(systemSleeping: true, reason: notification.name.rawValue)
+        enqueue(.session(.stateChanged(
+            screenLocked: nil,
+            workspaceActive: nil,
+            systemSleeping: true,
+            reason: notification.name.rawValue
+        )))
     }
 
     @objc private func workspaceDidWake(_ notification: Notification) {
-        updateSessionState(
+        enqueue(.session(.stateChanged(
             screenLocked: currentConsoleLockState(),
+            workspaceActive: nil,
             systemSleeping: false,
             reason: notification.name.rawValue
-        )
+        )))
     }
 
-    private func updateSessionState(
+    func updateSessionStateImplementation(
         screenLocked: Bool? = nil,
         workspaceActive: Bool? = nil,
         systemSleeping: Bool? = nil,
@@ -164,9 +186,7 @@ extension Miri {
         manualResizeEndTimer = nil
         manualResizeElement = nil
         pendingFocusCommands.removeAll()
-        pendingAXReconciliationPIDs.removeAll()
-        pendingAXReconciliationAdoptFocused = false
-        pendingAXReconciliationNeedsFullRescan = false
+        pendingCoordinatorReconciliation = nil
         pendingAXCreationSettleGenerations.removeAll()
         pendingSnapshotDeferredLayout = false
         stopAnimation(clearPresentation: true)

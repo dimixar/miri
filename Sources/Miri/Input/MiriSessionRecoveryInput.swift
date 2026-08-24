@@ -95,6 +95,10 @@ extension Miri {
     }
 
     func handleSessionRecoveryEventTapDisabled() {
+        enqueue(.input(.sessionRecoveryEventTapDisabled))
+    }
+
+    func handleSessionRecoveryEventTapDisabledImplementation() {
         guard let sessionRecoveryEventTap else {
             return
         }
@@ -304,6 +308,10 @@ extension Miri {
     }
 
     func requestSessionRecovery(reason: String, command: Command? = nil) {
+        enqueue(.input(.sessionRecoveryRequested(reason: reason, command: command)))
+    }
+
+    func requestSessionRecoveryImplementation(reason: String, command: Command? = nil) {
         guard sessionRecoverySessionIsEligible else {
             return
         }
@@ -318,11 +326,11 @@ extension Miri {
         let generation = sessionResumeGeneration
         debugLog("session recovery requested reason=\(reason) generation=\(generation)")
         DispatchQueue.main.async { [weak self] in
-            self?.completeSessionRecovery(generation: generation, reason: reason)
+            self?.enqueue(.session(.recoveryReady(generation: generation, reason: reason)))
         }
     }
 
-    func completeSessionRecovery(generation: UInt64, reason: String) {
+    func completeSessionRecoveryImplementation(generation: UInt64, reason: String) {
         guard sessionResumeGeneration == generation,
               sessionRecoverySessionIsEligible
         else {

@@ -6,7 +6,7 @@ extension Miri {
         let shouldRun = isLayoutTrackingAllowed && activeRescanTrackedPIDs().isEmpty == false
         if shouldRun, activeRescanTimer == nil {
             activeRescanTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                self?.handleActiveRescanTick()
+                self?.enqueue(.timer(.activeRescan))
             }
             debugLog("active rescan timer started")
         } else if !shouldRun, activeRescanTimer != nil {
@@ -17,16 +17,18 @@ extension Miri {
     }
 
     func scheduleActiveRescanForUserInput() {
+        enqueue(.input(.userInteraction))
+    }
+
+    func scheduleActiveRescanForUserInputImplementation() {
         guard isLayoutTrackingAllowed, activeRescanEnabled else {
             return
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.performActiveRescan(reason: "user-input")
-        }
+        performActiveRescan(reason: "user-input")
     }
 
-    private func handleActiveRescanTick() {
+    func handleActiveRescanTickImplementation() {
         guard isLayoutTrackingAllowed else {
             syncActiveRescanTimer()
             return
@@ -47,11 +49,14 @@ extension Miri {
 
         debugLog("active rescan reason=\(reason) pids=\(pids.sorted())")
         for pid in pids {
-            if axReconciliationShouldDefer {
-                deferAXReconciliation(pid: pid, adoptFocused: true, reason: "active-rescan-\(reason)")
-            } else {
-                reconcileWindows(forPID: pid, adoptFocused: true)
-            }
+            requestReconciliation(
+                .application(
+                    pid: pid,
+                    adoptFocused: true,
+                    source: .activeRescan,
+                    reason: reason
+                )
+            )
         }
         syncActiveRescanTimer()
     }

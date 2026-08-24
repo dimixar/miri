@@ -22,7 +22,9 @@ extension Miri {
 
         if !isFullscreenWindow(element), isRememberedFullscreenWindow(element) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                self?.rescanWindows(adoptFocused: true)
+                self?.requestReconciliation(
+                    .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-enter-settle")
+                )
             }
             return true
         }
@@ -37,7 +39,9 @@ extension Miri {
             pendingFullscreenTransitionSince[id] = now
             debugLog("pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
             DispatchQueue.main.asyncAfter(deadline: .now() + fullscreenTransitionGrace) { [weak self] in
-                self?.rescanWindows(adoptFocused: true)
+                self?.requestReconciliation(
+                    .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-grace")
+                )
             }
         }
         fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
@@ -267,24 +271,24 @@ extension Miri {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + .milliseconds(140), leeway: .milliseconds(20))
         timer.setEventHandler { [weak self] in
-            guard let self else {
-                return
-            }
-
-            manualResizeEndTimer?.cancel()
-            manualResizeEndTimer = nil
-
-            if manualResizeElement.map({ sameWindow($0, element) }) == true {
-                if updateManualWidthRatio(for: element) {
-                    schedulePersistentLayoutSnapshotWrite()
-                }
-                projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
-                manualResizeElement = nil
-            }
+            self?.enqueue(.timer(.manualResizeEnded(element: element)))
         }
 
         manualResizeEndTimer = timer
         timer.resume()
+    }
+
+    func handleManualResizeEnded(element: AXUIElement) {
+        manualResizeEndTimer?.cancel()
+        manualResizeEndTimer = nil
+
+        if manualResizeElement.map({ sameWindow($0, element) }) == true {
+            if updateManualWidthRatio(for: element) {
+                schedulePersistentLayoutSnapshotWrite()
+            }
+            projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
+            manualResizeElement = nil
+        }
     }
 
     func isManualResizeElement(_ element: AXUIElement) -> Bool {

@@ -18,60 +18,26 @@ extension Miri {
         needsFullRescan: Bool = false,
         reason: String
     ) {
-        if pid != 0 {
-            pendingAXReconciliationPIDs.insert(pid)
+        let intent: ReconciliationIntent
+        if needsFullRescan || pid == 0 {
+            intent = .all(
+                adoptFocused: adoptFocused,
+                source: .accessibility,
+                reason: reason
+            )
         } else {
-            pendingAXReconciliationNeedsFullRescan = true
+            intent = .application(
+                pid: pid,
+                adoptFocused: adoptFocused,
+                source: .accessibility,
+                reason: reason
+            )
         }
-        pendingAXReconciliationAdoptFocused = pendingAXReconciliationAdoptFocused || adoptFocused
-        pendingAXReconciliationNeedsFullRescan = pendingAXReconciliationNeedsFullRescan || needsFullRescan
-        debugLog(
-            "ax reconciliation deferred reason=\(reason) pid=\(pid) pids=\(pendingAXReconciliationPIDs.count) fullRescan=\(pendingAXReconciliationNeedsFullRescan)"
-        )
-        schedulePendingAXReconciliationDrain()
-    }
-
-    func schedulePendingAXReconciliationDrain() {
-        guard !pendingAXReconciliationDrainScheduled else {
-            return
-        }
-        pendingAXReconciliationDrainScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.drainPendingAXReconciliationIfReady()
-        }
+        requestReconciliation(intent)
     }
 
     func drainPendingAXReconciliationIfReady() {
-        guard !axReconciliationShouldDefer else {
-            pendingAXReconciliationDrainScheduled = false
-            schedulePendingAXReconciliationDrain()
-            return
-        }
-
-        pendingAXReconciliationDrainScheduled = false
-        guard pendingAXReconciliationNeedsFullRescan || !pendingAXReconciliationPIDs.isEmpty else {
-            pendingAXReconciliationAdoptFocused = false
-            return
-        }
-
-        let pids = pendingAXReconciliationPIDs
-        let adoptFocused = pendingAXReconciliationAdoptFocused
-        let needsFullRescan = pendingAXReconciliationNeedsFullRescan
-        pendingAXReconciliationPIDs.removeAll()
-        pendingAXReconciliationAdoptFocused = false
-        pendingAXReconciliationNeedsFullRescan = false
-
-        debugLog(
-            "ax reconciliation draining pids=\(pids.count) fullRescan=\(needsFullRescan) adoptFocused=\(adoptFocused)"
-        )
-        if needsFullRescan {
-            rescanWindows(adoptFocused: adoptFocused)
-            return
-        }
-
-        for pid in pids {
-            reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
-        }
+        drainPendingCoordinatorWorkIfPossible()
     }
 
     func shouldRateLimitAXCreatedPlaceholderProbe(pid: pid_t) -> Bool {
@@ -134,7 +100,14 @@ extension Miri {
                     self.deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, reason: "\(reason):settle")
                 } else {
                     self.debugLog("ax creation reconciliation attempt reason=\(reason) pid=\(pid) attempt=\(index + 1)/\(delays.count)")
-                    self.reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
+                    self.requestReconciliation(
+                        .application(
+                            pid: pid,
+                            adoptFocused: adoptFocused,
+                            source: .delayedProbe,
+                            reason: "\(reason):settle-\(index + 1)"
+                        )
+                    )
                     let currentWindowCount = self.allWindows().filter { $0.pid == pid }.count
                     if currentWindowCount > originalWindowCount {
                         self.debugLog("ax creation reconciliation completed reason=\(reason) pid=\(pid) windows=\(currentWindowCount)")
@@ -277,7 +250,7 @@ extension Miri {
         observers[pid] = observer
     }
 
-    fileprivate func handleAXNotification(_ name: String, element: AXUIElement) {
+    func handleAXNotificationImplementation(_ name: String, element: AXUIElement) {
         requestSessionRecoveryForFullscreenTransitionIfNeeded(
             notification: name,
             element: element
@@ -342,7 +315,9 @@ extension Miri {
                 saveActiveLogicalSpaceContext()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.reconcileWindows(forPID: pid, adoptFocused: true)
+                    self?.requestReconciliation(
+                        .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "destroyed-settle")
+                    )
                 }
             }
         case kAXCreatedNotification,
@@ -380,7 +355,9 @@ extension Miri {
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.reconcileWindows(forPID: pid, adoptFocused: true)
+                    self?.requestReconciliation(
+                        .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "miniaturized-settle")
+                    )
                 }
                 return
             }
@@ -393,7 +370,9 @@ extension Miri {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                self?.reconcileWindows(forPID: pid, adoptFocused: true)
+                self?.requestReconciliation(
+                    .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "ax-state-settle")
+                )
             }
         case kAXWindowResizedNotification:
             var pid: pid_t = 0
@@ -478,5 +457,5 @@ private func axObserverCallback(
     }
 
     let app = Unmanaged<Miri>.fromOpaque(refcon).takeUnretainedValue()
-    app.handleAXNotification(notification as String, element: element)
+    app.enqueue(.windows(.accessibilityNotification(name: notification as String, element: element)))
 }

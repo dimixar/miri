@@ -6,6 +6,15 @@ import Darwin
 import Foundation
 
 final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
+    var appPhase: AppPhase = .starting
+    var nextCoordinatorSequence: UInt64 = 0
+    var coordinatorEventQueue: [SequencedAppEvent] = []
+    var isHandlingCoordinatorEvent = false
+    var activeCoordinatorSequence: EventSequence?
+    var pendingCoordinatorReconciliation: ReconciliationIntent?
+    var reconciliationDrainScheduled = false
+    var reconciliationDrainGeneration: UInt64 = 0
+    var terminationPrepared = false
     var loadedConfig = MiriConfig.loadWithMetadata()
     var config: MiriConfig {
         loadedConfig.config
@@ -71,10 +80,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingSnapshotDeferredLayout = false
     var pendingSnapshotDeferredFocusActiveWindow = false
     var pendingSnapshotDeferredLayoutLockDelay: TimeInterval = 0.08
-    var pendingAXReconciliationPIDs = Set<pid_t>()
-    var pendingAXReconciliationAdoptFocused = false
-    var pendingAXReconciliationNeedsFullRescan = false
-    var pendingAXReconciliationDrainScheduled = false
     var pendingAXCreationSettleGenerations: [pid_t: UInt64] = [:]
     var axCreationSettleGeneration: UInt64 = 0
     var lastAXCreatedPlaceholderProbeAt: [pid_t: CFAbsoluteTime] = [:]
@@ -123,8 +128,11 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         installFocusedWindowInputMonitor()
         syncSessionRecoveryInputTracking()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        appPhase = isLayoutTrackingAllowed ? .running : .sessionUnavailable
         if isLayoutTrackingAllowed {
-            rescanWindows(adoptFocused: true)
+            requestReconciliation(
+                .all(adoptFocused: true, source: .startup, reason: "startup")
+            )
         } else {
             print("miri: layout tracking paused because the user session is unavailable")
         }
@@ -138,17 +146,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        snapshotWriteTimer?.cancel()
-        logicalSpaceSnapshotTimer?.cancel()
-        activeRescanTimer?.invalidate()
-        appLaunchSettlingTimer?.invalidate()
-        uninstallFocusedWindowInputMonitor()
-        uninstallSessionRecoveryEventTap()
-        uninstallEventTap()
-        uninstallCarbonHotKeys()
-        writePersistentLayoutSnapshot()
-        writePersistentLogicalSpaceSnapshot()
-        restoreManagedWindowsForExit()
+        enqueue(.terminate(reason: "NSApplicationWillTerminate"))
     }
 
     private func requestAccessibilityPermission() -> Bool {
@@ -189,11 +187,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler { [weak self] in
-                self?.snapshotWriteTimer?.cancel()
-                self?.logicalSpaceSnapshotTimer?.cancel()
-                self?.writePersistentLayoutSnapshot()
-                self?.writePersistentLogicalSpaceSnapshot()
-                self?.restoreManagedWindowsForExit()
+                self?.enqueue(.terminate(reason: "signal-\(sig)"))
                 exit(0)
             }
             source.resume()

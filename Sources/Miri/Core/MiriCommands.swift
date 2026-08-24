@@ -13,17 +13,7 @@ enum IntelligentResizeDirection {
 
 extension Miri {
     func submit(_ command: Command, animateWorkspace: Bool = false) {
-        if shouldQueueFocusCommand(command) {
-            keyboardFocusAuthorityUntil = CFAbsoluteTimeGetCurrent() + 1.5
-        }
-        let shouldSerialize = animationStrategy != .snapshot
-            && shouldQueueFocusCommand(command)
-            && (isApplyingLayout || animationTimer != nil || snapshotAnimationSession != nil)
-        guard shouldSerialize else {
-            perform(command, animateWorkspace: animateWorkspace)
-            return
-        }
-        pendingFocusCommands.append(command)
+        enqueue(.input(.command(command, animateWorkspace: animateWorkspace)))
     }
 
     func drainPendingFocusCommands() {

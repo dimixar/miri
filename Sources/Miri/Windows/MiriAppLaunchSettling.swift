@@ -25,7 +25,7 @@ extension Miri {
         )
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.performAppLaunchSettlingReconciliation(pid: pid, reason: "initial")
+            self?.enqueue(.timer(.appLaunchSettlingProbe(pid: pid, reason: "initial")))
         }
     }
 
@@ -60,7 +60,7 @@ extension Miri {
                 withTimeInterval: appLaunchSettlingInterval,
                 repeats: true
             ) { [weak self] _ in
-                self?.handleAppLaunchSettlingTick()
+                self?.enqueue(.timer(.appLaunchSettling))
             }
             debugLog("app launch settling timer started")
         } else if !shouldRun, appLaunchSettlingTimer != nil {
@@ -70,7 +70,7 @@ extension Miri {
         }
     }
 
-    private func handleAppLaunchSettlingTick() {
+    func handleAppLaunchSettlingTickImplementation() {
         guard isLayoutTrackingAllowed else {
             syncAppLaunchSettlingTimer()
             return
@@ -86,7 +86,7 @@ extension Miri {
         }
     }
 
-    private func performAppLaunchSettlingReconciliation(pid: pid_t, reason: String) {
+    func performAppLaunchSettlingReconciliation(pid: pid_t, reason: String) {
         guard let deadline = appLaunchSettlingDeadlines[pid],
               CFAbsoluteTimeGetCurrent() < deadline
         else {
@@ -107,16 +107,15 @@ extension Miri {
         }
 
         let adoptFocused = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-        if axReconciliationShouldDefer {
-            deferAXReconciliation(
+        debugLog("app launch settling reconciliation reason=\(reason) pid=\(pid)")
+        requestReconciliation(
+            .application(
                 pid: pid,
                 adoptFocused: adoptFocused,
-                reason: "app-launch-settling:\(reason)"
+                source: .launchSettling,
+                reason: reason
             )
-        } else {
-            debugLog("app launch settling reconciliation reason=\(reason) pid=\(pid)")
-            reconcileWindows(for: app, adoptFocused: adoptFocused)
-        }
+        )
     }
 
     func noteAppLaunchSettlingWindowObserved(_ window: ManagedWindow) {

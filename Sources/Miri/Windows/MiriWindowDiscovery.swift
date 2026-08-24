@@ -12,6 +12,13 @@ enum AXCreatedReconciliationAction {
 
 extension Miri {
     @objc func applicationActivated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+            return
+        }
+        enqueue(.workspace(.applicationActivated(app)))
+    }
+
+    func applicationActivatedImplementation(_ app: NSRunningApplication) {
         guard isLayoutTrackingAllowed else {
             return
         }
@@ -19,9 +26,6 @@ extension Miri {
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            return
-        }
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
         let previousPID = lastActivatedApplicationPID
@@ -40,31 +44,7 @@ extension Miri {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            guard let self else {
-                return
-            }
-            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            guard frontmostPID == app.processIdentifier else {
-                let frontmostDescription = frontmostPID.map(String.init) ?? "nil"
-                debugLog(
-                    "activation settle ignored reason=stale-app pid=\(app.processIdentifier) frontmostPID=\(frontmostDescription)"
-                )
-                return
-            }
-            guard !axReconciliationShouldDefer else {
-                deferAXReconciliation(
-                    pid: app.processIdentifier,
-                    adoptFocused: true,
-                    reason: "NSWorkspaceDidActivate"
-                )
-                return
-            }
-            reconcileWindows(for: app, adoptFocused: false)
-            adoptFocusedWindow(
-                pid: app.processIdentifier,
-                animateIfSameWorkspace: true,
-                reason: "NSWorkspaceDidActivate:settle"
-            )
+            self?.enqueue(.workspace(.applicationActivationSettled(app)))
         }
         guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
             return
@@ -76,10 +56,39 @@ extension Miri {
         )
     }
 
+    func applicationActivationSettledImplementation(_ app: NSRunningApplication) {
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard frontmostPID == app.processIdentifier else {
+            let frontmostDescription = frontmostPID.map(String.init) ?? "nil"
+            debugLog(
+                "activation settle ignored reason=stale-app pid=\(app.processIdentifier) frontmostPID=\(frontmostDescription)"
+            )
+            return
+        }
+        guard !axReconciliationShouldDefer else {
+            deferAXReconciliation(
+                pid: app.processIdentifier,
+                adoptFocused: true,
+                reason: "NSWorkspaceDidActivate"
+            )
+            return
+        }
+        reconcileWindows(for: app, adoptFocused: false)
+        adoptFocusedWindow(
+            pid: app.processIdentifier,
+            animateIfSameWorkspace: true,
+            reason: "NSWorkspaceDidActivate:settle"
+        )
+    }
+
     @objc func applicationLaunched(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
+        enqueue(.workspace(.applicationLaunched(app)))
+    }
+
+    func applicationLaunchedImplementation(_ app: NSRunningApplication) {
         guard isLayoutTrackingAllowed else {
             if isAwaitingSessionRecoveryInteraction, app.activationPolicy == .regular {
                 pendingSessionRecoveryLaunchedPIDs.insert(app.processIdentifier)
@@ -94,6 +103,10 @@ extension Miri {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
             return
         }
+        enqueue(.workspace(.applicationTerminated(app)))
+    }
+
+    func applicationTerminatedImplementation(_ app: NSRunningApplication) {
         pendingSessionRecoveryLaunchedPIDs.remove(app.processIdentifier)
         finishAppLaunchSettling(
             pid: app.processIdentifier,
@@ -116,11 +129,15 @@ extension Miri {
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.removeWindows(forPID: app.processIdentifier)
+            self?.enqueue(.windows(.removeTerminatedApplication(app.processIdentifier)))
         }
     }
 
     @objc func activeSpaceChanged(_ notification: Notification) {
+        enqueue(.workspace(.activeSpaceChanged))
+    }
+
+    func activeSpaceChangedImplementation() {
         guard isLayoutTrackingAllowed else {
             return
         }
@@ -133,7 +150,9 @@ extension Miri {
         spaceChangeGeneration &+= 1
         debugLog("active macOS space changed generation=\(spaceChangeGeneration)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.rescanWindows(adoptFocused: true)
+            self?.requestReconciliation(
+                .all(adoptFocused: true, source: .workspace, reason: "active-space-settle")
+            )
         }
     }
 
@@ -400,7 +419,9 @@ extension Miri {
         if likelyFullscreenExitSettle(discovered: discovered) {
             debugLog("freezing logical macOS space during fullscreen settle visible=0 known=\(currentLogicalSpaceSignature().count)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.rescanWindows(adoptFocused: true)
+                self?.requestReconciliation(
+                    .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-settle")
+                )
             }
             return
         }
@@ -412,7 +433,9 @@ extension Miri {
         if likelyBulkTransientDisappearance(discovered: discovered) {
             debugLog("freezing logical macOS space during bulk transient disappearance visible=\(discoveredSignature(discovered).count) known=\(currentLogicalSpaceSignature().count)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.rescanWindows(adoptFocused: true)
+                self?.requestReconciliation(
+                    .all(adoptFocused: true, source: .delayedProbe, reason: "bulk-disappearance-settle")
+                )
             }
             return
         }

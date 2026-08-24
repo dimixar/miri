@@ -103,8 +103,8 @@ extension Miri {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.scheduleActiveRescanForUserInput()
-            self?.submit(command)
+            self?.enqueue(.input(.command(command, animateWorkspace: false)))
+            self?.enqueue(.input(.userInteraction))
         }
         return noErr
     }

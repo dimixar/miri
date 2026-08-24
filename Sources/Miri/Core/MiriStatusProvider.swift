@@ -105,6 +105,10 @@ extension Miri {
     }
 
     func openConfigFromMenu() {
+        enqueue(.ui(.openConfig))
+    }
+
+    func openConfigFromMenuImplementation() {
         if let url = loadedConfig.sourceURL {
             NSWorkspace.shared.open(url)
             return
@@ -115,15 +119,23 @@ extension Miri {
     }
 
     func reloadFromMenu() {
+        enqueue(.ui(.reloadConfig))
+    }
+
+    func reloadFromMenuImplementation() {
         loadedConfig.sourceModificationDate = nil
         _ = reloadConfigIfNeeded()
     }
 
     func rescanFromMenu() {
-        rescanWindows(adoptFocused: true)
+        enqueue(.ui(.rescanWindows))
     }
 
     @MainActor func showSettingsFromMenu() {
+        enqueue(.ui(.showSettings))
+    }
+
+    @MainActor func showSettingsFromMenuImplementation() {
         let apps = availableRuleApps()
         if let settingsWindowController {
             settingsWindowController.refresh(config: config, availableApps: apps)
@@ -141,6 +153,10 @@ extension Miri {
     }
 
     @MainActor func saveConfigFromSettings(_ updatedConfig: MiriConfig) {
+        enqueue(.ui(.saveConfig(updatedConfig)))
+    }
+
+    @MainActor func saveConfigFromSettingsImplementation(_ updatedConfig: MiriConfig) {
         let url = loadedConfig.sourceURL ?? URL(fileURLWithPath: NSString(string: "~/.config/miri/config.json").expandingTildeInPath)
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -181,12 +197,7 @@ extension Miri {
     }
 
     @MainActor func quitFromMenu() {
-        snapshotWriteTimer?.cancel()
-        logicalSpaceSnapshotTimer?.cancel()
-        writePersistentLayoutSnapshot()
-        writePersistentLogicalSpaceSnapshot()
-        restoreManagedWindowsForExit()
-        NSApp.terminate(nil)
+        enqueue(.ui(.quit))
     }
 
     func scheduleReconciliationTimer() {
@@ -196,11 +207,15 @@ extension Miri {
             return
         }
         reconciliationTimer = Timer.scheduledTimer(withTimeInterval: windowReconciliationInterval, repeats: true) { [weak self] _ in
-            self?.handlePeriodicTick()
+            self?.enqueue(.timer(.periodicReconciliation))
         }
     }
 
     func handlePeriodicTick() {
+        enqueue(.timer(.periodicReconciliation))
+    }
+
+    func handlePeriodicTickImplementation() {
         guard isLayoutTrackingAllowed else {
             return
         }
@@ -211,7 +226,13 @@ extension Miri {
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
             return
         }
-        rescanWindows(adoptFocused: wasTransient)
+        requestReconciliation(
+            .all(
+                adoptFocused: wasTransient,
+                source: .periodicTimer,
+                reason: "periodic-timer"
+            )
+        )
     }
 
     @discardableResult

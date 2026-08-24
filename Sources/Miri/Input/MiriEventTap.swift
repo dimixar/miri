@@ -83,6 +83,10 @@ extension Miri {
     }
 
     func handleEventTapDisabled(_ type: CGEventType) {
+        enqueue(.input(.eventTapDisabled(type)))
+    }
+
+    func handleEventTapDisabledImplementation(_ type: CGEventType) {
         guard let eventTap else {
             debugLog("event tap disabled by \(type), but tap is nil")
             return
@@ -119,7 +123,9 @@ extension Miri {
             return command != nil
         }
 
-        scheduleActiveRescanForUserInput()
+        DispatchQueue.main.async { [weak self] in
+            self?.enqueue(.input(.userInteraction))
+        }
         guard let command else {
             return false
         }
@@ -129,7 +135,7 @@ extension Miri {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.submit(command)
+            self?.enqueue(.input(.command(command, animateWorkspace: false)))
         }
         return true
     }
