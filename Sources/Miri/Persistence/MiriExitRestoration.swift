@@ -7,7 +7,7 @@ extension Miri {
         let viewport = currentViewport()
         layoutController.restoreForTermination(
             tiledWindows: tiledWindows(),
-            floatingWindows: floatingWindows,
+            floatingWindows: windowManagement.floatingWindows,
             viewport: viewport,
             restoreFrames: restoreOnExit
         )
@@ -21,7 +21,7 @@ extension Miri {
         }
 
         let ids = Array(Set(tiledWindows().compactMap(\.windowID))).sorted()
-        let floatingIDs = Array(Set(floatingWindows.compactMap(\.windowID))).sorted()
+        let floatingIDs = Array(Set(windowManagement.floatingWindows.compactMap(\.windowID))).sorted()
         guard !ids.isEmpty || !floatingIDs.isEmpty else {
             persistenceController.writeRestoreSnapshot(nil)
             return

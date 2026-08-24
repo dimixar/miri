@@ -2,8 +2,8 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-struct WorkspaceModelSnapshot: Sendable {
-    struct WorkspaceSnapshot: Sendable {
+struct WorkspaceModelSnapshot {
+    struct WorkspaceSnapshot {
         let columns: [ManagedWindow]
         let activeColumn: Int
         let scrollOffset: CGFloat?
@@ -75,6 +75,7 @@ enum MissingWindowDisposition {
 /// The authoritative mutable graph for managed windows and logical Spaces.
 /// The active workspace projection is backed directly by its active context,
 /// so a window never lives in a coordinator-owned mirror of the model.
+@MainActor
 final class WorkspaceModel {
     fileprivate var logicalSpaceContexts: [LogicalSpaceContext]
     fileprivate var activeLogicalSpaceContextID: Int
@@ -106,6 +107,7 @@ final class WorkspaceModel {
 /// Window-domain boundary. The model owns canonical logical state while the
 /// observation controller owns OS callbacks and discovery timer bookkeeping.
 /// Layout, persistence, and UI publication stay outside.
+@MainActor
 final class WindowManagement {
     private let model = WorkspaceModel()
     let observation: WindowObservationController

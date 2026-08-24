@@ -102,8 +102,6 @@ extension Miri {
         case .windows(.reconciliationRequested(var intent)):
             intent.id = sequence
             admitReconciliation(intent)
-        case .windows(.removeTerminatedApplication(let pid)):
-            removeWindows(forPID: pid)
         case .windows(.environmentGuardEvaluated(let blocked, let recovered)):
             debugLog("window environment guard blocked=\(blocked) recovered=\(recovered)")
         case .layout(let layout):
@@ -130,11 +128,15 @@ extension Miri {
         case .userInteraction:
             scheduleActiveRescanForUserInputImplementation()
         case .focusedWindowProbeRequested(let reason):
-            scheduleFocusedWindowProbeImplementation(reason: reason)
+            windowManagement.observation.scheduleFocusedWindowProbe(reason: reason)
         case .focusedWindowProbeDue(let reason, let generation):
             handleFocusedWindowProbeDue(reason: reason, generation: generation)
         case .eventTapDisabled(let type):
-            handleEventTapDisabledImplementation(type)
+            if inputController.reenableEventTap(after: type) {
+                debugLog("event tap re-enabled after \(type)")
+            } else {
+                debugLog("event tap disabled by \(type), but tap is nil")
+            }
         case .sessionRecoveryEventTapDisabled:
             handleSessionRecoveryEventTapDisabledImplementation()
         case .sessionRecoveryCandidate(let event, let type):
@@ -151,10 +153,10 @@ extension Miri {
                 systemSleeping: sleeping,
                 reason: reason
             )
-            appPhase = isLayoutTrackingAllowed ? .running : .sessionUnavailable
+            appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
         case .recoveryReady(let generation, let reason):
             completeSessionRecoveryImplementation(generation: generation, reason: reason)
-            appPhase = isLayoutTrackingAllowed ? .running : .sessionUnavailable
+            appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
             drainPendingCoordinatorWorkIfPossibleImplementation()
         }
     }
@@ -252,7 +254,7 @@ extension Miri {
     }
 
     @MainActor private func admitReconciliation(_ intent: ReconciliationIntent) {
-        guard appPhase == .running, isLayoutTrackingAllowed else {
+        guard appPhase == .running, sessionController.isLayoutTrackingAllowed else {
             coalescePendingReconciliation(intent, reason: "phase-\(appPhase.rawValue)")
             return
         }
@@ -329,7 +331,7 @@ extension Miri {
 
     @MainActor private func drainPendingCoordinatorWorkIfPossibleImplementation() {
         guard appPhase == .running,
-              isLayoutTrackingAllowed,
+              sessionController.isLayoutTrackingAllowed,
               !reconciliationAdmissionClosed
         else {
             if pendingCoordinatorReconciliation != nil {
@@ -346,7 +348,7 @@ extension Miri {
     }
 
     @MainActor private func admitCommand(_ command: Command, animateWorkspace: Bool = false) {
-        guard appPhase == .running, isLayoutTrackingAllowed else {
+        guard appPhase == .running, sessionController.isLayoutTrackingAllowed else {
             pendingFocusCommands.append(command)
             debugLog(
                 "command deferred command=\(String(describing: command)) reason=phase-\(appPhase.rawValue) pending=\(pendingFocusCommands.count)"
@@ -377,10 +379,10 @@ extension Miri {
         debugLog("termination preparation begin source=\(reason)")
         persistenceController.stopTimers()
         windowManagement.observation.stop()
-        uninstallFocusedWindowInputMonitor()
+        inputController.uninstallFocusedWindowMonitor()
         sessionController.stop()
-        uninstallEventTap()
-        uninstallCarbonHotKeys()
+        inputController.uninstallEventTap()
+        inputController.uninstallCarbonHotKeys()
         layoutController.cancel(reason: "termination")
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
@@ -470,7 +472,6 @@ private extension WindowEvent {
         switch self {
         case .accessibilityNotification: return "windows.ax-notification"
         case .reconciliationRequested: return "windows.reconciliation-requested"
-        case .removeTerminatedApplication: return "windows.remove-terminated-application"
         case .environmentGuardEvaluated: return "windows.environment-guard-evaluated"
         }
     }

@@ -26,7 +26,7 @@ extension Miri {
         guard windowManagement.consumePendingLogicalSpaceSwitch() else { return false }
 
         let visibleSignature = discoveredSignature(discovered)
-        let bufferedVisibleIDs = visibleSignature.intersection(Set(spaceBufferedWindows.keys))
+        let bufferedVisibleIDs = visibleSignature.intersection(Set(windowManagement.spaceBufferedWindows.keys))
         let context = bestLogicalSpaceContext(for: visibleSignature, bufferedVisibleIDs: bufferedVisibleIDs, discovered: discovered)
         loadLogicalSpaceContext(context)
         debugLog(
@@ -41,7 +41,9 @@ extension Miri {
         discovered: [ManagedWindow]
     ) -> LogicalSpaceContext {
         if visibleSignature.isEmpty,
-           let empty = logicalSpaceContexts.first(where: { $0.signature.isEmpty && $0.id != activeLogicalSpaceContextID })
+           let empty = windowManagement.logicalSpaceContexts.first(where: {
+               $0.signature.isEmpty && $0.id != windowManagement.activeLogicalSpaceContextID
+           })
         {
             return empty
         }
@@ -69,7 +71,7 @@ extension Miri {
             return nil
         }
         var best: (context: LogicalSpaceContext, score: Int)?
-        for context in logicalSpaceContexts {
+        for context in windowManagement.logicalSpaceContexts {
             let score = context.signature.intersection(signature).count
             if score > 0, best == nil || score > best!.score {
                 best = (context, score)
@@ -80,7 +82,7 @@ extension Miri {
 
     func likelyFullscreenExitSettle(discovered: [ManagedWindow]) -> Bool {
         guard discoveredSignature(discovered).isEmpty,
-              !fullscreenWindowStates.isEmpty
+              !windowManagement.fullscreenWindowStates.isEmpty
         else {
             return false
         }
@@ -123,14 +125,14 @@ extension Miri {
         let placement = currentPlacement(for: window)
         windowManagement.buffer(BufferedSpaceWindow(
             window: window,
-            sourceContextID: activeLogicalSpaceContextID,
+            sourceContextID: windowManagement.activeLogicalSpaceContextID,
             sourceWorkspace: placement.workspace,
             sourceColumn: placement.column,
             sourceFloatingIndex: placement.floatingIndex,
             bufferedAt: CFAbsoluteTimeGetCurrent()
         ), windowID: windowID)
         debugLog(
-            "buffering window in unknown macOS space app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)' id=\(windowID) sourceContext=\(activeLogicalSpaceContextID)"
+            "buffering window in unknown macOS space app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)' id=\(windowID) sourceContext=\(windowManagement.activeLogicalSpaceContextID)"
         )
         removeWindow(window, preferRightFocus: true)
         return true
@@ -147,7 +149,7 @@ extension Miri {
     }
 
     func currentPlacement(for window: ManagedWindow) -> (workspace: Int?, column: Int?, floatingIndex: Int?) {
-        if let floatingIndex = floatingWindows.firstIndex(where: { $0 === window }) {
+        if let floatingIndex = windowManagement.floatingWindows.firstIndex(where: { $0 === window }) {
             return (nil, nil, floatingIndex)
         }
         if let location = tiledWindowLocation(for: window.element) {
@@ -163,13 +165,13 @@ extension Miri {
         else {
             return nil
         }
-        if buffered.sourceContextID != activeLogicalSpaceContextID,
-           let source = logicalSpaceContexts.first(where: { $0.id == buffered.sourceContextID })
+        if buffered.sourceContextID != windowManagement.activeLogicalSpaceContextID,
+           let source = windowManagement.logicalSpaceContexts.first(where: { $0.id == buffered.sourceContextID })
         {
             removeWindowID(windowID, from: source)
         }
         debugLog(
-            "restoring buffered window into logical macOS space id=\(activeLogicalSpaceContextID) sourceContext=\(buffered.sourceContextID) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)' id=\(windowID)"
+            "restoring buffered window into logical macOS space id=\(windowManagement.activeLogicalSpaceContextID) sourceContext=\(buffered.sourceContextID) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)' id=\(windowID)"
         )
         return buffered
     }
@@ -179,7 +181,9 @@ extension Miri {
     }
 
     func activeContextHasBufferedSourceWindows() -> Bool {
-        spaceBufferedWindows.values.contains { $0.sourceContextID == activeLogicalSpaceContextID }
+        windowManagement.spaceBufferedWindows.values.contains {
+            $0.sourceContextID == windowManagement.activeLogicalSpaceContextID
+        }
     }
 
     func cgWindowExists(_ windowID: UInt32) -> Bool {

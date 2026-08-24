@@ -456,6 +456,7 @@ struct WindowRule: Codable {
         self.openPosition = openPosition
     }
 
+    @MainActor
     func matches(_ window: ManagedWindow) -> Bool {
         if let bundleID, window.bundleID != bundleID {
             return false

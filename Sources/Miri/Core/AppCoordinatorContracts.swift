@@ -4,6 +4,14 @@ import CoreGraphics
 import Darwin
 import Foundation
 
+/// Bridges opaque Core Foundation callback values from sources installed on the
+/// main run loop into `MainActor.assumeIsolated`. The wrapper never escapes the
+/// synchronous callback and does not make the underlying value generally safe
+/// to transfer between executors.
+struct MainRunLoopCallbackValue<Value>: @unchecked Sendable {
+    let value: Value
+}
+
 /// The coordinator-owned lifecycle used to admit or defer cross-domain work.
 enum AppPhase: String {
     case starting
@@ -148,7 +156,6 @@ enum WorkspaceEvent {
 enum WindowEvent {
     case accessibilityNotification(name: String, element: AXUIElement)
     case reconciliationRequested(ReconciliationIntent)
-    case removeTerminatedApplication(pid_t)
     case environmentGuardEvaluated(blocked: Bool, recovered: Bool)
 }
 
@@ -188,7 +195,7 @@ enum PersistenceEvent {
 /// Some payloads wrap AppKit/AX references. They are never transferred away from
 /// the main actor; unchecked sendability only permits the checked main-queue
 /// bridge in `Miri.enqueue`.
-enum AppEvent: @unchecked Sendable {
+enum AppEvent {
     case input(InputEvent)
     case session(SessionEvent)
     case workspace(WorkspaceEvent)

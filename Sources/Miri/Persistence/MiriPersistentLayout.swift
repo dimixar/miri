@@ -20,15 +20,16 @@ extension Miri {
 
     @discardableResult
     func applyPersistentLayoutSnapshotIfNeeded() -> Bool {
-        guard needsPersistentLayoutRestore else {
+        guard persistenceController.needsLayoutRestore else {
             return false
         }
 
-        guard let snapshot = persistentLayoutSnapshot else {
-            needsPersistentLayoutRestore = false
+        guard let snapshot = persistenceController.layoutSnapshot else {
+            persistenceController.finishLayoutRestore()
             return false
         }
 
+        let workspaces = windowManagement.workspaces
         var usedSnapshotIndices = Set<Int>()
         var placements: [(state: PersistentWindowState, window: ManagedWindow)] = []
         for (workspaceIndex, workspace) in workspaces.enumerated() {
@@ -50,7 +51,7 @@ extension Miri {
         guard !placements.isEmpty else {
             return false
         }
-        needsPersistentLayoutRestore = false
+        persistenceController.finishLayoutRestore()
 
         let placedIDs = Set(placements.map { ObjectIdentifier($0.window) })
         let workspaceCount = max(
@@ -100,7 +101,7 @@ extension Miri {
     }
 
     func restorePersistentFocusedWindow() -> Bool {
-        guard let focusedWindow = persistentLayoutSnapshot?.focusedWindow,
+        guard let focusedWindow = persistenceController.layoutSnapshot?.focusedWindow,
               let location = tiledWindowLocation(matching: focusedWindow)
         else {
             return false

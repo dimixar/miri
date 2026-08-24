@@ -1,24 +1,32 @@
 # Architecture
 
-miri is a source-first macOS window manager built around a small coordinator
-object, `Miri`, split into domain extensions. The code is organized by what the
-extension owns rather than by framework.
+miri is a source-first macOS window manager coordinated by the main-actor
+`Miri` application delegate. The coordinator owns event ordering, application
+phase, admission, and startup/termination orchestration; stateful domain data
+is owned by dedicated controllers.
 
 The current architecture is designed and tested for one active display: a
 MacBook using only its built-in screen. It does not maintain independent layout
 models or viewport ownership for multiple displays.
 
 ```text
-Sources/Miri/Core/          app coordinator, commands, status providers
-Sources/Miri/Config/        config model and effective settings
-Sources/Miri/Input/         event tap, Carbon hot keys, keybinding resolution
-Sources/Miri/Layout/        projection, geometry, AX application, animation
-Sources/Miri/Windows/       discovery, placement, lookup, transient windows
-Sources/Miri/Persistence/   layout persistence and exit/crash restoration
-Sources/Miri/UI/            settings window and status menu
+Sources/Miri/Core/          coordinator, typed events, commands, status snapshots
+Sources/Miri/Config/        ConfigStore, config model, effective settings
+Sources/Miri/Input/         InputController, keybinding and recovery policy
+Sources/Miri/Layout/        LayoutController, geometry, AX application, animation
+Sources/Miri/Windows/       WindowManagement, observation, reconciliation, placement
+Sources/Miri/Persistence/   PersistenceController and restoration documents
+Sources/Miri/UI/            action-sink settings and status controllers
 Sources/Miri/Debug/         debug logging
-Sources/Miri/System/        Accessibility and SkyLight wrappers
+Sources/Miri/System/        SessionController, Accessibility and SkyLight wrappers
 ```
+
+All stateful application components are main-actor isolated. Components emit
+typed facts or requests to the coordinator and do not retain one another. The
+layout controller receives narrow query/action closures instead of retaining
+the coordinator. The only unchecked cross-thread wrappers are the
+lock-protected display-link adapter, the synchronous main-run-loop callback
+value bridge, and the low-level SkyLight wrapper.
 
 ## Core Model
 
@@ -37,13 +45,16 @@ debugging, and cleanup more stable.
 
 ## Event Flow
 
-At startup, miri installs session and NSWorkspace observers, configures input,
+At startup, the coordinator starts session and NSWorkspace observers, configures input,
 and performs a full window scan only if the console session is available. AX
 observers are attached as regular applications are discovered. Long-period
 safety timers run only while layout tracking is allowed.
 
-After startup, the normal path is event driven with one bounded polling phase
-for newly launched applications:
+External callbacks first emit a typed `AppEvent`. The coordinator drains those
+events through a non-reentrant FIFO on the main actor, admits or coalesces
+reconciliation, and invokes the owning component. After startup, the normal
+path is event driven with one bounded polling phase for newly launched
+applications:
 
 1. NSWorkspace reports app launch, termination, activation, or Space change.
 2. A regular-app launch records that process lifetime and starts a 30-second

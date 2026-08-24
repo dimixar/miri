@@ -45,6 +45,11 @@ or scroll an on-screen managed window, type while one is focused, or invoke a
 configured Miri Carbon hot key while a managed window is focused. Input on the
 lock/login UI does not count.
 
+`SessionController` owns the lock/sleep/console flags, recovery generation, and
+recovery event tap. Those fields are main-actor isolated and externally
+read-only; the coordinator pauses and resumes other components only after the
+controller reports a typed state or recovery event.
+
 Check the recovery sequence:
 
 ```bash

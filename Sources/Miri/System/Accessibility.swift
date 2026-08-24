@@ -9,6 +9,7 @@ func setAXFrame(_ frame: CGRect, for element: AXUIElement) {
     setAXSize(frame.size, for: element)
 }
 
+@MainActor
 func setAXFrame(_ frame: CGRect, for window: ManagedWindow, disableEnhancedUserInterface: Bool = true) {
     guard disableEnhancedUserInterface else {
         setAXFrame(frame, for: window.element)

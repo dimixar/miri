@@ -11,7 +11,8 @@ private let inputHotKeySignature = OSType(
         | UInt32(UInt8(ascii: "I"))
 )
 
-final class InputController: @unchecked Sendable {
+@MainActor
+final class InputController {
     private let emit: (AppEvent) -> Void
     private let isAwaitingSessionRecovery: () -> Bool
     private let handleRecoveryKey: (CGEvent?, Command?) -> Bool
@@ -62,18 +63,20 @@ final class InputController: @unchecked Sendable {
         focusedWindowInputMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
         ) { [weak self] event in
-            guard let self else { return }
-            switch event.type {
-            case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                emit(.input(.focusedWindowProbeRequested(reason: "mouse-down")))
-            case .keyDown:
-                let switchesWindow = event.modifierFlags.contains(.command)
-                    && (event.keyCode == UInt16(kVK_ANSI_Grave) || event.keyCode == UInt16(kVK_Tab))
-                if switchesWindow {
-                    emit(.input(.focusedWindowProbeRequested(reason: "command-window-switch")))
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                switch event.type {
+                case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                    self.emit(.input(.focusedWindowProbeRequested(reason: "mouse-down")))
+                case .keyDown:
+                    let switchesWindow = event.modifierFlags.contains(.command)
+                        && (event.keyCode == UInt16(kVK_ANSI_Grave) || event.keyCode == UInt16(kVK_Tab))
+                    if switchesWindow {
+                        self.emit(.input(.focusedWindowProbeRequested(reason: "command-window-switch")))
+                    }
+                default:
+                    break
                 }
-            default:
-                break
             }
         }
     }
@@ -244,12 +247,18 @@ private func inputEventTapCallback(
 ) -> Unmanaged<CGEvent>? {
     guard let refcon else { return Unmanaged.passUnretained(event) }
     let controller = Unmanaged<InputController>.fromOpaque(refcon).takeUnretainedValue()
+    let payload = MainRunLoopCallbackValue(value: event)
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        controller.emitEventTapDisabled(type)
+        MainActor.assumeIsolated {
+            controller.emitEventTapDisabled(type)
+        }
         return Unmanaged.passUnretained(event)
     }
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-    return controller.handleKeyEvent(event) ? nil : Unmanaged.passUnretained(event)
+    let consumed = MainActor.assumeIsolated {
+        controller.handleKeyEvent(payload.value)
+    }
+    return consumed ? nil : Unmanaged.passUnretained(event)
 }
 
 fileprivate extension InputController {
@@ -272,6 +281,8 @@ private func inputCarbonHotKeyHandler(
     guard status == noErr, hotKeyID.signature == inputHotKeySignature else {
         return OSStatus(eventNotHandledErr)
     }
-    return Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
-        .handleCarbonHotKey(id: hotKeyID.id)
+    let controller = Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
+    return MainActor.assumeIsolated {
+        controller.handleCarbonHotKey(id: hotKeyID.id)
+    }
 }

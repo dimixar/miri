@@ -1,26 +1,26 @@
 import CoreGraphics
 import Foundation
 
-struct LayoutEngineSettings: Sendable {
+struct LayoutEngineSettings {
     var focusAlignment: FocusAlignment
     var innerGap: CGFloat
     var parkedSliverWidth: CGFloat
     var physicalPixelScale: CGFloat
 }
 
-struct LayoutEngineWindow: Sendable {
+struct LayoutEngineWindow {
     var window: ManagedWindow
     var widthRatio: CGFloat
     var renderedOutsets: (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat)
 }
 
-struct LayoutEngineWorkspace: Sendable {
+struct LayoutEngineWorkspace {
     var columns: [LayoutEngineWindow]
     var activeColumn: Int
     var scrollOffset: CGFloat?
 }
 
-struct LayoutEngineInput: Sendable {
+struct LayoutEngineInput {
     var workspaces: [LayoutEngineWorkspace]
     var state: LayoutState
     var viewport: CGRect

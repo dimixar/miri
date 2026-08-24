@@ -52,7 +52,7 @@ extension Miri {
     }
 
     func focusedRememberedFullscreenWindowState() -> FullscreenWindowState? {
-        guard !fullscreenWindowStates.isEmpty,
+        guard !windowManagement.fullscreenWindowStates.isEmpty,
               let frontmost = NSWorkspace.shared.frontmostApplication
         else {
             return nil
@@ -64,7 +64,7 @@ extension Miri {
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
               let focused = value
         else {
-            return fullscreenWindowStates.values.first { state in
+            return windowManagement.fullscreenWindowStates.values.first { state in
                 state.pid == pid && state.bundleID == frontmost.bundleIdentifier && isFullscreenWindow(state.element)
             }
         }
@@ -76,7 +76,7 @@ extension Miri {
 
         let focusedWindowID = SkyLight.shared.windowID(for: focusedElement)
         let focusedTitle = axString(focusedElement, kAXTitleAttribute) ?? ""
-        return fullscreenWindowStates.values.first { state in
+        return windowManagement.fullscreenWindowStates.values.first { state in
             guard state.pid == pid else {
                 return false
             }
@@ -103,7 +103,9 @@ extension Miri {
     }
 
     func enforceRememberedFullscreenWorkspaceIfNeeded(_ state: FullscreenWindowState) {
-        guard workspaces.indices.contains(state.workspace), activeWorkspace != state.workspace else {
+        guard windowManagement.workspaces.indices.contains(state.workspace),
+              windowManagement.activeWorkspace != state.workspace
+        else {
             return
         }
         debugLog("restoring fullscreen miri workspace=\(state.workspace + 1) while focused on remembered fullscreen app='\(state.appName)' bundle='\(state.bundleID ?? "nil")'")
@@ -112,9 +114,9 @@ extension Miri {
 
     func enforceFullscreenSpaceGuardWorkspace() {
         guard fullscreenSpaceChangeGuardIsActive(),
-              let workspace = fullscreenSpaceChangeGuardWorkspace,
-              workspaces.indices.contains(workspace),
-              activeWorkspace != workspace
+              let workspace = windowManagement.fullscreenSpaceChangeGuardWorkspace,
+              windowManagement.workspaces.indices.contains(workspace),
+              windowManagement.activeWorkspace != workspace
         else {
             return
         }
@@ -139,8 +141,8 @@ extension Miri {
         fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, fullscreenSpaceChangeGuardUntil)
         if !wasActive {
             fullscreenSpaceChangeGuardStartedGeneration = spaceChangeGeneration
-            windowManagement.setFullscreenSpaceChangeGuardWorkspace(activeWorkspace)
-            debugLog("fullscreen space helper guard started workspace=\(activeWorkspace + 1) generation=\(spaceChangeGeneration)")
+            windowManagement.setFullscreenSpaceChangeGuardWorkspace(windowManagement.activeWorkspace)
+            debugLog("fullscreen space helper guard started workspace=\(windowManagement.activeWorkspace + 1) generation=\(spaceChangeGeneration)")
             DispatchQueue.main.asyncAfter(deadline: .now() + fullscreenSpaceChangeGuardDuration) { [weak self] in
                 self?.finishFullscreenSpaceChangeGuardIfExpired()
             }
@@ -172,7 +174,7 @@ extension Miri {
 
     func removeDestroyedWindowImmediately(_ element: AXUIElement) -> Bool {
         if let location = tiledWindowLocation(for: element) {
-            let wasActiveWorkspace = activeWorkspace == location.workspaceIndex
+            let wasActiveWorkspace = windowManagement.activeWorkspace == location.workspaceIndex
             let wasActiveWindow = wasActiveWorkspace && location.workspace.activeColumn == location.columnIndex
             removeWindow(location.window, preferRightFocus: true)
             if wasActiveWindow {
@@ -183,7 +185,7 @@ extension Miri {
             return true
         }
 
-        if let window = floatingWindows.first(where: { sameWindow($0.element, element) }) {
+        if let window = windowManagement.floatingWindows.first(where: { sameWindow($0.element, element) }) {
             removeWindow(window)
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
             return true

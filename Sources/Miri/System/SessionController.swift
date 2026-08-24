@@ -4,18 +4,19 @@ import CoreGraphics
 import Foundation
 import IOKit
 
-final class SessionController: @unchecked Sendable {
+@MainActor
+final class SessionController {
     private let emit: (AppEvent) -> Void
     private var observerTokens: [NSObjectProtocol] = []
     private var recoveryEventTap: CFMachPort?
     private var recoveryEventTapSource: CFRunLoopSource?
 
-    var isScreenLocked = false
-    var isWorkspaceSessionActive = true
-    var isSystemSleeping = false
-    var isAwaitingRecoveryInteraction = false
-    var isRecoveryResumeScheduled = false
-    var resumeGeneration: UInt64 = 0
+    private(set) var isScreenLocked = false
+    private(set) var isWorkspaceSessionActive = true
+    private(set) var isSystemSleeping = false
+    private(set) var isAwaitingRecoveryInteraction = false
+    private(set) var isRecoveryResumeScheduled = false
+    private(set) var resumeGeneration: UInt64 = 0
 
     init(emit: @escaping (AppEvent) -> Void) {
         self.emit = emit
@@ -38,42 +39,60 @@ final class SessionController: @unchecked Sendable {
         observerTokens.append(distributed.addObserver(
             forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(screenLocked: true, reason: notification.name.rawValue)
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(screenLocked: true, reason: reason)
+            }
         })
         observerTokens.append(distributed.addObserver(
             forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(screenLocked: false, reason: notification.name.rawValue)
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(screenLocked: false, reason: reason)
+            }
         })
 
         let workspace = NSWorkspace.shared.notificationCenter
         observerTokens.append(workspace.addObserver(
             forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(
-                screenLocked: SessionController.currentConsoleLockState(),
-                workspaceActive: true,
-                reason: notification.name.rawValue
-            )
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(
+                    screenLocked: SessionController.currentConsoleLockState(),
+                    workspaceActive: true,
+                    reason: reason
+                )
+            }
         })
         observerTokens.append(workspace.addObserver(
             forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(workspaceActive: false, reason: notification.name.rawValue)
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(workspaceActive: false, reason: reason)
+            }
         })
         observerTokens.append(workspace.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(systemSleeping: true, reason: notification.name.rawValue)
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(systemSleeping: true, reason: reason)
+            }
         })
         observerTokens.append(workspace.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            self?.emitState(
-                screenLocked: SessionController.currentConsoleLockState(),
-                systemSleeping: false,
-                reason: notification.name.rawValue
-            )
+            let reason = notification.name.rawValue
+            MainActor.assumeIsolated {
+                self?.emitState(
+                    screenLocked: SessionController.currentConsoleLockState(),
+                    systemSleeping: false,
+                    reason: reason
+                )
+            }
         })
         if !isAvailable { isAwaitingRecoveryInteraction = true }
     }
@@ -93,6 +112,36 @@ final class SessionController: @unchecked Sendable {
             || previous.2 != isSystemSleeping
             || wasAvailable != isAvailable
         return (wasAvailable, isAvailable, changed)
+    }
+
+    func pauseForUnavailableSession() {
+        resumeGeneration &+= 1
+        isAwaitingRecoveryInteraction = true
+        isRecoveryResumeScheduled = false
+    }
+
+    func prepareRecoveryInteraction() {
+        isRecoveryResumeScheduled = false
+    }
+
+    func scheduleRecoveryIfNeeded() -> UInt64? {
+        guard !isRecoveryResumeScheduled else { return nil }
+        isRecoveryResumeScheduled = true
+        return resumeGeneration
+    }
+
+    func cancelScheduledRecovery() {
+        isRecoveryResumeScheduled = false
+    }
+
+    func completeRecovery(generation: UInt64) -> Bool {
+        guard resumeGeneration == generation else {
+            isRecoveryResumeScheduled = false
+            return false
+        }
+        isRecoveryResumeScheduled = false
+        isAwaitingRecoveryInteraction = false
+        return true
     }
 
     func stop() {
@@ -164,7 +213,7 @@ final class SessionController: @unchecked Sendable {
         }
     }
 
-    static func currentConsoleLockState() -> Bool? {
+    nonisolated static func currentConsoleLockState() -> Bool? {
         let root = IORegistryGetRootEntry(kIOMainPortDefault)
         guard root != 0 else { return nil }
         defer { IOObjectRelease(root) }
@@ -184,7 +233,10 @@ private func sessionControllerRecoveryEventTapCallback(
     _ refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
     guard let refcon else { return Unmanaged.passUnretained(event) }
-    Unmanaged<SessionController>.fromOpaque(refcon).takeUnretainedValue()
-        .handleRecoveryInput(event, type: type)
+    let controller = Unmanaged<SessionController>.fromOpaque(refcon).takeUnretainedValue()
+    let payload = MainRunLoopCallbackValue(value: event)
+    MainActor.assumeIsolated {
+        controller.handleRecoveryInput(payload.value, type: type)
+    }
     return Unmanaged.passUnretained(event)
 }

@@ -29,7 +29,7 @@ extension Miri {
         applyLayout: Bool,
         focusNewWindow: Bool
     ) {
-        let completedEmptyWorkspaceProtection = emptyWorkspaceFocusAuthority === workspace
+        let completedEmptyWorkspaceProtection = windowManagement.emptyWorkspaceFocusAuthority === workspace
         _ = windowManagement.insert(window, in: workspace, at: insertionIndex, focus: focusNewWindow)
         if completedEmptyWorkspaceProtection {
             debugLog("empty workspace focus protection completed reason=window-inserted")
@@ -44,10 +44,10 @@ extension Miri {
         if let oneBased = rule(for: window)?.workspace {
             let index = max(0, oneBased - 1)
             ensureWorkspaceExists(index)
-            return workspaces[index]
+            return windowManagement.workspaces[index]
         }
 
-        return activeWorkspaceObject() ?? workspaces[0]
+        return activeWorkspaceObject() ?? windowManagement.workspaces[0]
     }
 
     func ensureWorkspaceExists(_ index: Int) {
@@ -109,7 +109,8 @@ extension Miri {
             leftNeighbor: left,
             rightNeighbor: right,
             widthRatio: widthRatio(for: window),
-            wasActive: activeWorkspace == location.workspaceIndex && workspace.activeColumn == location.columnIndex
+            wasActive: windowManagement.activeWorkspace == location.workspaceIndex
+                && workspace.activeColumn == location.columnIndex
         ))
     }
 
@@ -127,6 +128,7 @@ extension Miri {
 
     func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {
         windowManagement.ensureWorkspaceExists(state.workspace)
+        let workspaces = windowManagement.workspaces
         let workspace = workspaces[min(max(state.workspace, 0), workspaces.count - 1)]
         let index = restoredFullscreenInsertionIndex(in: workspace, state: state)
         insertWindow(window, in: workspace, at: index, applyLayout: false, focusNewWindow: state.wasActive)

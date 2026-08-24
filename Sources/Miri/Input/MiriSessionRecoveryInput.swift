@@ -43,7 +43,7 @@ extension Miri {
     }
 
     func syncSessionRecoveryInputTracking() {
-        if isAwaitingSessionRecoveryInteraction {
+        if sessionController.isAwaitingRecoveryInteraction {
             installSessionRecoveryEventTap()
         } else {
             uninstallSessionRecoveryEventTap()
@@ -70,7 +70,7 @@ extension Miri {
     }
 
     func handleSessionRecoveryInput(_ event: CGEvent, type: CGEventType) {
-        guard isAwaitingSessionRecoveryInteraction else {
+        guard sessionController.isAwaitingRecoveryInteraction else {
             return
         }
         if type == .keyDown {
@@ -87,7 +87,7 @@ extension Miri {
     }
 
     func handleSessionRecoveryKeyEvent(_ event: CGEvent?, command: Command?) -> Bool {
-        guard isAwaitingSessionRecoveryInteraction else {
+        guard sessionController.isAwaitingRecoveryInteraction else {
             return false
         }
         if let event {
@@ -185,8 +185,8 @@ extension Miri {
     }
 
     var sessionRecoverySessionIsEligible: Bool {
-        guard isAwaitingSessionRecoveryInteraction,
-              isSessionAvailable,
+        guard sessionController.isAwaitingRecoveryInteraction,
+              sessionController.isAvailable,
               currentConsoleLockState() != true,
               currentConsoleSessionIsActive() != false
         else {
@@ -302,12 +302,7 @@ extension Miri {
         if let command {
             pendingSessionRecoveryCommands.append(command)
         }
-        guard !isSessionRecoveryResumeScheduled else {
-            return
-        }
-
-        isSessionRecoveryResumeScheduled = true
-        let generation = sessionResumeGeneration
+        guard let generation = sessionController.scheduleRecoveryIfNeeded() else { return }
         debugLog("session recovery requested reason=\(reason) generation=\(generation)")
         DispatchQueue.main.async { [weak self] in
             self?.enqueue(.session(.recoveryReady(generation: generation, reason: reason)))
@@ -315,14 +310,14 @@ extension Miri {
     }
 
     func completeSessionRecoveryImplementation(generation: UInt64, reason: String) {
-        guard sessionResumeGeneration == generation,
+        guard sessionController.resumeGeneration == generation,
               sessionRecoverySessionIsEligible
         else {
-            isSessionRecoveryResumeScheduled = false
+            sessionController.cancelScheduledRecovery()
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            isSessionRecoveryResumeScheduled = false
+            sessionController.cancelScheduledRecovery()
             debugLog("session recovery deferred reason=transient-system-window")
             return
         }
@@ -331,8 +326,7 @@ extension Miri {
         pendingSessionRecoveryCommands.removeAll()
         let launchedWhileUnavailable = pendingSessionRecoveryLaunchedPIDs
         pendingSessionRecoveryLaunchedPIDs.removeAll()
-        isSessionRecoveryResumeScheduled = false
-        isAwaitingSessionRecoveryInteraction = false
+        guard sessionController.completeRecovery(generation: generation) else { return }
         uninstallSessionRecoveryEventTap()
 
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier

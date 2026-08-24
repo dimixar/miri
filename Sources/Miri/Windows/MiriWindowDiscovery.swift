@@ -35,7 +35,7 @@ private struct MissingWindowResult {
 
 extension Miri {
     func applicationActivatedImplementation(_ app: NSRunningApplication) {
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
@@ -87,8 +87,8 @@ extension Miri {
     }
 
     func applicationLaunchedImplementation(_ app: NSRunningApplication) {
-        guard isLayoutTrackingAllowed else {
-            if isAwaitingSessionRecoveryInteraction, app.activationPolicy == .regular {
+        guard sessionController.isLayoutTrackingAllowed else {
+            if sessionController.isAwaitingRecoveryInteraction, app.activationPolicy == .regular {
                 pendingSessionRecoveryLaunchedPIDs.insert(app.processIdentifier)
                 debugLog("session recovery noted launched app pid=\(app.processIdentifier) bundle='\(app.bundleIdentifier ?? "nil")'")
             }
@@ -104,12 +104,11 @@ extension Miri {
             reason: "NSWorkspaceDidTerminate",
             allowFutureLaunch: true
         )
-        windowManagement.observation.removeApplication(pid: app.processIdentifier)
         removeWindows(
             forPID: app.processIdentifier,
-            applyLayout: isLayoutTrackingAllowed && !axReconciliationShouldDefer
+            applyLayout: sessionController.isLayoutTrackingAllowed && !axReconciliationShouldDefer
         )
-        if isLayoutTrackingAllowed, axReconciliationShouldDefer {
+        if sessionController.isLayoutTrackingAllowed, axReconciliationShouldDefer {
             requestReconciliation(
                 .all(adoptFocused: true, source: .workspace, reason: "application-terminated")
             )
@@ -117,7 +116,7 @@ extension Miri {
     }
 
     func activeSpaceChangedImplementation() {
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             return
         }
         if activeContextHasBufferedSourceWindows() {
@@ -134,17 +133,6 @@ extension Miri {
         )
     }
 
-    func reconcileWindows(for element: AXUIElement, adoptFocused: Bool) {
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success,
-              pid != 0
-        else {
-            debugLog("reconcile skipped reason=missing-pid")
-            return
-        }
-        reconcileWindows(forPID: pid, adoptFocused: adoptFocused)
-    }
-
     func reconcileWindows(forPID pid: pid_t, adoptFocused: Bool) {
         guard let app = NSRunningApplication(processIdentifier: pid) else {
             debugLog("reconcile skipped reason=no-running-app pid=\(pid)")
@@ -154,7 +142,7 @@ extension Miri {
     }
 
     func reconcileWindows(for app: NSRunningApplication, adoptFocused: Bool) {
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             return
         }
         guard !layoutController.activity.isActive else {
@@ -269,15 +257,15 @@ extension Miri {
 
         reconcileWorkspaceCapacity()
         if adoptFocused {
-            let previousWorkspace = activeWorkspace
-            let previousActiveColumn = workspaces[activeWorkspace].activeColumn
+            let previousWorkspace = windowManagement.activeWorkspace
+            let previousActiveColumn = windowManagement.workspaces[previousWorkspace].activeColumn
             let adoptedFocusedWindow = adoptFocusedWindow(
                 pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
                 applyLayout: false
             )
             let focusChanged = adoptedFocusedWindow
-                && (activeWorkspace != previousWorkspace
-                    || workspaces[activeWorkspace].activeColumn != previousActiveColumn)
+                && (windowManagement.activeWorkspace != previousWorkspace
+                    || windowManagement.workspaces[windowManagement.activeWorkspace].activeColumn != previousActiveColumn)
             if changed || focusChanged {
                 projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
             }
@@ -308,7 +296,7 @@ extension Miri {
 
             let nextBehavior = behavior(for: existing)
             let shouldFloat = nextBehavior == .float
-            let isFloating = floatingWindows.contains(where: { $0 === existing })
+            let isFloating = windowManagement.floatingWindows.contains(where: { $0 === existing })
             guard previousBehavior != nextBehavior || shouldFloat != isFloating else {
                 return false
             }
@@ -352,7 +340,7 @@ extension Miri {
     }
 
     func rescanWindows(adoptFocused: Bool) {
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             return
         }
         guard !layoutController.activity.isActive else {
@@ -688,7 +676,7 @@ extension Miri {
     }
 
     func isRememberedFullscreenWindow(_ element: AXUIElement) -> Bool {
-        fullscreenWindowStates.values.contains { sameWindow($0.element, element) }
+        windowManagement.fullscreenWindowStates.values.contains { sameWindow($0.element, element) }
     }
 
     func isLikelyFullscreenFrame(_ element: AXUIElement) -> Bool {

@@ -5,7 +5,8 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
+@MainActor
+final class Miri: NSObject, NSApplicationDelegate {
     var appPhase: AppPhase = .starting
     var nextCoordinatorSequence: UInt64 = 0
     var coordinatorEventQueue: [SequencedAppEvent] = []
@@ -16,29 +17,12 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var reconciliationDrainGeneration: UInt64 = 0
     var terminationPrepared = false
     let configStore = ConfigStore()
-    var config: MiriConfig {
-        configStore.effectiveConfig
-    }
     lazy var windowManagement = WindowManagement { [weak self] event in
         self?.enqueue(event)
     }
-    var workspaces: [Workspace] { windowManagement.workspaces }
-    var floatingWindows: [ManagedWindow] { windowManagement.floatingWindows }
-    var activeWorkspace: Int { windowManagement.activeWorkspace }
-    var previousWorkspace: Workspace? { windowManagement.previousWorkspace }
-    var emptyWorkspaceFocusAuthority: Workspace? { windowManagement.emptyWorkspaceFocusAuthority }
-    var logicalSpaceContexts: [LogicalSpaceContext] { windowManagement.logicalSpaceContexts }
-    var activeLogicalSpaceContextID: Int { windowManagement.activeLogicalSpaceContextID }
-    var nextLogicalSpaceContextID: Int { windowManagement.nextLogicalSpaceContextID }
-    var pendingLogicalSpaceSwitch: Bool { windowManagement.pendingLogicalSpaceSwitch }
-    var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] { windowManagement.spaceBufferedWindows }
-    var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] { windowManagement.minimizedWindowStates }
-    var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { windowManagement.fullscreenWindowStates }
-    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] { windowManagement.pendingFullscreenTransitionSince }
     var fullscreenTransitionGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardStartedGeneration: UInt64 = 0
-    var fullscreenSpaceChangeGuardWorkspace: Int? { windowManagement.fullscreenSpaceChangeGuardWorkspace }
     var spaceChangeGeneration: UInt64 = 0
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     @MainActor var settingsWindowController: SettingsWindowController?
@@ -52,29 +36,17 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var lastHorizontalFocusDirection: Int = 1
     var lastIntelligentResizeWindowID: ObjectIdentifier?
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
-    var persistentLayoutSnapshot: PersistentLayoutSnapshot? { persistenceController.layoutSnapshot }
-    var needsPersistentLayoutRestore: Bool {
-        get { persistenceController.needsLayoutRestore }
-        set { persistenceController.needsLayoutRestore = newValue }
-    }
-    var persistentLogicalSpaceSnapshot: PersistentLogicalSpaceSnapshot? { persistenceController.logicalSpaceSnapshot }
-    var needsPersistentLogicalSpaceRestore: Bool {
-        get { persistenceController.needsLogicalSpaceRestore }
-        set { persistenceController.needsLogicalSpaceRestore = newValue }
-    }
-    var pendingPersistentLogicalSpaceContexts: [PersistentLogicalSpaceContext] {
-        get { persistenceController.pendingLogicalSpaceContexts }
-        set { persistenceController.pendingLogicalSpaceContexts = newValue }
-    }
     var signalSources: [DispatchSourceSignal] = []
 
     lazy var persistenceController = PersistenceController(
-        configuration: PersistenceConfiguration(config: config)
+        configuration: PersistenceConfiguration(config: configStore.effectiveConfig)
     ) { [weak self] event in
         self?.enqueue(.persistence(event))
     }
 
-    lazy var layoutController = LayoutController(owner: self) { [weak self] event in
+    lazy var layoutController = LayoutController(
+        dependencies: makeLayoutControllerDependencies()
+    ) { [weak self] event in
         self?.enqueue(.layout(event))
     }
 
@@ -90,7 +62,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     lazy var inputController = InputController(
         emit: { [weak self] event in self?.enqueue(event) },
         isAwaitingSessionRecovery: { [weak self] in
-            self?.isAwaitingSessionRecoveryInteraction ?? false
+            self?.sessionController.isAwaitingRecoveryInteraction ?? false
         },
         handleRecoveryKey: { [weak self] event, command in
             self?.handleSessionRecoveryKeyEvent(event, command: command) ?? false
@@ -111,13 +83,13 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         observeSessionState()
         installTerminationHandlers()
         persistenceController.start()
-        configureInput()
-        installInputBackend()
-        installFocusedWindowInputMonitor()
+        inputController.configure(configStore.effectiveConfig)
+        inputController.install(backend: keyboardShortcutBackend)
+        inputController.installFocusedWindowMonitor()
         syncSessionRecoveryInputTracking()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        appPhase = isLayoutTrackingAllowed ? .running : .sessionUnavailable
-        if isLayoutTrackingAllowed {
+        appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
+        if sessionController.isLayoutTrackingAllowed {
             requestReconciliation(
                 .all(adoptFocused: true, source: .startup, reason: "startup")
             )
@@ -139,6 +111,47 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func requestAccessibilityPermission() -> Bool {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func makeLayoutControllerDependencies() -> LayoutControllerDependencies {
+        LayoutControllerDependencies(
+            modelSnapshot: { [unowned self] in windowManagement.snapshot() },
+            settings: { [unowned self] in
+                LayoutControllerSettings(
+                    focusAlignment: focusAlignment,
+                    innerGap: innerGap,
+                    parkedSliverWidth: parkedSliverWidth,
+                    animationStrategy: animationStrategy,
+                    debugLogging: debugLogging,
+                    snapshotAnimationSpeed: snapshotAnimationSpeed,
+                    animationFPS: animationFPS,
+                    animationPixelThreshold: animationPixelThreshold,
+                    floatingWindowLevel: floatingWindowLevel
+                )
+            },
+            activeWindow: { [unowned self] in activeWindow() },
+            widthRatio: { [unowned self] in widthRatio(for: $0) },
+            renderedOutsets: { [unowned self] in renderedOutsets(for: $0) },
+            screenContaining: { [unowned self] in screenContaining($0) },
+            suppressManualResize: { [unowned self] in manualResizeController.suppress(for: $0) },
+            isLayoutTrackingAllowed: { [unowned self] in sessionController.isLayoutTrackingAllowed },
+            currentViewport: { [unowned self] in currentViewport() },
+            axFrame: { [unowned self] in axFrame($0) },
+            parkedSliverPoints: { [unowned self] in parkedSliverPoints(for: $0) },
+            location: { [unowned self] in location(of: $0) },
+            tiledWindows: { [unowned self] in tiledWindows() },
+            debugLog: { [unowned self] in debugLog($0) },
+            stripMetrics: { [unowned self] in stripMetrics(for: $0, viewport: $1) },
+            maxHorizontalCameraOffset: { [unowned self] in maxHorizontalCameraOffset(for: $0, viewport: $1) },
+            visualFrame: { [unowned self] in visualFrame($0, viewport: $1) },
+            deferReconciliation: { [unowned self] in
+                deferAXReconciliation(pid: $0, adoptFocused: $1, reason: $2)
+            },
+            setFocusedNotificationSuppressionUntil: { [unowned self] in
+                suppressFocusedWindowNotificationsUntil = $0
+            },
+            workspaceProjection: { [unowned self] in windowManagement.workspaceProjection(at: $0) }
+        )
     }
 
     private func installTerminationHandlers() {

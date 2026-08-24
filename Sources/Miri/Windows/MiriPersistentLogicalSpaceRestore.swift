@@ -3,17 +3,16 @@ import Foundation
 extension Miri {
     @discardableResult
     func restorePersistentLogicalSpaceContextsIfNeeded(discovered: [ManagedWindow]) -> Bool {
-        guard needsPersistentLogicalSpaceRestore else {
+        guard persistenceController.needsLogicalSpaceRestore else {
             return false
         }
-        needsPersistentLogicalSpaceRestore = false
-        guard let snapshot = persistentLogicalSpaceSnapshot else {
+        guard let snapshot = persistenceController.takeLogicalSpaceRestoreSnapshot() else {
             return false
         }
 
         let visibleSignature = discoveredSignature(discovered)
         guard let selected = bestPersistentLogicalSpaceContext(for: discovered, visibleSignature: visibleSignature, in: snapshot.contexts) else {
-            pendingPersistentLogicalSpaceContexts = snapshot.contexts
+            persistenceController.replacePendingLogicalSpaceContexts(snapshot.contexts)
             windowManagement.setNextLogicalSpaceContextID(
                 max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
             )
@@ -26,10 +25,10 @@ extension Miri {
             activeID: activeContext.id,
             nextID: max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
         )
-        pendingPersistentLogicalSpaceContexts = snapshot.contexts.filter { $0.id != selected.id }
+        persistenceController.replacePendingLogicalSpaceContexts(snapshot.contexts.filter { $0.id != selected.id })
         loadLogicalSpaceContext(activeContext)
-        needsPersistentLayoutRestore = false
-        debugLog("restored persisted logical macOS space id=\(activeContext.id) visible=\(visibleSignature.count) pending=\(pendingPersistentLogicalSpaceContexts.count)")
+        persistenceController.finishLayoutRestore()
+        debugLog("restored persisted logical macOS space id=\(activeContext.id) visible=\(visibleSignature.count) pending=\(persistenceController.pendingLogicalSpaceContexts.count)")
         return true
     }
 
@@ -40,14 +39,14 @@ extension Miri {
         guard let pending = bestPersistentLogicalSpaceContext(
             for: discovered,
             visibleSignature: visibleSignature,
-            in: pendingPersistentLogicalSpaceContexts
+            in: persistenceController.pendingLogicalSpaceContexts
         ) else {
             return nil
         }
-        pendingPersistentLogicalSpaceContexts.removeAll { $0.id == pending.id }
+        persistenceController.removePendingLogicalSpaceContext(id: pending.id)
         let context = logicalSpaceContext(from: pending, discovered: discovered)
         windowManagement.appendContext(context)
-        debugLog("promoted persisted logical macOS space id=\(context.id) visible=\(visibleSignature.count) pending=\(pendingPersistentLogicalSpaceContexts.count)")
+        debugLog("promoted persisted logical macOS space id=\(context.id) visible=\(visibleSignature.count) pending=\(persistenceController.pendingLogicalSpaceContexts.count)")
         return context
     }
 

@@ -28,7 +28,8 @@ struct PersistenceConfiguration: Equatable {
 /// Owns persistence file locations, restore documents, timers, and the crash
 /// cleanup process. Timers only emit due events; the coordinator supplies a
 /// fresh immutable snapshot when it handles that event.
-final class PersistenceController: @unchecked Sendable {
+@MainActor
+final class PersistenceController {
     private let emit: (PersistenceEvent) -> Void
     private(set) var configuration: PersistenceConfiguration
     private var layoutDebounceTimer: DispatchSourceTimer?
@@ -36,10 +37,10 @@ final class PersistenceController: @unchecked Sendable {
     private var cleanupWatcher: Process?
 
     private(set) var layoutSnapshot: PersistentLayoutSnapshot?
-    var needsLayoutRestore = true
+    private(set) var needsLayoutRestore = true
     private(set) var logicalSpaceSnapshot: PersistentLogicalSpaceSnapshot?
-    var needsLogicalSpaceRestore = true
-    var pendingLogicalSpaceContexts: [PersistentLogicalSpaceContext] = []
+    private(set) var needsLogicalSpaceRestore = true
+    private(set) var pendingLogicalSpaceContexts: [PersistentLogicalSpaceContext] = []
 
     let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
@@ -143,6 +144,24 @@ final class PersistenceController: @unchecked Sendable {
 
     func removeRestoreSnapshot() {
         try? FileManager.default.removeItem(at: restoreStateURL)
+    }
+
+    func finishLayoutRestore() {
+        needsLayoutRestore = false
+    }
+
+    func takeLogicalSpaceRestoreSnapshot() -> PersistentLogicalSpaceSnapshot? {
+        guard needsLogicalSpaceRestore else { return nil }
+        needsLogicalSpaceRestore = false
+        return logicalSpaceSnapshot
+    }
+
+    func replacePendingLogicalSpaceContexts(_ contexts: [PersistentLogicalSpaceContext]) {
+        pendingLogicalSpaceContexts = contexts
+    }
+
+    func removePendingLogicalSpaceContext(id: Int) {
+        pendingLogicalSpaceContexts.removeAll { $0.id == id }
     }
 
     private func loadRestorationDocuments() {

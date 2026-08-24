@@ -9,7 +9,7 @@ extension Miri {
         from previousState: LayoutState? = nil,
         layoutLockDelay: TimeInterval = 0.08
     ) {
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             debugLog("layout skipped because user session is unavailable")
             return
         }

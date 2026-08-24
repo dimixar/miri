@@ -4,44 +4,6 @@ import Foundation
 import IOKit
 
 extension Miri {
-    var isSessionAvailable: Bool {
-        sessionController.isAvailable
-    }
-
-    var isLayoutTrackingAllowed: Bool {
-        sessionController.isLayoutTrackingAllowed
-    }
-
-    var isScreenLocked: Bool {
-        get { sessionController.isScreenLocked }
-        set { sessionController.isScreenLocked = newValue }
-    }
-
-    var isWorkspaceSessionActive: Bool {
-        get { sessionController.isWorkspaceSessionActive }
-        set { sessionController.isWorkspaceSessionActive = newValue }
-    }
-
-    var isSystemSleeping: Bool {
-        get { sessionController.isSystemSleeping }
-        set { sessionController.isSystemSleeping = newValue }
-    }
-
-    var isAwaitingSessionRecoveryInteraction: Bool {
-        get { sessionController.isAwaitingRecoveryInteraction }
-        set { sessionController.isAwaitingRecoveryInteraction = newValue }
-    }
-
-    var isSessionRecoveryResumeScheduled: Bool {
-        get { sessionController.isRecoveryResumeScheduled }
-        set { sessionController.isRecoveryResumeScheduled = newValue }
-    }
-
-    var sessionResumeGeneration: UInt64 {
-        get { sessionController.resumeGeneration }
-        set { sessionController.resumeGeneration = newValue }
-    }
-
     func observeSessionState() {
         let locked = currentConsoleLockState()
         if locked == nil {
@@ -60,7 +22,7 @@ extension Miri {
         sessionController.start(initialLocked: locked, initialWorkspaceActive: workspaceActive)
 
         logSessionState(
-            "session monitor locked=\(isScreenLocked) active=\(isWorkspaceSessionActive) sleeping=\(isSystemSleeping) awaitingInteraction=\(isAwaitingSessionRecoveryInteraction) tracking=\(isLayoutTrackingAllowed)"
+            "session monitor locked=\(sessionController.isScreenLocked) active=\(sessionController.isWorkspaceSessionActive) sleeping=\(sessionController.isSystemSleeping) awaitingInteraction=\(sessionController.isAwaitingRecoveryInteraction) tracking=\(sessionController.isLayoutTrackingAllowed)"
         )
     }
 
@@ -84,14 +46,12 @@ extension Miri {
         }
 
         logSessionState(
-            "session state reason=\(reason) locked=\(isScreenLocked) active=\(isWorkspaceSessionActive) sleeping=\(isSystemSleeping) available=\(transition.isAvailable) awaitingInteraction=\(isAwaitingSessionRecoveryInteraction) tracking=\(isLayoutTrackingAllowed)"
+            "session state reason=\(reason) locked=\(sessionController.isScreenLocked) active=\(sessionController.isWorkspaceSessionActive) sleeping=\(sessionController.isSystemSleeping) available=\(transition.isAvailable) awaitingInteraction=\(sessionController.isAwaitingRecoveryInteraction) tracking=\(sessionController.isLayoutTrackingAllowed)"
         )
     }
 
     private func pauseLayoutTrackingForSession() {
-        sessionResumeGeneration &+= 1
-        isAwaitingSessionRecoveryInteraction = true
-        isSessionRecoveryResumeScheduled = false
+        sessionController.pauseForUnavailableSession()
         pendingSessionRecoveryCommands.removeAll()
         pendingSessionRecoveryLaunchedPIDs.removeAll()
         windowManagement.observation.configurePeriodicTimer(enabled: false, interval: windowReconciliationInterval)
@@ -107,12 +67,12 @@ extension Miri {
     }
 
     private func awaitManagedInteractionForSessionRecovery(reason: String) {
-        guard isAwaitingSessionRecoveryInteraction else {
+        guard sessionController.isAwaitingRecoveryInteraction else {
             return
         }
-        isSessionRecoveryResumeScheduled = false
+        sessionController.prepareRecoveryInteraction()
         refreshSessionRecoveryInputTracking()
-        debugLog("layout tracking awaiting managed-window interaction reason=\(reason) generation=\(sessionResumeGeneration)")
+        debugLog("layout tracking awaiting managed-window interaction reason=\(reason) generation=\(sessionController.resumeGeneration)")
     }
 
     private func logSessionState(_ message: String) {

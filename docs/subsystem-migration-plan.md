@@ -2,10 +2,10 @@
 
 ## Document status
 
-- Plan status: Proposed
+- Plan status: Active
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 7 — integration cleanup and actor isolation
+- Current phase: Phase 8 — manual stabilization and migration closeout
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -140,7 +140,7 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 | 4 | Layout and presentation ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
 | 5 | Logical window and workspace ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
 | 6 | Window observation and reconciliation | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run lifecycle/reconciliation pass complete |
-| 7 | Integration cleanup and actor isolation | Not started | 2026-08-24 | Remove forwarding and obsolete state |
+| 7 | Integration cleanup and actor isolation | Complete | 2026-08-24 | Ownership/API cleanup, warning-free builds, and user-run focused runtime pass complete |
 | 8 | Manual stabilization and migration closeout | Not started | 2026-08-24 | Full scenario pass and documentation |
 
 ## Phase 0 — correctness prerequisites and observability
@@ -468,18 +468,18 @@ ownership.
 
 | State group | Current owner | Target owner | Phase | Status |
 | --- | --- | --- | --- | --- |
-| Application phase and cross-domain pending intents | Transitional coordinator core in `Miri`; domain state remains in extensions | `AppCoordinator` | 1 | Complete |
-| Event tap, hotkeys, key maps, focused interaction monitor | `InputController`, with temporary lifecycle forwarding methods on `Miri` | `InputController` | 2 | Complete |
-| Lock/sleep/console/recovery input state | `SessionController`, with temporary state forwarding properties on `Miri` | `SessionController` | 2 | Complete |
-| Loaded config and modification tracking | `ConfigStore`; `Miri.config` temporarily forwards the resolved runtime value | `ConfigStore` | 3 | Complete |
-| Persistent timers, state files, restore snapshot, watcher | `PersistenceController`; temporary restoration-state forwarding remains on `Miri` | `PersistenceController` | 3 | Complete |
+| Application phase and cross-domain pending intents | Main-actor coordinator `Miri` | `AppCoordinator` | 1 | Complete |
+| Event tap, hotkeys, key maps, focused interaction monitor | `InputController`; coordinator calls lifecycle APIs directly | `InputController` | 2 | Complete |
+| Lock/sleep/console/recovery input state | `SessionController`; state is externally read-only and transitions use explicit methods | `SessionController` | 2 | Complete |
+| Loaded config and modification tracking | `ConfigStore`; consumers read its resolved immutable config value | `ConfigStore` | 3 | Complete |
+| Persistent timers, state files, restore snapshot, watcher | `PersistenceController`; restore state changes use explicit methods | `PersistenceController` | 3 | Complete |
 | Settings/status integration | Typed `UIAction` sink and immutable `StatusMenuViewState`; no UI controller retains `Miri` | UI actions and immutable view state | 3 | Complete |
 | Applied frames, visibility, transforms, layout lock | `LayoutController`, through `LayoutWindowSystemAdapter` | `LayoutController` | 4 | Complete |
 | Snapshot session, overlay, hidden windows, animation timer | `LayoutController`; frame runner and CALayer bookkeeping stay internal | `LayoutController` | 4 | Complete |
-| Workspaces, active focus, floating windows, width state | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WorkspaceModel` | 5 | Complete |
-| Logical Space contexts and buffer | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WindowManagement` | 5 | Complete |
+| Workspaces, active focus, floating windows, width state | `WorkspaceModel`, through `WindowManagement`; no coordinator forwarding collections | `WorkspaceModel` | 5 | Complete |
+| Logical Space contexts and buffer | `WorkspaceModel`, through `WindowManagement`; no coordinator forwarding collections | `WindowManagement` | 5 | Complete |
 | Fullscreen/minimized transition placement | Active `LogicalSpaceContext`, through `WindowManagement` | `WindowManagement` | 5 | Complete |
-| AX observers and discovered-window conversion | `WindowObservationController`, owned by `WindowManagement`; reconciliation retains canonical model instances | `WindowManagement`/`AXWindowMonitor` | 6 | Complete |
+| AX observers and discovered-window conversion | `WindowObservationController`, owned by `WindowManagement`; reconciliation retains canonical model instances | `WindowManagement`/`WindowObservationController` | 6 | Complete |
 | Reconciliation, active rescan, launch settling | Observation/timer state in `WindowObservationController`; missing-window decisions in `WindowManagement`; admission in coordinator | `WindowManagement` plus coordinator admission | 6 | Complete |
 
 ## Manual verification matrix
@@ -584,6 +584,51 @@ line counts. For example, "snapshot session state is now private to
 ## Progress log
 
 Add new entries above older entries.
+
+### 2026-08-24 — Phase 7: enforce integration boundaries and main-actor ownership
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - Removed coordinator forwarding for workspace/logical-Space collections,
+    session/recovery state, effective config, and persistence restore state.
+  - Replaced `LayoutController`'s retained coordinator reference with a narrow
+    dependency contract of synchronous snapshots, queries, and actions.
+  - Marked stateful application components main-actor isolated and made session
+    and persistence transition state externally read-only.
+  - Removed obsolete input/focus lifecycle wrappers, an unused AX-element
+    reconciliation overload, a dead termination event, a duplicate termination
+    observer cleanup, and the unused periodic-tick helper.
+- Contract changes:
+  - Session pause, recovery scheduling, cancellation, and completion now use
+    explicit `SessionController` transitions.
+  - Persistence restore completion and pending logical-Space updates now use
+    explicit `PersistenceController` methods.
+  - Opaque CF callback values cross into synchronous main-run-loop isolation
+    through one documented callback-value bridge.
+- Intentional behavior changes:
+  - None.
+- Temporary compatibility:
+  - None. Legacy ignored animation configuration keys remain an intentional
+    user-config compatibility contract, not a subsystem migration path.
+- Verification:
+  - `swift build`: Pass, warning-free
+  - `swift build -c release`: Pass, warning-free
+  - `git diff --check`: Pass
+  - Ownership audit: Pass; top-level controllers retain no peer controller or
+    coordinator, and coordinator model/session/persistence forwarding APIs are gone
+  - Manual scenarios: Pass; user reported the focused Phase 7 application pass
+    working correctly across the requested integration checks
+  - Runtime invariants/log review: Pass; no crash, stuck input, animation,
+    recovery, or persistence problem was reported during the focused pass
+  - Shadow comparison: Not applicable; behavior algorithms were not replaced
+- Known issues and risks:
+  - The complete scenario matrix and extended normal-use trace review remain
+    for Phase 8 stabilization.
+- Decisions:
+  - D-017 and D-018.
+- Next step:
+  - Run the complete Phase 8 stabilization matrix and close the migration.
 
 ### 2026-08-24 — Phase 6: window observation and reconciliation
 
@@ -989,3 +1034,5 @@ so progress entries can refer to them.
 | D-014 | 2026-08-24 | Treat process/window cleanup as a global model operation | Active-only cleanup could leave stale membership in inactive Spaces, buffers, and transition state | Termination cleanup returns one typed result after scanning every logical context and transition store |
 | D-015 | 2026-08-24 | Make the window-domain observation component own AX/NSWorkspace handles, discovery timers, and delayed probes | OS callbacks and timer state were still stored by the coordinator after logical-model extraction | Callbacks emit typed facts/intents only; logical mutation remains behind coordinator admission and `WindowManagement` |
 | D-016 | 2026-08-24 | Use one fact-based missing-window classifier for targeted, full, and unavailable-AX reconciliation | Duplicated branches had drifted in fullscreen, native-Space, minimize, and launch-settling behavior | Scan context is explicit and all missing-window paths receive the same ordered disposition policy |
+| D-017 | 2026-08-24 | Retain the internal coordinator class name `Miri` for this migration | Renaming every extension would create broad churn without strengthening the now-enforced ownership boundary | Documentation calls it the coordinator; a later naming-only change remains optional |
+| D-018 | 2026-08-24 | Isolate stateful components on the main actor and limit unchecked transfer to documented low-level bridges | AppKit, AX, and application state rely on main-run-loop ordering, while a few C callbacks lack Swift concurrency annotations | Controller state is compile-time isolated; unchecked conformance remains only for the display-link adapter, synchronous callback-value bridge, and SkyLight wrapper |

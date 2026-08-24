@@ -3,6 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+@MainActor
 protocol LayoutWindowSystemAdapting: AnyObject {
     func frame(of window: ManagedWindow) -> CGRect?
     func setFrame(_ frame: CGRect, for window: ManagedWindow)
@@ -77,11 +78,47 @@ private struct LayoutSubmission {
     let lockDelay: TimeInterval
 }
 
+struct LayoutControllerSettings {
+    let focusAlignment: FocusAlignment
+    let innerGap: CGFloat
+    let parkedSliverWidth: CGFloat
+    let animationStrategy: AnimationStrategy
+    let debugLogging: Bool
+    let snapshotAnimationSpeed: Int
+    let animationFPS: Int
+    let animationPixelThreshold: CGFloat
+    let floatingWindowLevel: Int32
+}
+
+struct LayoutControllerDependencies {
+    let modelSnapshot: () -> WorkspaceModelSnapshot
+    let settings: () -> LayoutControllerSettings
+    let activeWindow: () -> ManagedWindow?
+    let widthRatio: (ManagedWindow) -> CGFloat
+    let renderedOutsets: (ManagedWindow) -> (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat)
+    let screenContaining: (CGRect) -> NSScreen?
+    let suppressManualResize: (TimeInterval) -> Void
+    let isLayoutTrackingAllowed: () -> Bool
+    let currentViewport: () -> CGRect
+    let axFrame: (AXUIElement) -> CGRect?
+    let parkedSliverPoints: (CGRect) -> CGFloat
+    let location: (AXUIElement) -> (workspace: Int, column: Int)?
+    let tiledWindows: () -> [ManagedWindow]
+    let debugLog: (String) -> Void
+    let stripMetrics: (Workspace, CGRect) -> (origins: [CGFloat], widths: [CGFloat])
+    let maxHorizontalCameraOffset: (Workspace, CGRect) -> CGFloat
+    let visualFrame: (CGRect, CGRect) -> CGRect
+    let deferReconciliation: (pid_t, Bool, String) -> Void
+    let setFocusedNotificationSuppressionUntil: (CFAbsoluteTime) -> Void
+    let workspaceProjection: (Int) -> Workspace?
+}
+
 /// Owns the complete presentation lifecycle. Model state remains owned by
 /// `WindowManagement`; every frame, visibility, snapshot, token and compositor artifact is
 /// retained here and is cleared through explicit controller operations.
-final class LayoutController: @unchecked Sendable {
-    unowned let owner: Miri
+@MainActor
+final class LayoutController {
+    private let dependencies: LayoutControllerDependencies
     let emit: (LayoutEvent) -> Void
     let windowSystem: LayoutWindowSystemAdapting
 
@@ -106,11 +143,11 @@ final class LayoutController: @unchecked Sendable {
     var activeRequestToken: LayoutRequestToken?
 
     init(
-        owner: Miri,
+        dependencies: LayoutControllerDependencies,
         windowSystem: LayoutWindowSystemAdapting = LayoutWindowSystemAdapter(),
         emit: @escaping (LayoutEvent) -> Void
     ) {
-        self.owner = owner
+        self.dependencies = dependencies
         self.windowSystem = windowSystem
         self.emit = emit
     }
@@ -156,15 +193,15 @@ final class LayoutController: @unchecked Sendable {
     }
 
     func projectItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {
-        let scale = max((owner.screenContaining(viewport) ?? NSScreen.main)?.backingScaleFactor ?? 1, 1)
-        let modelSnapshot = owner.windowManagement.snapshot()
+        let scale = max((dependencies.screenContaining(viewport) ?? NSScreen.main)?.backingScaleFactor ?? 1, 1)
+        let modelSnapshot = dependencies.modelSnapshot()
         let workspaces = modelSnapshot.workspaces.map { workspace in
             LayoutEngineWorkspace(
                 columns: workspace.columns.map { window in
                     LayoutEngineWindow(
                         window: window,
-                        widthRatio: owner.widthRatio(for: window),
-                        renderedOutsets: owner.renderedOutsets(for: window)
+                        widthRatio: dependencies.widthRatio(window),
+                        renderedOutsets: dependencies.renderedOutsets(window)
                     )
                 },
                 activeColumn: workspace.activeColumn,
@@ -177,9 +214,9 @@ final class LayoutController: @unchecked Sendable {
                 state: state,
                 viewport: viewport,
                 settings: LayoutEngineSettings(
-                    focusAlignment: owner.focusAlignment,
-                    innerGap: owner.innerGap,
-                    parkedSliverWidth: owner.parkedSliverWidth,
+                    focusAlignment: dependencies.settings().focusAlignment,
+                    innerGap: dependencies.settings().innerGap,
+                    parkedSliverWidth: dependencies.settings().parkedSliverWidth,
                     physicalPixelScale: scale
                 ),
                 parkHidden: parkHidden
@@ -216,11 +253,13 @@ final class LayoutController: @unchecked Sendable {
 
     private func execute(_ submission: LayoutSubmission) {
         hideInactiveWorkspaceWindows(activeWorkspace: submission.targetState.activeWorkspace)
-        let shouldAnimate = submission.animated && owner.animationStrategy == .snapshot
-        owner.debugLog(
-            "layout request=\(submission.token) workspace=\(submission.targetState.activeWorkspace + 1) tiled=\(owner.windowManagement.snapshot().tiledWindows.count) floating=\(owner.windowManagement.snapshot().floatingWindows.count) animationRequested=\(submission.animated) animationStrategy=\(owner.animationStrategy.rawValue) animationActive=\(shouldAnimate)"
+        let settings = dependencies.settings()
+        let modelSnapshot = dependencies.modelSnapshot()
+        let shouldAnimate = submission.animated && settings.animationStrategy == .snapshot
+        dependencies.debugLog(
+            "layout request=\(submission.token) workspace=\(submission.targetState.activeWorkspace + 1) tiled=\(modelSnapshot.tiledWindows.count) floating=\(modelSnapshot.floatingWindows.count) animationRequested=\(submission.animated) animationStrategy=\(settings.animationStrategy.rawValue) animationActive=\(shouldAnimate)"
         )
-        owner.manualResizeController.suppress(for: (shouldAnimate ? 0.25 : 0) + max(submission.lockDelay, 0.25))
+        dependencies.suppressManualResize((shouldAnimate ? 0.25 : 0) + max(submission.lockDelay, 0.25))
         if shouldAnimate, let previousState = submission.previousState {
             activateRequest(submission.token, reason: "snapshot")
             animateLayoutWithSnapshots(
@@ -247,7 +286,7 @@ final class LayoutController: @unchecked Sendable {
         pendingSubmission = submission
         deferredSubmissionGeneration &+= 1
         let generation = deferredSubmissionGeneration
-        owner.debugLog("layout deferred request=\(submission.token) during snapshot focus=\(submission.focusActiveWindow) lockDelay=\(String(format: "%.2f", submission.lockDelay))")
+        dependencies.debugLog("layout deferred request=\(submission.token) during snapshot focus=\(submission.focusActiveWindow) lockDelay=\(String(format: "%.2f", submission.lockDelay))")
         pollDeferredSubmission(generation: generation)
     }
 
@@ -256,7 +295,7 @@ final class LayoutController: @unchecked Sendable {
             guard let self,
                   self.pendingSubmission != nil,
                   self.deferredSubmissionGeneration == generation,
-                  self.owner.isLayoutTrackingAllowed else { return }
+                  self.dependencies.isLayoutTrackingAllowed() else { return }
             guard self.snapshotAnimationSession == nil,
                   !self.snapshotAnimationPreparing,
                   self.activeRequestToken == nil else {
@@ -289,7 +328,7 @@ final class LayoutController: @unchecked Sendable {
     }
 
     func hideInactiveWorkspaceWindows(activeWorkspace activeIndex: Int) {
-        let snapshot = owner.windowManagement.snapshot()
+        let snapshot = dependencies.modelSnapshot()
         let activeIDs = workspaceWindowIDs(workspaceIndex: activeIndex)
         for (workspaceIndex, workspace) in snapshot.workspaces.enumerated() where workspaceIndex != activeIndex {
             for window in workspace.columns {
@@ -334,21 +373,21 @@ final class LayoutController: @unchecked Sendable {
             cancelActiveRequest(reason: "replaced-by-\(reason)")
         }
         activeRequestToken = token
-        owner.debugLog("layout request begin request=\(token) reason=\(reason)")
+        dependencies.debugLog("layout request begin request=\(token) reason=\(reason)")
     }
 
     private func cancelPendingSubmission(reason: String) {
         guard let pendingSubmission else { return }
         self.pendingSubmission = nil
         deferredSubmissionGeneration &+= 1
-        owner.debugLog("layout request cancelled request=\(pendingSubmission.token) reason=\(reason)")
+        dependencies.debugLog("layout request cancelled request=\(pendingSubmission.token) reason=\(reason)")
         emit(.cancelled(token: pendingSubmission.token))
     }
 
     func cancelActiveRequest(reason: String) {
         guard let token = activeRequestToken else { return }
         activeRequestToken = nil
-        owner.debugLog("layout request cancelled request=\(token) reason=\(reason)")
+        dependencies.debugLog("layout request cancelled request=\(token) reason=\(reason)")
         emit(.cancelled(token: token))
     }
 
@@ -366,11 +405,11 @@ final class LayoutController: @unchecked Sendable {
         guard activeRequestToken == token,
               snapshotAnimationSession == nil,
               !snapshotAnimationPreparing else {
-            owner.debugLog("layout release ignored request=\(token) active=\(activeRequestToken?.description ?? "none")")
+            dependencies.debugLog("layout release ignored request=\(token) active=\(activeRequestToken?.description ?? "none")")
             return
         }
         activeRequestToken = nil
-        owner.debugLog("layout request complete request=\(token)")
+        dependencies.debugLog("layout request complete request=\(token)")
         emit(.completed(token: token))
     }
 
@@ -390,12 +429,12 @@ final class LayoutController: @unchecked Sendable {
             windowSystem.setFrame(viewport, for: window)
         }
         for window in floatingWindows {
-            windowSystem.setLevel(owner.floatingWindowLevel, for: window.windowID)
+            windowSystem.setLevel(dependencies.settings().floatingWindowLevel, for: window.windowID)
         }
     }
 
     func apply(_ layout: [LayoutItem], focusActiveWindow: Bool) {
-        let activeWindow = focusActiveWindow ? owner.activeWindow() : nil
+        let activeWindow = focusActiveWindow ? dependencies.activeWindow() : nil
         if let activeWindow {
             for item in layout where item.visible && item.window !== activeWindow {
                 apply(item)
@@ -423,7 +462,7 @@ final class LayoutController: @unchecked Sendable {
         let shouldApplyFrame = forceFrame
             || item.visible
             || wasVisible != false
-            || previousFrame.map { frameDelta(from: $0, to: item.frame) >= owner.animationPixelThreshold } ?? true
+            || previousFrame.map { frameDelta(from: $0, to: item.frame) >= dependencies.settings().animationPixelThreshold } ?? true
         let visibilityChanged = wasVisible != item.visible
         if visibilityChanged && !item.visible { appliedVisibility[id] = false }
         if shouldApplyFrame {
@@ -436,10 +475,10 @@ final class LayoutController: @unchecked Sendable {
     }
 
     func restoreFloatingVisibility(windows: [ManagedWindow]? = nil, raise: Bool = false, deferred: Bool = false) {
-        let windows = windows ?? owner.windowManagement.snapshot().floatingWindows
+        let windows = windows ?? dependencies.modelSnapshot().floatingWindows
         if raise {
             for window in windows {
-                windowSystem.setLevel(owner.floatingWindowLevel, for: window.windowID)
+                windowSystem.setLevel(dependencies.settings().floatingWindowLevel, for: window.windowID)
             }
         }
         if raise && deferred { scheduleFloatingWindowRaise() }
@@ -454,18 +493,18 @@ final class LayoutController: @unchecked Sendable {
 
     func applyCompositorParkingCorrection(to targetFrame: CGRect, for window: ManagedWindow) {
         guard let windowID = window.windowID, let observedFrame = windowSystem.frame(of: window) else { return }
-        let viewport = owner.currentViewport()
+        let viewport = dependencies.currentViewport()
         let parksBeforeViewport = targetFrame.midX < viewport.midX
         let correctedOrigin = CGPoint(
             x: parksBeforeViewport ? targetFrame.maxX - observedFrame.width : targetFrame.minX,
             y: targetFrame.minY
         )
         if windowSystem.moveWithTransaction(windowID, to: correctedOrigin) {
-            owner.debugLog("parking correction method=transaction id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y)) observed=(\(observedFrame.minX),\(observedFrame.minY),\(observedFrame.width),\(observedFrame.height))")
+            dependencies.debugLog("parking correction method=transaction id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y)) observed=(\(observedFrame.minX),\(observedFrame.minY),\(observedFrame.width),\(observedFrame.height))")
             return
         }
         if windowSystem.move(windowID, to: correctedOrigin) {
-            owner.debugLog("parking correction method=direct-move id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
+            dependencies.debugLog("parking correction method=direct-move id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
             return
         }
         let offset = CGPoint(x: correctedOrigin.x - observedFrame.minX, y: correctedOrigin.y - observedFrame.minY)
@@ -475,14 +514,14 @@ final class LayoutController: @unchecked Sendable {
             ?? CGAffineTransform(translationX: -observedFrame.minX, y: -observedFrame.minY)
         if windowSystem.translate(windowID, from: original, by: offset) {
             originalWindowTransforms[windowID] = original
-            owner.debugLog("parking correction method=transform id=\(windowID) offset=(\(offset.x),\(offset.y))")
+            dependencies.debugLog("parking correction method=transform id=\(windowID) offset=(\(offset.x),\(offset.y))")
         } else {
-            owner.debugLog("parking correction failed id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
+            dependencies.debugLog("parking correction failed id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
         }
     }
 
     private func scheduleFloatingWindowRaise() {
-        guard !owner.windowManagement.snapshot().floatingWindows.isEmpty else { return }
+        guard !dependencies.modelSnapshot().floatingWindows.isEmpty else { return }
         floatingRaiseGeneration &+= 1
         let generation = floatingRaiseGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
@@ -494,12 +533,12 @@ final class LayoutController: @unchecked Sendable {
     func focus(_ window: ManagedWindow) {
         focusRequestGeneration &+= 1
         let generation = focusRequestGeneration
-        owner.suppressFocusedWindowNotificationsUntil = CFAbsoluteTimeGetCurrent() + 1.0
+        dependencies.setFocusedNotificationSuppressionUntil(CFAbsoluteTimeGetCurrent() + 1.0)
         DispatchQueue.main.async { [weak self, weak window] in
             guard let self, let window,
                   generation == self.focusRequestGeneration,
-                  self.owner.activeWindow() === window else { return }
-            self.owner.suppressFocusedWindowNotificationsUntil = CFAbsoluteTimeGetCurrent() + 1.0
+                  self.dependencies.activeWindow() === window else { return }
+            self.dependencies.setFocusedNotificationSuppressionUntil(CFAbsoluteTimeGetCurrent() + 1.0)
             self.windowSystem.focus(window)
         }
     }
@@ -510,21 +549,21 @@ final class LayoutController: @unchecked Sendable {
 }
 
 extension LayoutController {
-    var activeWorkspace: Int { owner.windowManagement.snapshot().activeWorkspace }
-    var debugLogging: Bool { owner.debugLogging }
-    var snapshotAnimationSpeed: Int { owner.snapshotAnimationSpeed }
-    var animationFPS: Int { owner.animationFPS }
-    var animationPixelThreshold: CGFloat { owner.animationPixelThreshold }
+    var activeWorkspace: Int { dependencies.modelSnapshot().activeWorkspace }
+    var debugLogging: Bool { dependencies.settings().debugLogging }
+    var snapshotAnimationSpeed: Int { dependencies.settings().snapshotAnimationSpeed }
+    var animationFPS: Int { dependencies.settings().animationFPS }
+    var animationPixelThreshold: CGFloat { dependencies.settings().animationPixelThreshold }
 
-    func currentViewport() -> CGRect { owner.currentViewport() }
-    func axFrame(_ element: AXUIElement) -> CGRect? { owner.axFrame(element) }
-    func parkedSliverPoints(for viewport: CGRect) -> CGFloat { owner.parkedSliverPoints(for: viewport) }
+    func currentViewport() -> CGRect { dependencies.currentViewport() }
+    func axFrame(_ element: AXUIElement) -> CGRect? { dependencies.axFrame(element) }
+    func parkedSliverPoints(for viewport: CGRect) -> CGFloat { dependencies.parkedSliverPoints(viewport) }
     func renderedOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) {
-        owner.renderedOutsets(for: window)
+        dependencies.renderedOutsets(window)
     }
-    func location(of element: AXUIElement) -> (workspace: Int, column: Int)? { owner.location(of: element) }
-    func tiledWindows() -> [ManagedWindow] { owner.tiledWindows() }
-    func debugLog(_ message: @autoclosure () -> String) { owner.debugLog(message()) }
+    func location(of element: AXUIElement) -> (workspace: Int, column: Int)? { dependencies.location(element) }
+    func tiledWindows() -> [ManagedWindow] { dependencies.tiledWindows() }
+    func debugLog(_ message: @autoclosure () -> String) { dependencies.debugLog(message()) }
     func applyLayout(_ layout: [LayoutItem], focusActiveWindow: Bool) { apply(layout, focusActiveWindow: focusActiveWindow) }
     func applyLayoutItem(_ item: LayoutItem, forceFrame: Bool = false) { apply(item, forceFrame: forceFrame) }
     func releaseLayoutLock(for token: LayoutRequestToken, after delay: TimeInterval = 0.08) { completeRequest(token, after: delay) }
@@ -532,24 +571,24 @@ extension LayoutController {
         Dictionary(uniqueKeysWithValues: layout.map { (ObjectIdentifier($0.window), $0) })
     }
     func stripMetrics(for workspace: Workspace, viewport: CGRect) -> (origins: [CGFloat], widths: [CGFloat]) {
-        owner.stripMetrics(for: workspace, viewport: viewport)
+        dependencies.stripMetrics(workspace, viewport)
     }
     func maxHorizontalCameraOffset(for workspace: Workspace, viewport: CGRect) -> CGFloat {
-        owner.maxHorizontalCameraOffset(for: workspace, viewport: viewport)
+        dependencies.maxHorizontalCameraOffset(workspace, viewport)
     }
-    func visualFrame(_ frame: CGRect, viewport: CGRect) -> CGRect { owner.visualFrame(frame, viewport: viewport) }
+    func visualFrame(_ frame: CGRect, viewport: CGRect) -> CGRect { dependencies.visualFrame(frame, viewport) }
     func deferAXReconciliation(pid: pid_t, adoptFocused: Bool, reason: String) {
-        owner.deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, reason: reason)
+        dependencies.deferReconciliation(pid, adoptFocused, reason)
     }
     func layoutItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {
         projectItems(viewport: viewport, state: state, parkHidden: parkHidden)
     }
-    func activeWindow() -> ManagedWindow? { owner.activeWindow() }
+    func activeWindow() -> ManagedWindow? { dependencies.activeWindow() }
     func workspaceWindowIDs(workspaceIndex: Int) -> Set<ObjectIdentifier> {
-        let workspaces = owner.windowManagement.snapshot().workspaces
+        let workspaces = dependencies.modelSnapshot().workspaces
         guard workspaces.indices.contains(workspaceIndex) else { return [] }
         return Set(workspaces[workspaceIndex].columns.map(ObjectIdentifier.init))
     }
 
-    func workspaceProjection(at index: Int) -> Workspace? { owner.windowManagement.workspaceProjection(at: index) }
+    func workspaceProjection(at index: Int) -> Workspace? { dependencies.workspaceProjection(index) }
 }

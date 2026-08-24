@@ -15,6 +15,12 @@ instead of being silently discarded by Settings. The legacy
 `center_focused_column` key is accepted only for the documented
 focus-alignment migration.
 
+`ConfigStore` exclusively owns the selected source, modification metadata,
+last valid document, and resolved runtime configuration. Reload and Settings
+save results return to the coordinator, which reconfigures workspace capacity,
+input, persistence, reconciliation timers, discovery, and layout in that
+order. A timer or UI controller never mutates configuration consumers directly.
+
 The repository includes a complete default config at
 [`miri.config.json`](../miri.config.json).
 

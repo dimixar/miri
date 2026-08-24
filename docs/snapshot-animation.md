@@ -7,6 +7,12 @@ final AX frames once the animation settles.
 Snapshot animation requires Screen Recording permission because it captures
 window images.
 
+`LayoutController` owns the request token, frame/visibility caches, snapshot
+session, overlay, layers, hidden-window records, compositor transforms, and
+display-link adapter. It reads model state through immutable snapshots and
+narrow coordinator-supplied closures; it does not retain or mutate
+`WindowManagement` or `SessionController`.
+
 ## Goals
 
 - Keep keyboard focus responsive.

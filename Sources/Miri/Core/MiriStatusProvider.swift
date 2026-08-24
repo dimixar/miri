@@ -11,7 +11,11 @@ extension Miri {
     }
 
     func currentStatusMenuViewState() -> StatusMenuViewState {
-        StatusMenuViewState(status: currentStatus(), workspaceBar: currentWorkspaceBarStatus(), config: config)
+        StatusMenuViewState(
+            status: currentStatus(),
+            workspaceBar: currentWorkspaceBarStatus(),
+            config: configStore.effectiveConfig
+        )
     }
 
     func currentWorkspaceBarStatus() -> MiriWorkspaceBarStatus {
@@ -64,7 +68,7 @@ extension Miri {
     }
 
     func fullscreenWorkspaceBarWindows() -> [MiriWorkspaceBarFullscreenWindow] {
-        fullscreenWindowStates.values
+        windowManagement.fullscreenWindowStates.values
             .sorted {
                 if $0.workspace != $1.workspace {
                     return $0.workspace < $1.workspace
@@ -165,7 +169,7 @@ extension Miri {
     }
 
     func availableRuleApps() -> [RuleAppInfo] {
-        let windowApps = (tiledWindows() + floatingWindows).compactMap { window -> RuleAppInfo? in
+        let windowApps = (tiledWindows() + windowManagement.floatingWindows).compactMap { window -> RuleAppInfo? in
             guard let bundleID = window.bundleID, !bundleID.isEmpty else {
                 return nil
             }
@@ -188,18 +192,8 @@ extension Miri {
 
     func scheduleReconciliationTimer() {
         windowManagement.observation.configurePeriodicTimer(
-            enabled: isLayoutTrackingAllowed,
+            enabled: sessionController.isLayoutTrackingAllowed,
             interval: windowReconciliationInterval
-        )
-    }
-
-    func handlePeriodicTick() {
-        requestReconciliation(
-            .all(
-                adoptFocused: false,
-                source: .periodicTimer,
-                reason: "periodic-timer"
-            )
         )
     }
 
@@ -232,9 +226,9 @@ extension Miri {
         // persistence policy/timers, reconciliation timers, and finally model
         // discovery plus layout projection.
         reconcileWorkspaceCapacity()
-        configureInput()
-        installInputBackend()
-        persistenceController.reconfigure(PersistenceConfiguration(config: config))
+        inputController.configure(configStore.effectiveConfig)
+        inputController.install(backend: keyboardShortcutBackend)
+        persistenceController.reconfigure(PersistenceConfiguration(config: configStore.effectiveConfig))
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
         print("miri: reloaded config \(source.path), \(inputController.commandCount) keybindings")

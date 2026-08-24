@@ -20,7 +20,8 @@ enum ConfigSaveResult {
 /// fully resolved config; settings edit the last successfully decoded document.
 /// Unknown root and rule keys are rejected so a settings save can never silently
 /// discard configuration that this version of Miri does not understand.
-final class ConfigStore: @unchecked Sendable {
+@MainActor
+final class ConfigStore {
     private(set) var documentConfig: MiriConfig
     private(set) var effectiveConfig: MiriConfig
     private(set) var sourceURL: URL?

@@ -4,7 +4,8 @@ import Foundation
 /// Owns only external resize observation state and debounce timing. Logical
 /// width mutation stays with the model; layout reapplication stays with
 /// LayoutController.
-final class ManualResizeController: @unchecked Sendable {
+@MainActor
+final class ManualResizeController {
     private var endTimer: DispatchSourceTimer?
     private var element: AXUIElement?
     private var suppressedUntil: CFAbsoluteTime = 0

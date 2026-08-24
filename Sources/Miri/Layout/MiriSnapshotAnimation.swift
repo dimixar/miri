@@ -3,7 +3,8 @@ import ApplicationServices
 import CoreGraphics
 import QuartzCore
 
-final class SnapshotAnimationSession: @unchecked Sendable {
+@MainActor
+final class SnapshotAnimationSession {
     let overlay: SnapshotOverlayWindow
     var cancelled = false
     var layersByWindowID: [ObjectIdentifier: CALayer] = [:]
@@ -48,7 +49,8 @@ final class SnapshotAnimationSession: @unchecked Sendable {
     }
 }
 
-final class SnapshotOverlayWindow: @unchecked Sendable {
+@MainActor
+final class SnapshotOverlayWindow {
     let window: NSWindow
     let rootLayer: CALayer
     let axViewport: CGRect
@@ -485,10 +487,12 @@ extension LayoutController {
             "snapshot runner start generation=\(session.generation) request=\(session.requestToken) speed=\(snapshotAnimationSpeed) fps=\(animationFPS) pxPerSecond=\(String(format: "%.1f", session.pixelsPerSecond)) layers=\(session.layersByWindowID.count) targets=\(session.targetFramesByWindowID.count) viewport=\(snapshotDebugFrame(viewport))"
         )
         session.timer = AnimationTimer(preferredFPS: animationFPS) { [weak self, weak session] in
-            guard let self, let session else {
-                return
+            MainActor.assumeIsolated {
+                guard let self, let session else {
+                    return
+                }
+                self.stepSnapshotAnimationSession(session)
             }
-            stepSnapshotAnimationSession(session)
         }
     }
 

@@ -3,7 +3,8 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-final class ManagedWindow: @unchecked Sendable {
+@MainActor
+final class ManagedWindow {
     let element: AXUIElement
     let pid: pid_t
     let windowID: UInt32?
@@ -22,6 +23,7 @@ final class ManagedWindow: @unchecked Sendable {
     }
 }
 
+@MainActor
 final class Workspace {
     var columns: [ManagedWindow] = []
     var activeColumn: Int = 0
@@ -41,6 +43,7 @@ final class Workspace {
     }
 }
 
+@MainActor
 final class LogicalSpaceContext {
     let id: Int
     var workspaces: [Workspace]
@@ -170,13 +173,13 @@ struct LayoutState: Equatable {
     var scrollOffsets: [CGFloat?]
 }
 
-struct LayoutItem: Sendable {
+struct LayoutItem {
     var window: ManagedWindow
     var frame: CGRect
     var visible: Bool
 }
 
-struct WindowMotion: Sendable {
+struct WindowMotion {
     var window: ManagedWindow
     var startFrame: CGRect
     var endFrame: CGRect

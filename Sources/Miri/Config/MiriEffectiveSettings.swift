@@ -2,79 +2,83 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
+    var keyboardShortcutBackend: KeyboardShortcutBackend {
+        configStore.effectiveConfig.keyboardShortcutBackend ?? MiriConfig.fallback.keyboardShortcutBackend ?? .eventTap
+    }
+
     var animationStrategy: AnimationStrategy {
-        config.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snapshot
+        configStore.effectiveConfig.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snapshot
     }
 
     var snapshotAnimationSpeed: Int {
-        config.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50
+        configStore.effectiveConfig.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50
     }
 
     var animationFPS: Int {
-        config.animationFPS ?? MiriConfig.fallback.animationFPS ?? 30
+        configStore.effectiveConfig.animationFPS ?? MiriConfig.fallback.animationFPS ?? 30
     }
 
     var animationPixelThreshold: CGFloat {
-        config.animationPixelThreshold ?? MiriConfig.fallback.animationPixelThreshold ?? 2
+        configStore.effectiveConfig.animationPixelThreshold ?? MiriConfig.fallback.animationPixelThreshold ?? 2
     }
 
     var workspaceAutoBackAndForth: Bool {
-        config.workspaceAutoBackAndForth ?? MiriConfig.fallback.workspaceAutoBackAndForth ?? false
+        configStore.effectiveConfig.workspaceAutoBackAndForth ?? MiriConfig.fallback.workspaceAutoBackAndForth ?? false
     }
 
     var minimumWorkspaceCount: Int {
-        min(max(config.minimumWorkspaceCount ?? MiriConfig.fallback.minimumWorkspaceCount ?? 1, 1), 9)
+        min(max(configStore.effectiveConfig.minimumWorkspaceCount ?? MiriConfig.fallback.minimumWorkspaceCount ?? 1, 1), 9)
     }
 
     var focusAlignment: FocusAlignment {
-        config.focusAlignment ?? MiriConfig.fallback.focusAlignment ?? .default
+        configStore.effectiveConfig.focusAlignment ?? MiriConfig.fallback.focusAlignment ?? .default
     }
 
     var newWindowPosition: NewWindowPosition {
-        config.newWindowPosition ?? MiriConfig.fallback.newWindowPosition ?? .afterActive
+        configStore.effectiveConfig.newWindowPosition ?? MiriConfig.fallback.newWindowPosition ?? .afterActive
     }
 
     var innerGap: CGFloat {
-        config.innerGap ?? MiriConfig.fallback.innerGap ?? 0
+        configStore.effectiveConfig.innerGap ?? MiriConfig.fallback.innerGap ?? 0
     }
 
     var outerGap: CGFloat {
-        config.outerGap ?? MiriConfig.fallback.outerGap ?? 0
+        configStore.effectiveConfig.outerGap ?? MiriConfig.fallback.outerGap ?? 0
     }
 
     var parkedSliverWidth: CGFloat {
-        config.parkedSliverWidth ?? MiriConfig.fallback.parkedSliverWidth ?? 1
+        configStore.effectiveConfig.parkedSliverWidth ?? MiriConfig.fallback.parkedSliverWidth ?? 1
     }
 
     var widthPresetRatios: [CGFloat] {
-        config.presetWidthRatios ?? MiriConfig.fallback.presetWidthRatios ?? [0.5, 0.67, 0.8, 1.0]
+        configStore.effectiveConfig.presetWidthRatios ?? MiriConfig.fallback.presetWidthRatios ?? [0.5, 0.67, 0.8, 1.0]
     }
 
     var windowReconciliationInterval: TimeInterval {
-        TimeInterval(config.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000) / 1000
+        TimeInterval(configStore.effectiveConfig.windowReconciliationIntervalMS ?? MiriConfig.fallback.windowReconciliationIntervalMS ?? 60000) / 1000
     }
 
     var axCreatedPlaceholderProbeCooldown: TimeInterval {
-        let milliseconds = config.axCreatedPlaceholderProbeCooldownMS
+        let milliseconds = configStore.effectiveConfig.axCreatedPlaceholderProbeCooldownMS
             ?? MiriConfig.fallback.axCreatedPlaceholderProbeCooldownMS
             ?? 1000
         return TimeInterval(max(0, milliseconds)) / 1000
     }
 
     var activeRescanEnabled: Bool {
-        config.activeRescanEnabled ?? MiriConfig.fallback.activeRescanEnabled ?? false
+        configStore.effectiveConfig.activeRescanEnabled ?? MiriConfig.fallback.activeRescanEnabled ?? false
     }
 
     var activeRescanBundleIDs: Set<String> {
-        Set(config.activeRescanBundleIDs ?? MiriConfig.fallback.activeRescanBundleIDs ?? [])
+        Set(configStore.effectiveConfig.activeRescanBundleIDs ?? MiriConfig.fallback.activeRescanBundleIDs ?? [])
     }
 
     var fullscreenTransitionGrace: TimeInterval {
-        TimeInterval(config.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000
+        TimeInterval(configStore.effectiveConfig.likelyFullscreenTransitionGraceMS ?? MiriConfig.fallback.likelyFullscreenTransitionGraceMS ?? 1500) / 1000
     }
 
     var fullscreenSpaceChangeGuardDuration: TimeInterval {
-        TimeInterval(config.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000
+        TimeInterval(configStore.effectiveConfig.fullscreenSpaceChangeGuardMS ?? MiriConfig.fallback.fullscreenSpaceChangeGuardMS ?? 1500) / 1000
     }
 
     var logicalSpaceAutosaveInterval: TimeInterval {
@@ -82,18 +86,18 @@ extension Miri {
     }
 
     var logicalSpaceAutosaveIntervalMinutes: Int {
-        config.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30
+        configStore.effectiveConfig.logicalSpaceAutosaveIntervalMinutes ?? MiriConfig.fallback.logicalSpaceAutosaveIntervalMinutes ?? 30
     }
 
     var restoreOnExit: Bool {
-        config.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true
+        configStore.effectiveConfig.restoreOnExit ?? MiriConfig.fallback.restoreOnExit ?? true
     }
 
     var debugLogging: Bool {
-        config.debugLogging ?? MiriConfig.fallback.debugLogging ?? false
+        configStore.effectiveConfig.debugLogging ?? MiriConfig.fallback.debugLogging ?? false
     }
 
     var widthResizeMode: WidthResizeMode {
-        config.widthResizeMode ?? MiriConfig.fallback.widthResizeMode ?? .default
+        configStore.effectiveConfig.widthResizeMode ?? MiriConfig.fallback.widthResizeMode ?? .default
     }
 }

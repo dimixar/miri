@@ -4,6 +4,19 @@ miri tries to avoid constant polling. It scans on startup when the user session
 is available and then relies on NSWorkspace and AX events, with a long safety
 timer for missed notifications.
 
+## Ownership And Admission
+
+`WindowObservationController`, owned by `WindowManagement`, exclusively stores
+NSWorkspace/AX observers, delayed probes, discovery timers, and their generation
+bookkeeping. Callbacks emit typed facts or `ReconciliationIntent` values and do
+not mutate the workspace graph or start layout.
+
+The main-actor coordinator is the single reconciliation admission point. It
+coalesces pending intent while layout is active, sorts targeted PID batches,
+and asks `WindowManagement` to apply the shared missing-window classifier to
+the canonical model. Layout and persistence consume immutable snapshots or
+narrow queries rather than mutable coordinator forwarding collections.
+
 ## Startup
 
 Startup performs a full discovery pass:
@@ -30,8 +43,9 @@ NSWorkspace events provide process-level signals:
   focus for the newly active app. This catches windows that vanished while their
   former app was frontmost. The delayed activation settle verifies that the app
   is still globally frontmost before adopting its focused window.
-- Termination: remove windows for that process or defer removal until layout is
-  safe.
+- Termination: remove the process from every logical context and transition
+  store immediately; defer only the resulting layout/reconciliation work when
+  presentation admission is closed.
 - Native Space change: save the current logical Space context, wait briefly,
   then rescan visible windows to activate the best matching context.
 

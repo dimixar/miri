@@ -46,7 +46,7 @@ extension Miri {
     }
 
     func syncAppLaunchSettlingTimer() {
-        let shouldRun = isLayoutTrackingAllowed
+        let shouldRun = sessionController.isLayoutTrackingAllowed
             && !windowManagement.observation.launchSettlingDeadlines.isEmpty
         windowManagement.observation.configureLaunchSettlingTimer(
             enabled: shouldRun,

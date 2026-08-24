@@ -4,7 +4,7 @@ import Foundation
 
 extension Miri {
     func location(of element: AXUIElement) -> (workspace: Int, column: Int)? {
-        for (workspaceIndex, workspace) in workspaces.enumerated() {
+        for (workspaceIndex, workspace) in windowManagement.workspaces.enumerated() {
             for (columnIndex, window) in workspace.columns.enumerated() where sameWindow(window.element, element) {
                 return (workspaceIndex, columnIndex)
             }
@@ -15,7 +15,7 @@ extension Miri {
     func tiledWindowLocation(
         for element: AXUIElement
     ) -> (workspaceIndex: Int, workspace: Workspace, columnIndex: Int, window: ManagedWindow)? {
-        for (workspaceIndex, workspace) in workspaces.enumerated() {
+        for (workspaceIndex, workspace) in windowManagement.workspaces.enumerated() {
             if let columnIndex = workspace.columns.firstIndex(where: { sameWindow($0.element, element) }) {
                 return (workspaceIndex, workspace, columnIndex, workspace.columns[columnIndex])
             }
@@ -26,7 +26,7 @@ extension Miri {
     func tiledWindowLocation(
         matching identity: PersistentWindowIdentity
     ) -> (workspaceIndex: Int, workspace: Workspace, columnIndex: Int, window: ManagedWindow)? {
-        for (workspaceIndex, workspace) in workspaces.enumerated() {
+        for (workspaceIndex, workspace) in windowManagement.workspaces.enumerated() {
             if let columnIndex = workspace.columns.firstIndex(where: { persistentIdentity(for: $0) == identity }) {
                 return (workspaceIndex, workspace, columnIndex, workspace.columns[columnIndex])
             }

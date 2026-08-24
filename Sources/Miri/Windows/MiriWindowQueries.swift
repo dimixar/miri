@@ -8,16 +8,16 @@ extension Miri {
             return manualWidthRatio.clampedManualWidthRatio
         }
 
-        for rule in config.rules where rule.matches(window) {
+        for rule in configStore.effectiveConfig.rules where rule.matches(window) {
             if let widthRatio = rule.widthRatio {
                 return widthRatio.clampedWidthRatio
             }
         }
-        return config.defaultWidthRatio.clampedWidthRatio
+        return configStore.effectiveConfig.defaultWidthRatio.clampedWidthRatio
     }
 
     func behavior(for window: ManagedWindow) -> WindowBehavior {
-        for rule in config.rules where rule.matches(window) {
+        for rule in configStore.effectiveConfig.rules where rule.matches(window) {
             if let behavior = rule.behavior {
                 return behavior
             }
@@ -41,7 +41,7 @@ extension Miri {
     }
 
     func rule(for window: ManagedWindow) -> WindowRule? {
-        config.rules.first { $0.matches(window) }
+        configStore.effectiveConfig.rules.first { $0.matches(window) }
     }
 
     func activeWindow() -> ManagedWindow? {

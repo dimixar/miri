@@ -3,16 +3,12 @@ import Foundation
 
 extension Miri {
     func syncActiveRescanTimer() {
-        let trackedPIDs = isLayoutTrackingAllowed ? activeRescanTrackedPIDs() : []
+        let trackedPIDs = sessionController.isLayoutTrackingAllowed ? activeRescanTrackedPIDs() : []
         windowManagement.observation.configureActiveRescanTimer(pids: trackedPIDs)
     }
 
-    func scheduleActiveRescanForUserInput() {
-        enqueue(.input(.userInteraction))
-    }
-
     func scheduleActiveRescanForUserInputImplementation() {
-        guard isLayoutTrackingAllowed, activeRescanEnabled else {
+        guard sessionController.isLayoutTrackingAllowed, activeRescanEnabled else {
             return
         }
 

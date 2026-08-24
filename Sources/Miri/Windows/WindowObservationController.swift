@@ -6,7 +6,8 @@ import Foundation
 /// Owns the operating-system observation handles and delayed discovery work.
 /// It reports facts and reconciliation intents; it never mutates the logical
 /// workspace graph or starts layout.
-final class WindowObservationController: NSObject, @unchecked Sendable {
+@MainActor
+final class WindowObservationController: NSObject {
     typealias EventSink = (AppEvent) -> Void
 
     private let emit: EventSink
@@ -32,7 +33,7 @@ final class WindowObservationController: NSObject, @unchecked Sendable {
     }
 
     deinit {
-        stop()
+        MainActor.assumeIsolated { stop() }
     }
 
     func startWorkspaceObservation() {
@@ -41,18 +42,18 @@ final class WindowObservationController: NSObject, @unchecked Sendable {
         workspaceObserverTokens = [
             center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
                 guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.emit(.workspace(.applicationActivated(app)))
+                MainActor.assumeIsolated { self?.emit(.workspace(.applicationActivated(app))) }
             },
             center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
                 guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.emit(.workspace(.applicationLaunched(app)))
+                MainActor.assumeIsolated { self?.emit(.workspace(.applicationLaunched(app))) }
             },
             center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
                 guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.emit(.workspace(.applicationTerminated(app)))
+                MainActor.assumeIsolated { self?.emit(.workspace(.applicationTerminated(app))) }
             },
             center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.emit(.workspace(.activeSpaceChanged))
+                MainActor.assumeIsolated { self?.emit(.workspace(.activeSpaceChanged)) }
             },
         ]
     }
@@ -230,11 +231,13 @@ final class WindowObservationController: NSObject, @unchecked Sendable {
         periodicTimer = nil
         guard enabled else { return }
         periodicTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.emit(.windows(.reconciliationRequested(.all(
-                adoptFocused: false,
-                source: .periodicTimer,
-                reason: "periodic-timer"
-            ))))
+            MainActor.assumeIsolated {
+                self?.emit(.windows(.reconciliationRequested(.all(
+                    adoptFocused: false,
+                    source: .periodicTimer,
+                    reason: "periodic-timer"
+                ))))
+            }
         }
     }
 
@@ -242,14 +245,16 @@ final class WindowObservationController: NSObject, @unchecked Sendable {
         activeRescanPIDs = pids
         if !pids.isEmpty, activeRescanTimer == nil {
             activeRescanTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                guard let self, !self.activeRescanPIDs.isEmpty else { return }
-                self.emit(.windows(.reconciliationRequested(ReconciliationIntent(
-                    id: nil,
-                    scope: .applications(self.activeRescanPIDs),
-                    adoptFocused: true,
-                    source: .activeRescan,
-                    reason: "timer"
-                ))))
+                MainActor.assumeIsolated {
+                    guard let self, !self.activeRescanPIDs.isEmpty else { return }
+                    self.emit(.windows(.reconciliationRequested(ReconciliationIntent(
+                        id: nil,
+                        scope: .applications(self.activeRescanPIDs),
+                        adoptFocused: true,
+                        source: .activeRescan,
+                        reason: "timer"
+                    ))))
+                }
             }
         } else if pids.isEmpty {
             activeRescanTimer?.invalidate()
@@ -260,27 +265,29 @@ final class WindowObservationController: NSObject, @unchecked Sendable {
     func configureLaunchSettlingTimer(enabled: Bool, interval: TimeInterval) {
         if enabled, launchSettlingTimer == nil {
             launchSettlingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                let now = CFAbsoluteTimeGetCurrent()
-                let expiredPIDs = self.launchSettlingDeadlines.compactMap { pid, deadline in
-                    deadline <= now ? pid : nil
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let now = CFAbsoluteTimeGetCurrent()
+                    let expiredPIDs = self.launchSettlingDeadlines.compactMap { pid, deadline in
+                        deadline <= now ? pid : nil
+                    }
+                    for pid in expiredPIDs {
+                        self.launchMissingWindowSince.removeValue(forKey: pid)
+                    }
+                    self.launchSettlingDeadlines = self.launchSettlingDeadlines.filter { $0.value > now }
+                    let pids = Set(self.launchSettlingDeadlines.keys)
+                    guard !pids.isEmpty else {
+                        self.configureLaunchSettlingTimer(enabled: false, interval: interval)
+                        return
+                    }
+                    self.emit(.windows(.reconciliationRequested(ReconciliationIntent(
+                        id: nil,
+                        scope: .applications(pids),
+                        adoptFocused: true,
+                        source: .launchSettling,
+                        reason: "timer"
+                    ))))
                 }
-                for pid in expiredPIDs {
-                    self.launchMissingWindowSince.removeValue(forKey: pid)
-                }
-                self.launchSettlingDeadlines = self.launchSettlingDeadlines.filter { $0.value > now }
-                let pids = Set(self.launchSettlingDeadlines.keys)
-                guard !pids.isEmpty else {
-                    self.configureLaunchSettlingTimer(enabled: false, interval: interval)
-                    return
-                }
-                self.emit(.windows(.reconciliationRequested(ReconciliationIntent(
-                    id: nil,
-                    scope: .applications(pids),
-                    adoptFocused: true,
-                    source: .launchSettling,
-                    reason: "timer"
-                ))))
             }
         } else if !enabled {
             launchSettlingTimer?.invalidate()
@@ -325,7 +332,11 @@ private func windowObservationAXCallback(
 ) {
     guard let refcon else { return }
     let monitor = Unmanaged<WindowObservationController>.fromOpaque(refcon).takeUnretainedValue()
-    monitor.emitAXNotification(name: notification as String, element: element)
+    let name = notification as String
+    let payload = MainRunLoopCallbackValue(value: element)
+    MainActor.assumeIsolated {
+        monitor.emitAXNotification(name: name, element: payload.value)
+    }
 }
 
 private extension WindowObservationController {

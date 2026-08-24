@@ -111,7 +111,7 @@ extension Miri {
             return false
         }
         guard !activeEmptyWorkspaceHasFocusAuthority else {
-            debugLog("focus adoption suppressed reason=explicit-empty-workspace pid=\(pid) workspace=\(activeWorkspace + 1)")
+            debugLog("focus adoption suppressed reason=explicit-empty-workspace pid=\(pid) workspace=\(windowManagement.activeWorkspace + 1)")
             return false
         }
         if fullscreenSpaceChangeGuardIsActive() {
@@ -132,7 +132,7 @@ extension Miri {
         }
 
         let focusedElement = focused as! AXUIElement
-        if floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
+        if windowManagement.floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
             if applyLayout {
                 projectLayout(focusActiveWindow: false)
             }
@@ -147,9 +147,9 @@ extension Miri {
                 return false
             }
             let previousState = captureLayoutState()
-            let previousWorkspace = activeWorkspace
-            let workspace = workspaces[loc.workspace]
-            let changedFocus = activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
+            let previousWorkspace = windowManagement.activeWorkspace
+            let workspace = windowManagement.workspaces[loc.workspace]
+            let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
             setActiveWorkspace(loc.workspace)
             windowManagement.setActiveColumn(loc.column, in: workspace)
             if changedFocus {
@@ -182,7 +182,7 @@ extension Miri {
             notification: name,
             element: element
         )
-        guard isLayoutTrackingAllowed else {
+        guard sessionController.isLayoutTrackingAllowed else {
             return
         }
         logAXNotification(name, element: element)

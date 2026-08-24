@@ -50,7 +50,7 @@ extension Miri {
                 return
             }
         case .workspaceDown:
-            guard setActiveWorkspace(activeWorkspace + 1) else {
+            guard setActiveWorkspace(windowManagement.activeWorkspace + 1) else {
                 return
             }
             activeWorkspaceObject()?.clampFocus()
@@ -58,7 +58,7 @@ extension Miri {
             reconcileWorkspaceCapacity()
             animated = animateWorkspace
         case .workspaceUp:
-            guard setActiveWorkspace(activeWorkspace - 1) else {
+            guard setActiveWorkspace(windowManagement.activeWorkspace - 1) else {
                 return
             }
             activeWorkspaceObject()?.clampFocus()
@@ -207,12 +207,12 @@ extension Miri {
     @discardableResult
     func focusWorkspace(_ oneBasedIndex: Int) -> Bool {
         let requestedIndex = oneBasedIndex - 1
-        guard workspaces.indices.contains(requestedIndex) else {
-            debugLog("workspace focus ignored reason=not-created requested=\(oneBasedIndex) available=\(workspaces.count)")
+        guard windowManagement.workspaces.indices.contains(requestedIndex) else {
+            debugLog("workspace focus ignored reason=not-created requested=\(oneBasedIndex) available=\(windowManagement.workspaces.count)")
             return false
         }
 
-        let targetIndex = workspaceAutoBackAndForth && requestedIndex == activeWorkspace
+        let targetIndex = workspaceAutoBackAndForth && requestedIndex == windowManagement.activeWorkspace
             ? previousWorkspaceIndex() ?? requestedIndex
             : requestedIndex
 
@@ -228,7 +228,7 @@ extension Miri {
 
     func focusPreviousWorkspace() -> Bool {
         guard let previousIndex = previousWorkspaceIndex(),
-              previousIndex != activeWorkspace
+              previousIndex != windowManagement.activeWorkspace
         else {
             return false
         }
@@ -251,7 +251,7 @@ extension Miri {
 
     func protectActiveEmptyWorkspaceIfNeeded() {
         if windowManagement.protectActiveEmptyWorkspace() {
-            debugLog("empty workspace focus protected workspace=\(activeWorkspace + 1)")
+            debugLog("empty workspace focus protected workspace=\(windowManagement.activeWorkspace + 1)")
         }
     }
 
@@ -540,7 +540,7 @@ extension Miri {
 
     @discardableResult
     func moveActiveColumnToWorkspace(relativeOffset: Int) -> Bool {
-        let targetIndex = activeWorkspace + relativeOffset
+        let targetIndex = windowManagement.activeWorkspace + relativeOffset
         return moveActiveColumnToWorkspace(zeroBasedIndex: targetIndex)
     }
 
