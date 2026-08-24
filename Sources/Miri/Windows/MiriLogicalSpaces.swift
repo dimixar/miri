@@ -118,15 +118,7 @@ extension Miri {
     }
 
     func bufferWindowInUnknownSpaceIfNeeded(_ window: ManagedWindow) -> Bool {
-        guard let windowID = window.windowID,
-              let runningApp = NSRunningApplication(processIdentifier: window.pid),
-              !runningApp.isHidden,
-              !isHiddenOrMinimizedWindow(window.element),
-              cgWindowExists(windowID),
-              !cgWindowIsOnScreen(windowID)
-        else {
-            return false
-        }
+        guard windowAppearsInUnknownSpace(window), let windowID = window.windowID else { return false }
 
         let placement = currentPlacement(for: window)
         windowManagement.buffer(BufferedSpaceWindow(
@@ -142,6 +134,16 @@ extension Miri {
         )
         removeWindow(window, preferRightFocus: true)
         return true
+    }
+
+    func windowAppearsInUnknownSpace(_ window: ManagedWindow) -> Bool {
+        guard let windowID = window.windowID,
+              let runningApp = NSRunningApplication(processIdentifier: window.pid)
+        else { return false }
+        return !runningApp.isHidden
+            && !isHiddenOrMinimizedWindow(window.element)
+            && cgWindowExists(windowID)
+            && !cgWindowIsOnScreen(windowID)
     }
 
     func currentPlacement(for window: ManagedWindow) -> (workspace: Int?, column: Int?, floatingIndex: Int?) {

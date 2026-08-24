@@ -48,6 +48,7 @@ final class LogicalSpaceContext {
     var activeWorkspace: Int
     var signature: Set<UInt32>
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState]
+    var minimizedWindowPIDs: [PersistentWindowIdentity: pid_t]
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState]
     var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime]
     var fullscreenSpaceChangeGuardWorkspace: Int?
@@ -59,6 +60,7 @@ final class LogicalSpaceContext {
         activeWorkspace: Int = 0,
         signature: Set<UInt32> = [],
         minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:],
+        minimizedWindowPIDs: [PersistentWindowIdentity: pid_t] = [:],
         fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:],
         pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:],
         fullscreenSpaceChangeGuardWorkspace: Int? = nil
@@ -69,6 +71,7 @@ final class LogicalSpaceContext {
         self.activeWorkspace = activeWorkspace
         self.signature = signature
         self.minimizedWindowStates = minimizedWindowStates
+        self.minimizedWindowPIDs = minimizedWindowPIDs
         self.fullscreenWindowStates = fullscreenWindowStates
         self.pendingFullscreenTransitionSince = pendingFullscreenTransitionSince
         self.fullscreenSpaceChangeGuardWorkspace = fullscreenSpaceChangeGuardWorkspace

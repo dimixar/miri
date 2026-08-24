@@ -10,19 +10,32 @@ enum AXCreatedReconciliationAction {
     case shortProbe
 }
 
-extension Miri {
-    @objc func applicationActivated(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
-            return
-        }
-        enqueue(.workspace(.applicationActivated(app)))
-    }
+/// Immutable result of an AX enumeration. Reconciliation converts this into a
+/// canonical `ManagedWindow` only when the logical model adopts the window.
+struct DiscoveredWindowObservation {
+    let element: AXUIElement
+    let pid: pid_t
+    let windowID: UInt32?
+    let bundleID: String?
+    let appName: String
+    let title: String
+}
 
+private struct MissingWindowContext {
+    let isFullScan: Bool
+    let axEnumerationUnavailable: Bool
+    let reason: String
+}
+
+private struct MissingWindowResult {
+    let changed: Bool
+    let removedActive: Bool
+    let canSaveLogicalSpace: Bool
+}
+
+extension Miri {
     func applicationActivatedImplementation(_ app: NSRunningApplication) {
         guard isLayoutTrackingAllowed else {
-            return
-        }
-        guard !layoutController.activity.isActive else {
             return
         }
         guard !transientSystemWindowIsActive(forceRefresh: true) else {
@@ -32,20 +45,18 @@ extension Miri {
         lastActivatedApplicationPID = app.processIdentifier
 
         if let previousPID, previousPID != app.processIdentifier {
-            if axReconciliationShouldDefer {
-                deferAXReconciliation(
+            requestReconciliation(
+                .application(
                     pid: previousPID,
                     adoptFocused: false,
+                    source: .workspace,
                     reason: "NSWorkspaceDidActivate:previous-app"
                 )
-            } else {
-                reconcileWindows(forPID: previousPID, adoptFocused: false)
-            }
+            )
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.enqueue(.workspace(.applicationActivationSettled(app)))
-        }
+        windowManagement.observation.scheduleApplicationActivationSettled(app)
+        guard !layoutController.activity.isActive else { return }
         guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
             return
         }
@@ -65,27 +76,14 @@ extension Miri {
             )
             return
         }
-        guard !axReconciliationShouldDefer else {
-            deferAXReconciliation(
+        requestReconciliation(
+            .application(
                 pid: app.processIdentifier,
                 adoptFocused: true,
-                reason: "NSWorkspaceDidActivate"
+                source: .workspace,
+                reason: "NSWorkspaceDidActivate:settle"
             )
-            return
-        }
-        reconcileWindows(for: app, adoptFocused: false)
-        adoptFocusedWindow(
-            pid: app.processIdentifier,
-            animateIfSameWorkspace: true,
-            reason: "NSWorkspaceDidActivate:settle"
         )
-    }
-
-    @objc func applicationLaunched(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
-            return
-        }
-        enqueue(.workspace(.applicationLaunched(app)))
     }
 
     func applicationLaunchedImplementation(_ app: NSRunningApplication) {
@@ -99,13 +97,6 @@ extension Miri {
         beginAppLaunchSettling(for: app, reason: "NSWorkspaceDidLaunch")
     }
 
-    @objc func applicationTerminated(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
-            return
-        }
-        enqueue(.workspace(.applicationTerminated(app)))
-    }
-
     func applicationTerminatedImplementation(_ app: NSRunningApplication) {
         pendingSessionRecoveryLaunchedPIDs.remove(app.processIdentifier)
         finishAppLaunchSettling(
@@ -113,28 +104,16 @@ extension Miri {
             reason: "NSWorkspaceDidTerminate",
             allowFutureLaunch: true
         )
-        pendingAXCreationSettleGenerations.removeValue(forKey: app.processIdentifier)
-        lastAXCreatedPlaceholderProbeAt.removeValue(forKey: app.processIdentifier)
-        guard isLayoutTrackingAllowed else {
-            observers.removeValue(forKey: app.processIdentifier)
-            return
-        }
-        guard !axReconciliationShouldDefer else {
-            deferAXReconciliation(
-                pid: app.processIdentifier,
-                adoptFocused: true,
-                needsFullRescan: true,
-                reason: "NSWorkspaceDidTerminate"
+        windowManagement.observation.removeApplication(pid: app.processIdentifier)
+        removeWindows(
+            forPID: app.processIdentifier,
+            applyLayout: isLayoutTrackingAllowed && !axReconciliationShouldDefer
+        )
+        if isLayoutTrackingAllowed, axReconciliationShouldDefer {
+            requestReconciliation(
+                .all(adoptFocused: true, source: .workspace, reason: "application-terminated")
             )
-            return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.enqueue(.windows(.removeTerminatedApplication(app.processIdentifier)))
-        }
-    }
-
-    @objc func activeSpaceChanged(_ notification: Notification) {
-        enqueue(.workspace(.activeSpaceChanged))
     }
 
     func activeSpaceChangedImplementation() {
@@ -149,11 +128,10 @@ extension Miri {
         windowManagement.beginLogicalSpaceSwitch()
         spaceChangeGeneration &+= 1
         debugLog("active macOS space changed generation=\(spaceChangeGeneration)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.requestReconciliation(
-                .all(adoptFocused: true, source: .workspace, reason: "active-space-settle")
-            )
-        }
+        windowManagement.observation.scheduleReconciliation(
+            .all(adoptFocused: true, source: .workspace, reason: "active-space-settle"),
+            delay: 0.12
+        )
     }
 
     func reconcileWindows(for element: AXUIElement, adoptFocused: Bool) {
@@ -204,7 +182,7 @@ extension Miri {
         }
 
         startObservingApp(pid: app.processIdentifier)
-        guard let discovered = discoverWindows(for: app) else {
+        guard let observations = discoverWindows(for: app) else {
             debugLog("reconcile ax-windows unavailable app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
             removeVanishedWindows(
                 forPID: app.processIdentifier,
@@ -213,6 +191,7 @@ extension Miri {
             )
             return
         }
+        let discovered = canonicalWindows(from: observations)
         reconcileDiscoveredWindows(
             discovered,
             replacingPID: app.processIdentifier,
@@ -227,23 +206,16 @@ extension Miri {
         var removedActive = false
 
         for window in allWindows().filter({ $0.pid == pid }) {
-            guard !windowHasCGInfo(window) else {
-                continue
-            }
-            guard !shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
+            let result = reconcileMissingWindow(
                 window,
-                reason: reason
-            ) else {
-                continue
-            }
-
-            let wasActiveWindow = activeWindow().map { $0 === window } == true
-            debugLog(
-                "removing vanished window reason=\(reason) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil")"
+                context: MissingWindowContext(
+                    isFullScan: false,
+                    axEnumerationUnavailable: true,
+                    reason: reason
+                )
             )
-            removeWindow(window, preferRightFocus: true)
-            changed = true
-            removedActive = removedActive || wasActiveWindow
+            changed = result.changed || changed
+            removedActive = result.removedActive || removedActive
         }
 
         if changed {
@@ -277,45 +249,16 @@ extension Miri {
                 continue
             }
 
-            let runningApp = NSRunningApplication(processIdentifier: window.pid)
-            let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
-                || runningApp?.isHidden == true
-            let windowID = ObjectIdentifier(window)
-            let now = CFAbsoluteTimeGetCurrent()
-
-            if isFullscreenWindow(window.element) {
-                windowManagement.clearPendingFullscreenTransition(for: windowID)
-                fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
-                rememberFullscreenWindowState(window)
-                removeWindow(window, preferRightFocus: true)
-                changed = true
-                continue
-            }
-
-            if let pendingSince = windowManagement.pendingFullscreenTransition(for: windowID), now - pendingSince < fullscreenTransitionGrace {
-                debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
-                continue
-            }
-            windowManagement.clearPendingFullscreenTransition(for: windowID)
-
-            if bufferWindowInUnknownSpaceIfNeeded(window) {
-                changed = true
-                shouldSaveLogicalSpaceContext = false
-                continue
-            }
-            if temporarilyHidden {
-                rememberMinimizedWindowState(window)
-            }
-            if !temporarilyHidden,
-               shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
-                   window,
-                   reason: "valid-ax-enumeration"
-               )
-            {
-                continue
-            }
-            removeWindow(window, preferRightFocus: temporarilyHidden)
-            changed = true
+            let result = reconcileMissingWindow(
+                window,
+                context: MissingWindowContext(
+                    isFullScan: false,
+                    axEnumerationUnavailable: false,
+                    reason: "valid-ax-enumeration"
+                )
+            )
+            changed = result.changed || changed
+            shouldSaveLogicalSpaceContext = result.canSaveLogicalSpace && shouldSaveLogicalSpaceContext
         }
 
         restoreExitedFullscreenWindows(discovered: discovered)
@@ -393,14 +336,18 @@ extension Miri {
         return true
     }
 
-    func removeWindows(forPID pid: pid_t) {
+    func removeWindows(forPID pid: pid_t, applyLayout: Bool = true) {
         let cleanup = windowManagement.removeGlobally(pid: pid)
         for window in cleanup.removedWindows { layoutController.removeTracking(for: window) }
         reconcileWorkspaceCapacity()
-        observers.removeValue(forKey: pid)
-        if cleanup.changed {
+        windowManagement.observation.removeApplication(pid: pid)
+        if cleanup.changed, applyLayout {
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0.08)
             saveActiveLogicalSpaceContext()
+        } else if cleanup.changed {
+            saveActiveLogicalSpaceContext()
+            schedulePersistentLayoutSnapshotWrite()
+            notifyWorkspaceBarNeedsRefresh()
         }
     }
 
@@ -418,7 +365,7 @@ extension Miri {
             return
         }
 
-        let discovered = discoverWindows()
+        let discovered = canonicalWindows(from: discoverWindows())
         for found in discovered {
             noteAppLaunchSettlingWindowObserved(found)
         }
@@ -430,11 +377,10 @@ extension Miri {
         }
         if likelyFullscreenExitSettle(discovered: discovered) {
             debugLog("freezing logical macOS space during fullscreen settle visible=0 known=\(currentLogicalSpaceSignature().count)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.requestReconciliation(
-                    .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-settle")
-                )
-            }
+            windowManagement.observation.scheduleReconciliation(
+                .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-settle"),
+                delay: 0.25
+            )
             return
         }
 
@@ -444,63 +390,25 @@ extension Miri {
 
         if likelyBulkTransientDisappearance(discovered: discovered) {
             debugLog("freezing logical macOS space during bulk transient disappearance visible=\(discoveredSignature(discovered).count) known=\(currentLogicalSpaceSignature().count)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.requestReconciliation(
-                    .all(adoptFocused: true, source: .delayedProbe, reason: "bulk-disappearance-settle")
-                )
-            }
+            windowManagement.observation.scheduleReconciliation(
+                .all(adoptFocused: true, source: .delayedProbe, reason: "bulk-disappearance-settle"),
+                delay: 0.25
+            )
             return
         }
 
         for window in allWindows() {
             if !discovered.contains(where: { sameWindow($0.element, window.element) }) {
-                let runningApp = NSRunningApplication(processIdentifier: window.pid)
-                let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
-                    || runningApp?.isHidden == true
-                let windowID = ObjectIdentifier(window)
-                let now = CFAbsoluteTimeGetCurrent()
-
-                if isFullscreenWindow(window.element) {
-                    windowManagement.clearPendingFullscreenTransition(for: windowID)
-                    fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, now + fullscreenTransitionGrace)
-                    rememberFullscreenWindowState(window)
-                    removeWindow(window, preferRightFocus: true)
-                    changed = true
-                    continue
-                }
-
-                if let pendingSince = windowManagement.pendingFullscreenTransition(for: windowID), now - pendingSince < fullscreenTransitionGrace {
-                    debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
-                    continue
-                }
-                windowManagement.clearPendingFullscreenTransition(for: windowID)
-
-                if runningApp != nil,
-                   !temporarilyHidden,
-                   behavior(for: window) != .ignore,
-                   now < fullscreenTransitionGuardUntil
-                {
-                    debugLog("preserving window during fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
-                    continue
-                }
-                if bufferWindowInUnknownSpaceIfNeeded(window) {
-                    changed = true
-                    shouldSaveLogicalSpaceContext = false
-                    continue
-                }
-                if temporarilyHidden {
-                    rememberMinimizedWindowState(window)
-                }
-                if !temporarilyHidden,
-                   shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
-                       window,
-                       reason: "full-rescan"
-                   )
-                {
-                    continue
-                }
-                removeWindow(window, preferRightFocus: temporarilyHidden)
-                changed = true
+                let result = reconcileMissingWindow(
+                    window,
+                    context: MissingWindowContext(
+                        isFullScan: true,
+                        axEnumerationUnavailable: false,
+                        reason: "full-rescan"
+                    )
+                )
+                changed = result.changed || changed
+                shouldSaveLogicalSpaceContext = result.canSaveLogicalSpace && shouldSaveLogicalSpaceContext
             }
         }
 
@@ -537,10 +445,98 @@ extension Miri {
         }
     }
 
-    func discoverWindows() -> [ManagedWindow] {
-        var windows: [ManagedWindow] = []
+    private func missingWindowDisposition(
+        _ window: ManagedWindow,
+        context: MissingWindowContext
+    ) -> MissingWindowDisposition {
+        let now = CFAbsoluteTimeGetCurrent()
+        let identity = ObjectIdentifier(window)
+        let runningApp = NSRunningApplication(processIdentifier: window.pid)
+        let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
+            || runningApp?.isHidden == true
+        let pendingFullscreenWithinGrace = windowManagement
+            .pendingFullscreenTransition(for: identity)
+            .map { now - $0 < fullscreenTransitionGrace } == true
+        let hasCGInfo = windowHasCGInfo(window)
+        let fullscreen = isFullscreenWindow(window.element)
+        let behaviorIsIgnored = behavior(for: window) == .ignore
+        let fullscreenGuardActive = now < fullscreenTransitionGuardUntil
+        let appearsInUnknownSpace = windowAppearsInUnknownSpace(window)
+        let eligibleForLaunchDeferral = !(context.axEnumerationUnavailable && hasCGInfo)
+            && !fullscreen
+            && !pendingFullscreenWithinGrace
+            && !(context.isFullScan
+                && runningApp != nil
+                && !temporarilyHidden
+                && !behaviorIsIgnored
+                && fullscreenGuardActive)
+            && !appearsInUnknownSpace
+            && !temporarilyHidden
+        let launchRemovalDeferred = eligibleForLaunchDeferral
+            && shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
+                window,
+                reason: context.reason
+            )
+        return windowManagement.classifyMissingWindow(MissingWindowFacts(
+            axEnumerationUnavailable: context.axEnumerationUnavailable,
+            hasCGInfo: hasCGInfo,
+            isFullscreen: fullscreen,
+            pendingFullscreenWithinGrace: pendingFullscreenWithinGrace,
+            isFullScan: context.isFullScan,
+            runningApplicationExists: runningApp != nil,
+            temporarilyHidden: temporarilyHidden,
+            behaviorIsIgnored: behaviorIsIgnored,
+            fullscreenGuardActive: fullscreenGuardActive,
+            appearsInUnknownSpace: appearsInUnknownSpace,
+            launchRemovalDeferred: launchRemovalDeferred
+        ))
+    }
 
-        for app in NSWorkspace.shared.runningApplications {
+    private func reconcileMissingWindow(
+        _ window: ManagedWindow,
+        context: MissingWindowContext
+    ) -> MissingWindowResult {
+        let wasActive = activeWindow().map { $0 === window } == true
+        let identity = ObjectIdentifier(window)
+        switch missingWindowDisposition(window, context: context) {
+        case .preserveCGVisible, .preserveLaunchSettling:
+            return MissingWindowResult(changed: false, removedActive: false, canSaveLogicalSpace: true)
+        case .preservePendingFullscreen:
+            debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
+            return MissingWindowResult(changed: false, removedActive: false, canSaveLogicalSpace: true)
+        case .preserveFullscreenGuard:
+            windowManagement.clearPendingFullscreenTransition(for: identity)
+            debugLog("preserving window during fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
+            return MissingWindowResult(changed: false, removedActive: false, canSaveLogicalSpace: true)
+        case .moveToFullscreenState:
+            windowManagement.clearPendingFullscreenTransition(for: identity)
+            fullscreenTransitionGuardUntil = max(
+                fullscreenTransitionGuardUntil,
+                CFAbsoluteTimeGetCurrent() + fullscreenTransitionGrace
+            )
+            rememberFullscreenWindowState(window)
+            removeWindow(window, preferRightFocus: true)
+            return MissingWindowResult(changed: true, removedActive: wasActive, canSaveLogicalSpace: true)
+        case .bufferUnknownSpace:
+            _ = bufferWindowInUnknownSpaceIfNeeded(window)
+            return MissingWindowResult(changed: true, removedActive: wasActive, canSaveLogicalSpace: false)
+        case .remove(let rememberMinimized):
+            windowManagement.clearPendingFullscreenTransition(for: identity)
+            if rememberMinimized { rememberMinimizedWindowState(window) }
+            debugLog(
+                "removing missing window reason=\(context.reason) fullScan=\(context.isFullScan) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil")"
+            )
+            removeWindow(window, preferRightFocus: rememberMinimized)
+            return MissingWindowResult(changed: true, removedActive: wasActive, canSaveLogicalSpace: true)
+        }
+    }
+
+    func discoverWindows() -> [DiscoveredWindowObservation] {
+        var windows: [DiscoveredWindowObservation] = []
+
+        for app in NSWorkspace.shared.runningApplications.sorted(by: {
+            $0.processIdentifier < $1.processIdentifier
+        }) {
             if let appWindows = discoverWindows(for: app) {
                 windows.append(contentsOf: appWindows)
             }
@@ -549,7 +545,7 @@ extension Miri {
         return windows
     }
 
-    func discoverWindows(for app: NSRunningApplication) -> [ManagedWindow]? {
+    func discoverWindows(for app: NSRunningApplication) -> [DiscoveredWindowObservation]? {
         guard app.activationPolicy == .regular, !app.isHidden else {
             return []
         }
@@ -580,12 +576,12 @@ extension Miri {
             // while the session is locking. Preserve known windows until AX returns a
             // usable enumeration again.
             debugLog("ignoring malformed root-only ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
-            return knownWindows
+            return knownWindows.map(observationDescriptor)
         }
 
-        var windows: [ManagedWindow] = []
+        var windows: [DiscoveredWindowObservation] = []
         for element in windowElements {
-            if let window = managedWindow(from: element, app: app, source: "scan") {
+            if let window = discoveredWindow(from: element, app: app, source: "scan") {
                 windows.append(window)
             }
         }
@@ -597,15 +593,19 @@ extension Miri {
             for knownWindow in knownWindows where !windows.contains(where: {
                 sameWindow($0.element, knownWindow.element)
             }) {
-                windows.append(knownWindow)
+                windows.append(observationDescriptor(for: knownWindow))
             }
             debugLog("accepted windows from malformed mixed ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) reported=\(windowElements.count) accepted=\(windows.count)")
         }
 
-        return windows
+        return windows.sorted(by: observationSortOrder)
     }
 
-    func managedWindow(from element: AXUIElement, app: NSRunningApplication, source: String) -> ManagedWindow? {
+    func discoveredWindow(
+        from element: AXUIElement,
+        app: NSRunningApplication,
+        source: String
+    ) -> DiscoveredWindowObservation? {
         logRawAXWindowIfNeeded(element, app: app, source: source)
         noteFullscreenSpaceHelperIfNeeded(element)
         guard !isUnknownSubroleWindow(element),
@@ -639,7 +639,44 @@ extension Miri {
         guard behavior(for: window) != .ignore else {
             return nil
         }
-        return window
+        return observationDescriptor(for: window)
+    }
+
+    func canonicalWindows(from observations: [DiscoveredWindowObservation]) -> [ManagedWindow] {
+        observations.map { observation in
+            return ManagedWindow(
+                element: observation.element,
+                pid: observation.pid,
+                windowID: observation.windowID,
+                bundleID: observation.bundleID,
+                appName: observation.appName,
+                title: observation.title
+            )
+        }
+    }
+
+    func observationDescriptor(for window: ManagedWindow) -> DiscoveredWindowObservation {
+        DiscoveredWindowObservation(
+            element: window.element,
+            pid: window.pid,
+            windowID: window.windowID,
+            bundleID: window.bundleID,
+            appName: window.appName,
+            title: window.title
+        )
+    }
+
+    func observationSortOrder(
+        _ lhs: DiscoveredWindowObservation,
+        _ rhs: DiscoveredWindowObservation
+    ) -> Bool {
+        if lhs.pid != rhs.pid { return lhs.pid < rhs.pid }
+        switch (lhs.windowID, rhs.windowID) {
+        case let (left?, right?) where left != right: return left < right
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
     }
 
     func isHiddenOrMinimizedWindow(_ element: AXUIElement) -> Bool {

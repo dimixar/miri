@@ -5,15 +5,21 @@ import CoreGraphics
 extension Miri {
     func transientSystemWindowIsActive(forceRefresh: Bool = false) -> Bool {
         let now = CFAbsoluteTimeGetCurrent()
-        if !forceRefresh, now - transientWindowStateCheckedAt < 0.25 {
-            return transientWindowActive
+        if let cached = windowManagement.observation.cachedTransientState(
+            now: now,
+            forceRefresh: forceRefresh
+        ) {
+            return cached
         }
 
-        transientWindowStateCheckedAt = now
         let activeTransientWindows = transientSystemWindows()
-        recoverTransientSystemWindows(activeTransientWindows)
-        transientWindowActive = !activeTransientWindows.isEmpty
-        return transientWindowActive
+        let recovered = recoverTransientSystemWindows(activeTransientWindows)
+        let active = !activeTransientWindows.isEmpty
+        let changed = windowManagement.observation.recordTransientState(active, checkedAt: now)
+        if changed || recovered {
+            enqueue(.windows(.environmentGuardEvaluated(blocked: active, recovered: recovered)))
+        }
+        return active
     }
 
     func transientSystemWindows() -> [TransientSystemWindow] {

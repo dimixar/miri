@@ -55,7 +55,7 @@ struct ReconciliationIntent {
         case applications(Set<pid_t>)
     }
 
-    enum Source: String {
+    enum Source: String, Equatable {
         case startup
         case accessibility
         case workspace
@@ -149,13 +149,10 @@ enum WindowEvent {
     case accessibilityNotification(name: String, element: AXUIElement)
     case reconciliationRequested(ReconciliationIntent)
     case removeTerminatedApplication(pid_t)
+    case environmentGuardEvaluated(blocked: Bool, recovered: Bool)
 }
 
 enum TimerEvent {
-    case periodicReconciliation
-    case activeRescan
-    case appLaunchSettling
-    case appLaunchSettlingProbe(pid: pid_t, reason: String)
     case manualResizeEnded(element: AXUIElement)
     case reconciliationDrain(generation: UInt64)
 }

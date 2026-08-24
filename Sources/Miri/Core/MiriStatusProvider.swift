@@ -187,34 +187,16 @@ extension Miri {
     }
 
     func scheduleReconciliationTimer() {
-        reconciliationTimer?.invalidate()
-        reconciliationTimer = nil
-        guard isLayoutTrackingAllowed else {
-            return
-        }
-        reconciliationTimer = Timer.scheduledTimer(withTimeInterval: windowReconciliationInterval, repeats: true) { [weak self] _ in
-            self?.enqueue(.timer(.periodicReconciliation))
-        }
+        windowManagement.observation.configurePeriodicTimer(
+            enabled: isLayoutTrackingAllowed,
+            interval: windowReconciliationInterval
+        )
     }
 
     func handlePeriodicTick() {
-        enqueue(.timer(.periodicReconciliation))
-    }
-
-    func handlePeriodicTickImplementation() {
-        guard isLayoutTrackingAllowed else {
-            return
-        }
-        guard !reloadConfigIfNeeded() else {
-            return
-        }
-        let wasTransient = transientWindowActive
-        guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            return
-        }
         requestReconciliation(
             .all(
-                adoptFocused: wasTransient,
+                adoptFocused: false,
                 source: .periodicTimer,
                 reason: "periodic-timer"
             )

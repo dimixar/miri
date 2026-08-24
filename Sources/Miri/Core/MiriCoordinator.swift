@@ -104,6 +104,8 @@ extension Miri {
             admitReconciliation(intent)
         case .windows(.removeTerminatedApplication(let pid)):
             removeWindows(forPID: pid)
+        case .windows(.environmentGuardEvaluated(let blocked, let recovered)):
+            debugLog("window environment guard blocked=\(blocked) recovered=\(recovered)")
         case .layout(let layout):
             handleCoordinatorLayout(layout)
         case .config(let config):
@@ -174,14 +176,6 @@ extension Miri {
 
     @MainActor private func handleCoordinatorTimer(_ event: TimerEvent) {
         switch event {
-        case .periodicReconciliation:
-            handlePeriodicTickImplementation()
-        case .activeRescan:
-            handleActiveRescanTickImplementation()
-        case .appLaunchSettling:
-            handleAppLaunchSettlingTickImplementation()
-        case .appLaunchSettlingProbe(let pid, let reason):
-            performAppLaunchSettlingReconciliation(pid: pid, reason: reason)
         case .manualResizeEnded(let element):
             handleManualResizeEnded(element: element)
         case .reconciliationDrain(let generation):
@@ -286,6 +280,13 @@ extension Miri {
     }
 
     @MainActor private func executeReconciliation(_ intent: ReconciliationIntent) {
+        var intent = intent
+        if intent.source == .periodicTimer {
+            guard !reloadConfigIfNeeded() else { return }
+            let wasTransient = windowManagement.observation.transientWindowActive
+            guard !transientSystemWindowIsActive(forceRefresh: true) else { return }
+            intent.adoptFocused = intent.adoptFocused || wasTransient
+        }
         debugLog(
             "reconciliation admitted request=\(intent.id?.description ?? "unassigned") source=\(intent.source.rawValue) scope=\(intent.logScope) adoptFocused=\(intent.adoptFocused) reason=\(intent.reason)"
         )
@@ -375,9 +376,7 @@ extension Miri {
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
         persistenceController.stopTimers()
-        reconciliationTimer?.invalidate()
-        activeRescanTimer?.invalidate()
-        appLaunchSettlingTimer?.invalidate()
+        windowManagement.observation.stop()
         uninstallFocusedWindowInputMonitor()
         sessionController.stop()
         uninstallEventTap()
@@ -472,6 +471,7 @@ private extension WindowEvent {
         case .accessibilityNotification: return "windows.ax-notification"
         case .reconciliationRequested: return "windows.reconciliation-requested"
         case .removeTerminatedApplication: return "windows.remove-terminated-application"
+        case .environmentGuardEvaluated: return "windows.environment-guard-evaluated"
         }
     }
 }
@@ -479,10 +479,6 @@ private extension WindowEvent {
 private extension TimerEvent {
     var logName: String {
         switch self {
-        case .periodicReconciliation: return "timer.periodic-reconciliation"
-        case .activeRescan: return "timer.active-rescan"
-        case .appLaunchSettling: return "timer.launch-settling"
-        case .appLaunchSettlingProbe: return "timer.launch-settling-probe"
         case .manualResizeEnded: return "timer.manual-resize-ended"
         case .reconciliationDrain: return "timer.reconciliation-drain"
         }

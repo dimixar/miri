@@ -11,30 +11,28 @@ extension Miri {
         guard pid != 0,
               pid != ProcessInfo.processInfo.processIdentifier,
               app.activationPolicy == .regular,
-              appLaunchObservedPIDs.insert(pid).inserted
+              windowManagement.observation.beginLaunchSettling(
+                pid: pid,
+                deadline: CFAbsoluteTimeGetCurrent() + appLaunchSettlingDuration
+              )
         else {
             return
         }
 
-        let deadline = CFAbsoluteTimeGetCurrent() + appLaunchSettlingDuration
-        appLaunchSettlingDeadlines[pid] = deadline
         startObservingApp(pid: pid)
         syncAppLaunchSettlingTimer()
         debugLog(
             "app launch settling started reason=\(reason) app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) duration=\(Int(appLaunchSettlingDuration))s"
         )
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            self?.enqueue(.timer(.appLaunchSettlingProbe(pid: pid, reason: "initial")))
-        }
+        windowManagement.observation.scheduleInitialLaunchProbe(pid: pid)
     }
 
     func finishAppLaunchSettling(pid: pid_t, reason: String, allowFutureLaunch: Bool = false) {
-        let wasSettling = appLaunchSettlingDeadlines.removeValue(forKey: pid) != nil
-        appLaunchMissingWindowSince.removeValue(forKey: pid)
-        if allowFutureLaunch {
-            appLaunchObservedPIDs.remove(pid)
-        }
+        let wasSettling = windowManagement.observation.finishLaunchSettling(
+            pid: pid,
+            allowFutureLaunch: allowFutureLaunch
+        )
         if wasSettling {
             debugLog("app launch settling finished reason=\(reason) pid=\(pid)")
         }
@@ -42,94 +40,31 @@ extension Miri {
     }
 
     func cancelAppLaunchSettlingForUnavailableSession() {
-        guard !appLaunchSettlingDeadlines.isEmpty else {
-            return
-        }
-        let pids = appLaunchSettlingDeadlines.keys.sorted()
-        appLaunchSettlingDeadlines.removeAll()
-        appLaunchMissingWindowSince.removeAll()
-        appLaunchSettlingTimer?.invalidate()
-        appLaunchSettlingTimer = nil
+        let pids = windowManagement.observation.cancelLaunchSettling()
+        guard !pids.isEmpty else { return }
         debugLog("app launch settling cancelled reason=session-unavailable pids=\(pids)")
     }
 
     func syncAppLaunchSettlingTimer() {
-        let shouldRun = isLayoutTrackingAllowed && !appLaunchSettlingDeadlines.isEmpty
-        if shouldRun, appLaunchSettlingTimer == nil {
-            appLaunchSettlingTimer = Timer.scheduledTimer(
-                withTimeInterval: appLaunchSettlingInterval,
-                repeats: true
-            ) { [weak self] _ in
-                self?.enqueue(.timer(.appLaunchSettling))
-            }
-            debugLog("app launch settling timer started")
-        } else if !shouldRun, appLaunchSettlingTimer != nil {
-            appLaunchSettlingTimer?.invalidate()
-            appLaunchSettlingTimer = nil
-            debugLog("app launch settling timer stopped")
-        }
-    }
-
-    func handleAppLaunchSettlingTickImplementation() {
-        guard isLayoutTrackingAllowed else {
-            syncAppLaunchSettlingTimer()
-            return
-        }
-
-        let now = CFAbsoluteTimeGetCurrent()
-        for (pid, deadline) in Array(appLaunchSettlingDeadlines) {
-            guard now < deadline else {
-                finishAppLaunchSettling(pid: pid, reason: "deadline")
-                continue
-            }
-            performAppLaunchSettlingReconciliation(pid: pid, reason: "timer")
-        }
-    }
-
-    func performAppLaunchSettlingReconciliation(pid: pid_t, reason: String) {
-        guard let deadline = appLaunchSettlingDeadlines[pid],
-              CFAbsoluteTimeGetCurrent() < deadline
-        else {
-            return
-        }
-        guard let app = NSRunningApplication(processIdentifier: pid),
-              app.activationPolicy == .regular
-        else {
-            finishAppLaunchSettling(
-                pid: pid,
-                reason: "process-unavailable",
-                allowFutureLaunch: true
-            )
-            return
-        }
-        guard isLayoutTrackingAllowed else {
-            return
-        }
-
-        let adoptFocused = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-        debugLog("app launch settling reconciliation reason=\(reason) pid=\(pid)")
-        requestReconciliation(
-            .application(
-                pid: pid,
-                adoptFocused: adoptFocused,
-                source: .launchSettling,
-                reason: reason
-            )
+        let shouldRun = isLayoutTrackingAllowed
+            && !windowManagement.observation.launchSettlingDeadlines.isEmpty
+        windowManagement.observation.configureLaunchSettlingTimer(
+            enabled: shouldRun,
+            interval: appLaunchSettlingInterval
         )
     }
 
     func noteAppLaunchSettlingWindowObserved(_ window: ManagedWindow) {
-        guard appLaunchSettlingDeadlines[window.pid] != nil,
-              let existing = allWindows().first(where: {
+        guard let existing = allWindows().first(where: {
                   $0.pid == window.pid && sameWindow($0.element, window.element)
               })
         else {
             return
         }
-        appLaunchMissingWindowSince[window.pid]?.removeValue(forKey: ObjectIdentifier(existing))
-        if appLaunchMissingWindowSince[window.pid]?.isEmpty == true {
-            appLaunchMissingWindowSince.removeValue(forKey: window.pid)
-        }
+        windowManagement.observation.noteLaunchWindowObserved(
+            pid: window.pid,
+            identity: ObjectIdentifier(existing)
+        )
     }
 
     func shouldDeferMissingWindowRemovalDuringAppLaunchSettling(
@@ -138,20 +73,13 @@ extension Miri {
     ) -> Bool {
         let pid = window.pid
         let now = CFAbsoluteTimeGetCurrent()
-        guard let deadline = appLaunchSettlingDeadlines[pid], now < deadline else {
-            appLaunchMissingWindowSince[pid]?.removeValue(forKey: ObjectIdentifier(window))
-            return false
-        }
-
-        let id = ObjectIdentifier(window)
-        if let missingSince = appLaunchMissingWindowSince[pid]?[id] {
-            if now - missingSince >= appLaunchMissingWindowGrace {
-                appLaunchMissingWindowSince[pid]?.removeValue(forKey: id)
-                return false
-            }
-        } else {
-            appLaunchMissingWindowSince[pid, default: [:]][id] = now
-        }
+        let shouldDefer = windowManagement.observation.shouldDeferLaunchMissingWindow(
+            pid: pid,
+            identity: ObjectIdentifier(window),
+            now: now,
+            grace: appLaunchMissingWindowGrace
+        )
+        guard shouldDefer else { return false }
 
         debugLog(
             "preserving launch-settling window reason=\(reason) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(pid) title='\(window.title)'"

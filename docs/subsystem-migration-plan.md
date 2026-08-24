@@ -5,7 +5,7 @@
 - Plan status: Proposed
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 6 — window observation and reconciliation
+- Current phase: Phase 7 — integration cleanup and actor isolation
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -139,7 +139,7 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 | 3 | Configuration, persistence, and UI boundaries | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and focused user-run runtime pass complete |
 | 4 | Layout and presentation ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
 | 5 | Logical window and workspace ownership | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run focused runtime pass complete |
-| 6 | Window observation and reconciliation | Not started | 2026-08-24 | Complete the window-management boundary |
+| 6 | Window observation and reconciliation | Complete | 2026-08-24 | Ownership extraction, debug/release builds, and user-run lifecycle/reconciliation pass complete |
 | 7 | Integration cleanup and actor isolation | Not started | 2026-08-24 | Remove forwarding and obsolete state |
 | 8 | Manual stabilization and migration closeout | Not started | 2026-08-24 | Full scenario pass and documentation |
 
@@ -479,8 +479,8 @@ ownership.
 | Workspaces, active focus, floating windows, width state | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WorkspaceModel` | 5 | Complete |
 | Logical Space contexts and buffer | `WorkspaceModel`, through `WindowManagement`; read-only compatibility views remain on `Miri` | `WindowManagement` | 5 | Complete |
 | Fullscreen/minimized transition placement | Active `LogicalSpaceContext`, through `WindowManagement` | `WindowManagement` | 5 | Complete |
-| AX observers and discovered-window conversion | `Miri` | `WindowManagement`/`AXWindowMonitor` | 6 | Not started |
-| Reconciliation, active rescan, launch settling | `Miri` | `WindowManagement` plus coordinator admission | 6 | Not started |
+| AX observers and discovered-window conversion | `WindowObservationController`, owned by `WindowManagement`; reconciliation retains canonical model instances | `WindowManagement`/`AXWindowMonitor` | 6 | Complete |
+| Reconciliation, active rescan, launch settling | Observation/timer state in `WindowObservationController`; missing-window decisions in `WindowManagement`; admission in coordinator | `WindowManagement` plus coordinator admission | 6 | Complete |
 
 ## Manual verification matrix
 
@@ -494,17 +494,18 @@ scenarios affected by that phase; Phase 8 requires every applicable scenario.
 | Commands | Rapid left/right focus and snapshot retarget | Not run | Pass | User-reported Phase 4 focused pass |
 | Commands | Workspace focus, previous workspace, and empty workspace | Not run | Pass | User-reported Phase 5 focused pass |
 | Commands | Move and resize one/all columns | Not run | Pass | User-reported Phase 4 focused pass |
-| Lifecycle | Launch app with delayed/placeholder AX windows | Not run | Not run | |
-| Lifecycle | Close one window and last window without quitting app | Not run | Not run | |
-| Lifecycle | Quit app with windows in active and inactive contexts | Not run | Pass | User-reported Phase 5 focused pass |
-| Window state | Minimize and restore a managed window | Not run | Pass | User-reported Phase 5 focused pass |
-| Window state | Enter and exit native fullscreen | Not run | Pass | User-reported Phase 5 focused pass |
+| Lifecycle | Launch app with delayed/placeholder AX windows | Not run | Pass | User-reported Phase 6 focused pass |
+| Lifecycle | Close one window and last window without quitting app | Not run | Pass | User-reported Phase 6 focused pass |
+| Lifecycle | Quit app with windows in active and inactive contexts | Not run | Pass | User-reported Phase 5 and Phase 6 focused passes |
+| Window state | Minimize and restore a managed window | Not run | Pass | User-reported Phase 5 and Phase 6 focused passes |
+| Window state | Enter and exit native fullscreen | Not run | Pass | User-reported Phase 5 and Phase 6 focused passes |
 | Window state | Floating window during layout and workspace changes | Not run | Pass | User-reported Phase 4 focused pass |
-| Native Spaces | Move a managed window between macOS Spaces | Not run | Pass | User-reported Phase 5 focused pass |
-| Native Spaces | Switch Spaces with buffered and fullscreen windows | Not run | Pass | User-reported Phase 5 focused pass |
-| Session | Lock and unlock, then recover by relevant interaction | Not run | Not run | |
+| Native Spaces | Move a managed window between macOS Spaces | Not run | Pass | User-reported Phase 5 and Phase 6 focused passes |
+| Native Spaces | Switch Spaces with buffered and fullscreen windows | Not run | Pass | User-reported Phase 5 and Phase 6 focused passes |
+| Session | Lock and unlock, then recover by relevant interaction | Not run | Pass | User-reported Phase 6 focused pass |
 | Session | Sleep and wake, then recover by relevant interaction | Not run | Not run | |
-| Reliability | Active rescan for configured problematic app | Not run | Not run | |
+| Reliability | Active rescan for configured problematic app | Not run | Pass | User-reported Phase 6 focused pass |
+| Reliability | Transient dialog/popup remains untiled and reconciliation recovers | Not run | Pass | User-reported Phase 6 focused pass |
 | Configuration | Reload valid config | Not run | Pass | User-reported Phase 3 focused pass |
 | Configuration | Reload malformed config and keep last known-good state | Not run | Pass | User-reported Phase 3 focused pass |
 | Configuration | Save valid and invalid Settings drafts | Not run | Pass | User-reported Phase 3 focused pass |
@@ -583,6 +584,69 @@ line counts. For example, "snapshot session state is now private to
 ## Progress log
 
 Add new entries above older entries.
+
+### 2026-08-24 — Phase 6: window observation and reconciliation
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - `WindowObservationController`, owned by `WindowManagement`, now owns AX
+    observers, NSWorkspace application/Space subscriptions, focused and AX
+    creation probes, periodic discovery, active-rescan and launch-settling
+    timers, launch grace bookkeeping, and transient-guard cache state.
+  - OS callbacks only emit typed facts or reconciliation intents. Periodic,
+    active-rescan, launch-settling, placeholder, activation-settle, AX-state,
+    and Space-settle discovery paths all enter coordinator admission.
+  - AX discovery produces immutable `DiscoveredWindowObservation` descriptors;
+    reconciliation converts them to candidates while the model retains the
+    canonical `ManagedWindow` reference.
+  - Targeted, full, and unavailable-AX scans share one missing-window
+    disposition classifier in `WindowManagement`, with explicit full-scan,
+    fullscreen-guard, launch-settling, and unknown-native-Space facts.
+  - Full scans use stable PID/window ordering, and targeted PID batches are
+    admitted in sorted order with admission rechecked between results.
+- Contract changes:
+  - Discovery timers emit `ReconciliationIntent` directly instead of generic
+    timer callbacks.
+  - Transient-system-window checks report blocking/recovery results as a typed
+    `WindowEvent` for coordinator tracing.
+  - Minimized placement records now retain their owning PID in transient model
+    state so global termination cleanup can remove them from inactive contexts.
+- Intentional behavior changes:
+  - Application termination performs global logical cleanup even while session
+    tracking is paused or layout admission is occupied; any required rescan is
+    then deferred through coordinator admission.
+  - Active-rescan and launch-settling timer ticks submit one deterministic PID
+    batch rather than one independently admitted request per PID.
+- Temporary compatibility:
+  - Reconciliation orchestration methods remain extensions on `Miri` and use
+    read-only model forwarding views; Phase 7 removes these transitional paths.
+  - Low-level AX/CG classification helpers remain transitional coordinator
+    extensions until the integration and actor-isolation cleanup.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - `git diff --check`: Pass
+  - Ownership audit: Pass; AX/NSWorkspace handles and discovery timers are
+    stored only by `WindowObservationController`, and direct scan execution is
+    reachable only from coordinator admission
+  - Manual scenarios: Pass; user reported delayed/placeholder launches, window
+    closing, minimize/restore, fullscreen/native-Space transitions, cross-context
+    app termination, transient dialogs, active rescans, rapid concurrent input,
+    and lock/recovery behavior working correctly
+  - Runtime invariants/log review: Pass; no assertion, stuck input, duplicate
+    placement, or repeated reconciliation loop was reported during the focused
+    runtime pass
+  - Shadow comparison: Not applicable; the existing discovery/classification
+    rules were consolidated without maintaining a duplicate model
+- Known issues and risks:
+  - Existing AppKit actor-isolation warnings in snapshot overlay code remain
+    assigned to Phase 7.
+- Decisions:
+  - D-015 and D-016.
+- Next step:
+  - Begin Phase 7 by removing transitional forwarding paths and resolving actor
+    isolation across the extracted components.
 
 ### 2026-08-24 — Phase 5: logical window and workspace ownership
 
@@ -923,3 +987,5 @@ so progress entries can refer to them.
 | D-012 | 2026-08-24 | Split resize debounce, logical width mutation, and frame reapplication across `ManualResizeController`, window management, and `LayoutController` | AX resize handling previously mixed observation state, model mutation, presentation cache writes, and layout cancellation | Each part has one owner and external resize changes emit a typed layout event |
 | D-013 | 2026-08-24 | Back the active workspace projection directly with the active `LogicalSpaceContext` | Cloning on every save/load created two mutable representations of one logical Space | Workspace and window reference identity is preserved while the context graph has one authoritative owner |
 | D-014 | 2026-08-24 | Treat process/window cleanup as a global model operation | Active-only cleanup could leave stale membership in inactive Spaces, buffers, and transition state | Termination cleanup returns one typed result after scanning every logical context and transition store |
+| D-015 | 2026-08-24 | Make the window-domain observation component own AX/NSWorkspace handles, discovery timers, and delayed probes | OS callbacks and timer state were still stored by the coordinator after logical-model extraction | Callbacks emit typed facts/intents only; logical mutation remains behind coordinator admission and `WindowManagement` |
+| D-016 | 2026-08-24 | Use one fact-based missing-window classifier for targeted, full, and unavailable-AX reconciliation | Duplicated branches had drifted in fullscreen, native-Space, minimize, and launch-settling behavior | Scan context is explicit and all missing-window paths receive the same ordered disposition policy |

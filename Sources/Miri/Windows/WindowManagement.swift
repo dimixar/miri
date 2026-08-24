@@ -48,6 +48,30 @@ struct GlobalWindowCleanupResult {
     let changed: Bool
 }
 
+struct MissingWindowFacts {
+    let axEnumerationUnavailable: Bool
+    let hasCGInfo: Bool
+    let isFullscreen: Bool
+    let pendingFullscreenWithinGrace: Bool
+    let isFullScan: Bool
+    let runningApplicationExists: Bool
+    let temporarilyHidden: Bool
+    let behaviorIsIgnored: Bool
+    let fullscreenGuardActive: Bool
+    let appearsInUnknownSpace: Bool
+    let launchRemovalDeferred: Bool
+}
+
+enum MissingWindowDisposition {
+    case preserveCGVisible
+    case preservePendingFullscreen
+    case preserveFullscreenGuard
+    case preserveLaunchSettling
+    case moveToFullscreenState
+    case bufferUnknownSpace
+    case remove(rememberMinimized: Bool)
+}
+
 /// The authoritative mutable graph for managed windows and logical Spaces.
 /// The active workspace projection is backed directly by its active context,
 /// so a window never lives in a coordinator-owned mirror of the model.
@@ -79,10 +103,16 @@ final class WorkspaceModel {
     }
 }
 
-/// Side-effect-free mutation and query boundary for the logical window model.
-/// Layout, persistence, AX observation, and UI publication stay outside.
+/// Window-domain boundary. The model owns canonical logical state while the
+/// observation controller owns OS callbacks and discovery timer bookkeeping.
+/// Layout, persistence, and UI publication stay outside.
 final class WindowManagement {
     private let model = WorkspaceModel()
+    let observation: WindowObservationController
+
+    init(emit: @escaping WindowObservationController.EventSink) {
+        observation = WindowObservationController(emit: emit)
+    }
 
     var workspaces: [Workspace] { model.activeContext.workspaces }
     var floatingWindows: [ManagedWindow] { model.activeContext.floatingWindows }
@@ -133,6 +163,25 @@ final class WindowManagement {
 
     func allWindows() -> [ManagedWindow] { snapshot().allWindows }
     func tiledWindows() -> [ManagedWindow] { snapshot().tiledWindows }
+
+    func classifyMissingWindow(_ facts: MissingWindowFacts) -> MissingWindowDisposition {
+        if facts.axEnumerationUnavailable, facts.hasCGInfo { return .preserveCGVisible }
+        if facts.isFullscreen { return .moveToFullscreenState }
+        if facts.pendingFullscreenWithinGrace { return .preservePendingFullscreen }
+        if facts.isFullScan,
+           facts.runningApplicationExists,
+           !facts.temporarilyHidden,
+           !facts.behaviorIsIgnored,
+           facts.fullscreenGuardActive
+        {
+            return .preserveFullscreenGuard
+        }
+        if facts.appearsInUnknownSpace { return .bufferUnknownSpace }
+        if !facts.temporarilyHidden, facts.launchRemovalDeferred {
+            return .preserveLaunchSettling
+        }
+        return .remove(rememberMinimized: facts.temporarilyHidden)
+    }
 
     func workspaceProjection(at index: Int) -> Workspace? {
         let workspaces = model.activeContext.workspaces
@@ -447,12 +496,14 @@ final class WindowManagement {
         return match.value
     }
 
-    func rememberMinimizedState(_ state: PersistentWindowState) {
+    func rememberMinimizedState(_ state: PersistentWindowState, pid: pid_t) {
         model.activeContext.minimizedWindowStates[state.identity] = state
+        model.activeContext.minimizedWindowPIDs[state.identity] = pid
     }
 
     func takeMinimizedState(identity: PersistentWindowIdentity) -> PersistentWindowState? {
-        model.activeContext.minimizedWindowStates.removeValue(forKey: identity)
+        model.activeContext.minimizedWindowPIDs.removeValue(forKey: identity)
+        return model.activeContext.minimizedWindowStates.removeValue(forKey: identity)
     }
 
     func moveActiveColumn(toWorkspace requestedIndex: Int) -> Bool {
@@ -559,9 +610,15 @@ final class WindowManagement {
             let fullscreenCount = context.fullscreenWindowStates.count
             let minimizedCount = context.minimizedWindowStates.count
             context.fullscreenWindowStates = context.fullscreenWindowStates.filter { $0.value.pid != pid }
-            context.minimizedWindowStates = context.minimizedWindowStates.filter { identity, _ in
-                !removed.contains { $0.bundleID == identity.bundleID && $0.appName == identity.appName }
+            let terminatedMinimizedIdentities = Set(
+                context.minimizedWindowPIDs.compactMap { identity, trackedPID in
+                    trackedPID == pid ? identity : nil
+                }
+            )
+            context.minimizedWindowStates = context.minimizedWindowStates.filter {
+                !terminatedMinimizedIdentities.contains($0.key)
             }
+            context.minimizedWindowPIDs = context.minimizedWindowPIDs.filter { $0.value != pid }
             changed = changed || context.fullscreenWindowStates.count != fullscreenCount
                 || context.minimizedWindowStates.count != minimizedCount
             for window in removed { context.pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(window)) }

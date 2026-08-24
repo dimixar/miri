@@ -19,7 +19,9 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var config: MiriConfig {
         configStore.effectiveConfig
     }
-    let windowManagement = WindowManagement()
+    lazy var windowManagement = WindowManagement { [weak self] event in
+        self?.enqueue(event)
+    }
     var workspaces: [Workspace] { windowManagement.workspaces }
     var floatingWindows: [ManagedWindow] { windowManagement.floatingWindows }
     var activeWorkspace: Int { windowManagement.activeWorkspace }
@@ -30,8 +32,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var nextLogicalSpaceContextID: Int { windowManagement.nextLogicalSpaceContextID }
     var pendingLogicalSpaceSwitch: Bool { windowManagement.pendingLogicalSpaceSwitch }
     var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] { windowManagement.spaceBufferedWindows }
-    var observers: [pid_t: AXObserver] = [:]
-    var focusedWindowProbeGeneration: UInt64 = 0
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] { windowManagement.minimizedWindowStates }
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { windowManagement.fullscreenWindowStates }
     var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] { windowManagement.pendingFullscreenTransitionSince }
@@ -42,24 +42,13 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var spaceChangeGeneration: UInt64 = 0
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     @MainActor var settingsWindowController: SettingsWindowController?
-    var reconciliationTimer: Timer?
-    var activeRescanTimer: Timer?
-    var appLaunchSettlingTimer: Timer?
-    var appLaunchSettlingDeadlines: [pid_t: CFAbsoluteTime] = [:]
-    var appLaunchObservedPIDs = Set<pid_t>()
-    var appLaunchMissingWindowSince: [pid_t: [ObjectIdentifier: CFAbsoluteTime]] = [:]
     var pendingSessionRecoveryCommands: [Command] = []
     var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
     var debugLoggedWindowSignatures = Set<String>()
-    var pendingAXCreationSettleGenerations: [pid_t: UInt64] = [:]
-    var axCreationSettleGeneration: UInt64 = 0
-    var lastAXCreatedPlaceholderProbeAt: [pid_t: CFAbsoluteTime] = [:]
-    var transientWindowActive = false
     var lastActivatedApplicationPID: pid_t?
     var pendingFocusCommands: [Command] = []
     var keyboardFocusAuthorityUntil: CFAbsoluteTime = 0
     let floatingWindowLevel = Int32(CGWindowLevelForKey(.floatingWindow))
-    var transientWindowStateCheckedAt: CFAbsoluteTime = 0
     var lastHorizontalFocusDirection: Int = 1
     var lastIntelligentResizeWindowID: ObjectIdentifier?
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
@@ -118,7 +107,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
 
         reconcileWorkspaceCapacity()
-        observeWorkspace()
+        windowManagement.observation.startWorkspaceObservation()
         observeSessionState()
         installTerminationHandlers()
         persistenceController.start()
@@ -150,34 +139,6 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func requestAccessibilityPermission() -> Bool {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
-    }
-
-    private func observeWorkspace() {
-        let center = NSWorkspace.shared.notificationCenter
-        center.addObserver(
-            self,
-            selector: #selector(applicationActivated(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-        center.addObserver(
-            self,
-            selector: #selector(applicationLaunched(_:)),
-            name: NSWorkspace.didLaunchApplicationNotification,
-            object: nil
-        )
-        center.addObserver(
-            self,
-            selector: #selector(applicationTerminated(_:)),
-            name: NSWorkspace.didTerminateApplicationNotification,
-            object: nil
-        )
-        center.addObserver(
-            self,
-            selector: #selector(activeSpaceChanged(_:)),
-            name: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil
-        )
     }
 
     private func installTerminationHandlers() {

@@ -94,15 +94,13 @@ extension Miri {
         isSessionRecoveryResumeScheduled = false
         pendingSessionRecoveryCommands.removeAll()
         pendingSessionRecoveryLaunchedPIDs.removeAll()
-        reconciliationTimer?.invalidate()
-        reconciliationTimer = nil
-        activeRescanTimer?.invalidate()
-        activeRescanTimer = nil
+        windowManagement.observation.configurePeriodicTimer(enabled: false, interval: windowReconciliationInterval)
+        windowManagement.observation.configureActiveRescanTimer(pids: [])
         cancelAppLaunchSettlingForUnavailableSession()
         manualResizeController.cancel()
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil
-        pendingAXCreationSettleGenerations.removeAll()
+        windowManagement.observation.cancelCreationReconciliations()
         layoutController.cancel(reason: "session-unavailable")
         syncSessionRecoveryInputTracking()
         debugLog("layout tracking paused for unavailable session")

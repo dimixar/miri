@@ -15,16 +15,11 @@ extension Miri {
     }
 
     func scheduleFocusedWindowProbeImplementation(reason: String) {
-        focusedWindowProbeGeneration &+= 1
-        let generation = focusedWindowProbeGeneration
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            self?.enqueue(.input(.focusedWindowProbeDue(reason: reason, generation: generation)))
-        }
+        windowManagement.observation.scheduleFocusedWindowProbe(reason: reason)
     }
 
     func handleFocusedWindowProbeDue(reason: String, generation: UInt64) {
-        guard generation == focusedWindowProbeGeneration,
+        guard windowManagement.observation.focusedWindowProbeIsCurrent(generation),
               isLayoutTrackingAllowed,
               let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
         else {

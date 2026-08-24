@@ -172,12 +172,15 @@ extension Miri {
         guard let location = tiledWindowLocation(for: window.element) else {
             return
         }
-        windowManagement.rememberMinimizedState(PersistentWindowState(
-            identity: persistentIdentity(for: window),
-            workspace: location.workspaceIndex,
-            column: location.columnIndex,
-            manualWidthRatio: widthRatio(for: window)
-        ))
+        windowManagement.rememberMinimizedState(
+            PersistentWindowState(
+                identity: persistentIdentity(for: window),
+                workspace: location.workspaceIndex,
+                column: location.columnIndex,
+                manualWidthRatio: widthRatio(for: window)
+            ),
+            pid: window.pid
+        )
     }
 
     func restoreMinimizedWindowStateIfAvailable(for window: ManagedWindow) {

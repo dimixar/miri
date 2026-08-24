@@ -38,20 +38,16 @@ extension Miri {
 
     func shouldRateLimitAXCreatedPlaceholderProbe(pid: pid_t) -> Bool {
         let cooldown = axCreatedPlaceholderProbeCooldown
-        guard cooldown > 0 else {
-            return false
-        }
-
-        let now = CFAbsoluteTimeGetCurrent()
-        if let lastProbeAt = lastAXCreatedPlaceholderProbeAt[pid],
-           now - lastProbeAt < cooldown {
+        let result = windowManagement.observation.placeholderProbeIsRateLimited(
+            pid: pid,
+            cooldown: cooldown
+        )
+        if result.limited {
             debugLog(
-                "ax created placeholder probe skipped reason=rate-limited pid=\(pid) cooldown=\(String(format: "%.1f", cooldown))s elapsed=\(String(format: "%.2f", now - lastProbeAt))s"
+                "ax created placeholder probe skipped reason=rate-limited pid=\(pid) cooldown=\(String(format: "%.1f", cooldown))s elapsed=\(String(format: "%.2f", result.elapsed ?? 0))s"
             )
             return true
         }
-
-        lastAXCreatedPlaceholderProbeAt[pid] = now
         return false
     }
 
@@ -75,48 +71,16 @@ extension Miri {
         }
 
         let originalWindowCount = allWindows().filter { $0.pid == pid }.count
-        axCreationSettleGeneration &+= 1
-        let generation = axCreationSettleGeneration
-        pendingAXCreationSettleGenerations[pid] = generation
         let delays: [TimeInterval] = overrideDelays ?? (originalWindowCount == 0
             ? [0.12, 0.45, 1.0, 2.5, 5.0, 10.0, 20.0, 35.0]
             : [0.12, 0.45, 1.0, 2.5])
         debugLog("ax creation reconciliation scheduled reason=\(reason) pid=\(pid) knownWindows=\(originalWindowCount) attempts=\(delays.count)")
-
-        for (index, delay) in delays.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self,
-                      self.pendingAXCreationSettleGenerations[pid] == generation
-                else {
-                    return
-                }
-
-                if self.axReconciliationShouldDefer {
-                    self.debugLog("ax creation reconciliation attempt deferred reason=\(reason) pid=\(pid) attempt=\(index + 1)/\(delays.count)")
-                    self.deferAXReconciliation(pid: pid, adoptFocused: adoptFocused, reason: "\(reason):settle")
-                } else {
-                    self.debugLog("ax creation reconciliation attempt reason=\(reason) pid=\(pid) attempt=\(index + 1)/\(delays.count)")
-                    self.requestReconciliation(
-                        .application(
-                            pid: pid,
-                            adoptFocused: adoptFocused,
-                            source: .delayedProbe,
-                            reason: "\(reason):settle-\(index + 1)"
-                        )
-                    )
-                    let currentWindowCount = self.allWindows().filter { $0.pid == pid }.count
-                    if currentWindowCount > originalWindowCount {
-                        self.debugLog("ax creation reconciliation completed reason=\(reason) pid=\(pid) windows=\(currentWindowCount)")
-                        self.pendingAXCreationSettleGenerations.removeValue(forKey: pid)
-                        return
-                    }
-                }
-
-                if index == delays.indices.last {
-                    self.pendingAXCreationSettleGenerations.removeValue(forKey: pid)
-                }
-            }
-        }
+        windowManagement.observation.scheduleCreationReconciliation(
+            pid: pid,
+            adoptFocused: adoptFocused,
+            sourceReason: reason,
+            delays: delays
+        )
     }
 
     @discardableResult
@@ -210,39 +174,7 @@ extension Miri {
     }
 
     func startObservingApp(pid: pid_t) {
-        guard observers[pid] == nil else {
-            return
-        }
-
-        let appElement = AXUIElementCreateApplication(pid)
-        var observer: AXObserver?
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        guard AXObserverCreate(pid, axObserverCallback, &observer) == .success, let observer else {
-            return
-        }
-
-        let notifications = [
-            kAXCreatedNotification,
-            kAXFocusedWindowChangedNotification,
-            kAXMainWindowChangedNotification,
-            kAXUIElementDestroyedNotification,
-            kAXWindowMovedNotification,
-            kAXWindowResizedNotification,
-            kAXWindowMiniaturizedNotification,
-            kAXWindowDeminiaturizedNotification,
-            kAXApplicationHiddenNotification,
-            kAXApplicationShownNotification,
-        ]
-
-        for notification in notifications {
-            let error = AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
-            if error != .success, error != .notificationAlreadyRegistered {
-                debugLog("ax observer registration failed pid=\(pid) notification=\(notification) error=\(error.rawValue)")
-            }
-        }
-
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-        observers[pid] = observer
+        windowManagement.observation.observeApplication(pid: pid, log: debugLog)
     }
 
     func handleAXNotificationImplementation(_ name: String, element: AXUIElement) {
@@ -309,11 +241,10 @@ extension Miri {
             if removeDestroyedWindowImmediately(element) {
                 saveActiveLogicalSpaceContext()
             } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.requestReconciliation(
-                        .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "destroyed-settle")
-                    )
-                }
+                windowManagement.observation.scheduleReconciliation(
+                    .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "destroyed-settle"),
+                    delay: 0.08
+                )
             }
         case kAXCreatedNotification,
              kAXWindowMiniaturizedNotification,
@@ -349,11 +280,10 @@ extension Miri {
                 if removeMiniaturizedWindowImmediately(element, pid: pid, reason: name) {
                     return
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    self?.requestReconciliation(
-                        .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "miniaturized-settle")
-                    )
-                }
+                windowManagement.observation.scheduleReconciliation(
+                    .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "miniaturized-settle"),
+                    delay: 0.08
+                )
                 return
             }
             guard !axReconciliationShouldDefer else {
@@ -364,11 +294,10 @@ extension Miri {
                 deferAXReconciliation(pid: pid, adoptFocused: true, reason: name)
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                self?.requestReconciliation(
-                    .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "ax-state-settle")
-                )
-            }
+            windowManagement.observation.scheduleReconciliation(
+                .application(pid: pid, adoptFocused: true, source: .delayedProbe, reason: "ax-state-settle"),
+                delay: 0.08
+            )
         case kAXWindowResizedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
@@ -440,17 +369,4 @@ extension Miri {
             break
         }
     }
-}
-private func axObserverCallback(
-    _ observer: AXObserver,
-    _ element: AXUIElement,
-    _ notification: CFString,
-    _ refcon: UnsafeMutableRawPointer?
-) {
-    guard let refcon else {
-        return
-    }
-
-    let app = Unmanaged<Miri>.fromOpaque(refcon).takeUnretainedValue()
-    app.enqueue(.windows(.accessibilityNotification(name: notification as String, element: element)))
 }
