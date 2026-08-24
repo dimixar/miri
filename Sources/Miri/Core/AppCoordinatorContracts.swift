@@ -124,6 +124,7 @@ enum InputEvent {
     case focusedWindowProbeDue(reason: String, generation: UInt64)
     case eventTapDisabled(CGEventType)
     case sessionRecoveryEventTapDisabled
+    case sessionRecoveryCandidate(event: CGEvent, type: CGEventType)
 }
 
 enum SessionEvent {

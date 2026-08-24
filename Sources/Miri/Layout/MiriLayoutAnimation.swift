@@ -10,7 +10,8 @@ extension Miri {
         focusActiveWindow: Bool,
         duration: TimeInterval,
         animatedWindowIDs: Set<ObjectIdentifier>?,
-        resizingWindowID: ObjectIdentifier?
+        resizingWindowID: ObjectIdentifier?,
+        requestGeneration: UInt64
     ) {
         guard animationStrategy == .snapshot else {
             stopAnimation(clearPresentation: true)
@@ -18,7 +19,7 @@ extension Miri {
             let finalLayout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
             applyLayout(finalLayout, focusActiveWindow: focusActiveWindow)
             restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
-            releaseLayoutLock()
+            releaseLayoutLock(for: requestGeneration)
             return
         }
 
@@ -29,7 +30,8 @@ extension Miri {
             focusActiveWindow: focusActiveWindow,
             duration: duration,
             animatedWindowIDs: animatedWindowIDs,
-            resizingWindowID: resizingWindowID
+            resizingWindowID: resizingWindowID,
+            requestGeneration: requestGeneration
         )
     }
 
@@ -84,21 +86,47 @@ extension Miri {
         animationTimer?.cancel()
         animationTimer = nil
         snapshotAnimationPreparing = false
+        snapshotAnimationPreparingRequestGeneration = nil
         snapshotAnimationSession?.cancel()
         snapshotAnimationSession = nil
         restoreSnapshotHiddenWindows()
         snapshotOverlayWindow?.hideAndReset()
+        snapshotOverlayWindow = nil
         if clearPresentation {
             presentationFrames.removeAll()
         }
     }
 
-    func releaseLayoutLock(after delay: TimeInterval = 0.08) {
+    @discardableResult
+    func beginLayoutRequest(reason: String) -> UInt64 {
+        layoutRequestGeneration &+= 1
+        activeLayoutRequestGeneration = layoutRequestGeneration
+        isApplyingLayout = true
+        debugLog("layout request begin request=\(layoutRequestGeneration) reason=\(reason)")
+        return layoutRequestGeneration
+    }
+
+    func cancelActiveLayoutRequest(reason: String) {
+        guard let requestGeneration = activeLayoutRequestGeneration else {
+            return
+        }
+        activeLayoutRequestGeneration = nil
+        isApplyingLayout = false
+        debugLog("layout request cancelled request=\(requestGeneration) reason=\(reason)")
+    }
+
+    func releaseLayoutLock(for requestGeneration: UInt64, after delay: TimeInterval = 0.08) {
         guard delay > 0 else {
+            guard activeLayoutRequestGeneration == requestGeneration else {
+                debugLog("layout release ignored request=\(requestGeneration) active=\(activeLayoutRequestGeneration.map(String.init) ?? "none")")
+                return
+            }
             guard animationTimer == nil, snapshotAnimationSession == nil, !snapshotAnimationPreparing else {
                 return
             }
+            activeLayoutRequestGeneration = nil
             isApplyingLayout = false
+            debugLog("layout request complete request=\(requestGeneration)")
             drainPendingFocusCommands()
             drainPendingAXReconciliationIfReady()
             return
@@ -106,13 +134,17 @@ extension Miri {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self,
+                  activeLayoutRequestGeneration == requestGeneration,
                   animationTimer == nil,
                   snapshotAnimationSession == nil,
                   !snapshotAnimationPreparing
             else {
+                self?.debugLog("layout delayed release ignored request=\(requestGeneration) active=\(self?.activeLayoutRequestGeneration.map(String.init) ?? "none")")
                 return
             }
+            activeLayoutRequestGeneration = nil
             isApplyingLayout = false
+            debugLog("layout request complete request=\(requestGeneration)")
             drainPendingFocusCommands()
             drainPendingAXReconciliationIfReady()
         }

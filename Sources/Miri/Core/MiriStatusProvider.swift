@@ -276,7 +276,7 @@ extension Miri {
         updateCleanupWatcher(previousRestoreOnExit: previousRestoreOnExit)
 
         let sourcePath = loadedConfig.sourceURL?.path ?? "fallback"
-        print("miri: reloaded config \(sourcePath), \(commandByKeybinding.count) keybindings")
+        print("miri: reloaded config \(sourcePath), \(inputController.commandCount) keybindings")
         rescanWindows(adoptFocused: false)
         projectLayout(focusActiveWindow: false)
         return true

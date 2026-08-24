@@ -28,7 +28,6 @@ extension Miri {
             )
             return
         }
-        layoutRequestGeneration &+= 1
         let viewport = currentViewport()
 
         let targetState = captureLayoutState()
@@ -42,6 +41,7 @@ extension Miri {
         )
         suppressManualResizeNotifications(for: (shouldAnimate ? max(duration, 0.25) : 0) + max(layoutLockDelay, 0.25))
         if shouldAnimate, let previousState {
+            let requestGeneration = beginLayoutRequest(reason: "snapshot")
             animateLayout(
                 from: previousState,
                 to: targetState,
@@ -49,17 +49,19 @@ extension Miri {
                 focusActiveWindow: focusActiveWindow,
                 duration: duration,
                 animatedWindowIDs: animatedWindowIDs,
-                resizingWindowID: resizingWindowID
+                resizingWindowID: resizingWindowID,
+                requestGeneration: requestGeneration
             )
             return
         }
 
         stopAnimation(clearPresentation: true)
-        isApplyingLayout = true
+        cancelActiveLayoutRequest(reason: "replaced-by-immediate-layout")
+        let requestGeneration = beginLayoutRequest(reason: "immediate")
         let layout = layoutItems(viewport: viewport, state: targetState, parkHidden: true)
         applyLayout(layout, focusActiveWindow: focusActiveWindow)
         restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
-        releaseLayoutLock(after: layoutLockDelay)
+        releaseLayoutLock(for: requestGeneration, after: layoutLockDelay)
     }
 
     func deferLayoutUntilSnapshotSettles(focusActiveWindow: Bool, layoutLockDelay: TimeInterval) {
@@ -70,17 +72,26 @@ extension Miri {
             return
         }
         pendingSnapshotDeferredLayout = true
+        pendingSnapshotDeferredLayoutGeneration &+= 1
+        let generation = pendingSnapshotDeferredLayoutGeneration
         debugLog("layout deferred during snapshot focus=\(focusActiveWindow) lockDelay=\(String(format: "%.2f", layoutLockDelay))")
-        pollDeferredSnapshotLayout()
+        pollDeferredSnapshotLayout(generation: generation)
     }
 
-    func pollDeferredSnapshotLayout() {
+    func pollDeferredSnapshotLayout(generation: UInt64) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard let self else {
                 return
             }
+            guard pendingSnapshotDeferredLayout,
+                  pendingSnapshotDeferredLayoutGeneration == generation,
+                  isLayoutTrackingAllowed
+            else {
+                debugLog("layout deferred poll cancelled generation=\(generation)")
+                return
+            }
             guard snapshotAnimationSession == nil, !snapshotAnimationPreparing else {
-                pollDeferredSnapshotLayout()
+                pollDeferredSnapshotLayout(generation: generation)
                 return
             }
             let focusActiveWindow = pendingSnapshotDeferredFocusActiveWindow

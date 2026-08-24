@@ -53,56 +53,20 @@ extension Miri {
     func refreshSessionRecoveryInputTracking() {
         uninstallSessionRecoveryEventTap()
         syncSessionRecoveryInputTracking()
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: true)
-        }
+        inputController.reenableEventTap()
     }
 
     func installSessionRecoveryEventTap() {
-        guard sessionRecoveryEventTap == nil else {
-            return
-        }
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .tailAppendEventTap,
-            options: .listenOnly,
-            eventsOfInterest: sessionRecoveryInputEventMask,
-            callback: sessionRecoveryEventTapCallback,
-            userInfo: refcon
-        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            debugLog("session recovery input tracking unavailable")
-            return
-        }
-
-        sessionRecoveryEventTap = tap
-        sessionRecoveryEventTapSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        sessionController.installRecoveryInput(mask: sessionRecoveryInputEventMask)
         debugLog("session recovery input tracking enabled")
     }
 
     func uninstallSessionRecoveryEventTap() {
-        if let sessionRecoveryEventTap {
-            CGEvent.tapEnable(tap: sessionRecoveryEventTap, enable: false)
-            CFMachPortInvalidate(sessionRecoveryEventTap)
-        }
-        if let sessionRecoveryEventTapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), sessionRecoveryEventTapSource, .commonModes)
-        }
-        sessionRecoveryEventTap = nil
-        sessionRecoveryEventTapSource = nil
-    }
-
-    func handleSessionRecoveryEventTapDisabled() {
-        enqueue(.input(.sessionRecoveryEventTapDisabled))
+        sessionController.uninstallRecoveryInput()
     }
 
     func handleSessionRecoveryEventTapDisabledImplementation() {
-        guard let sessionRecoveryEventTap else {
-            return
-        }
-        CGEvent.tapEnable(tap: sessionRecoveryEventTap, enable: true)
+        sessionController.reenableRecoveryInput()
     }
 
     func handleSessionRecoveryInput(_ event: CGEvent, type: CGEventType) {
@@ -115,8 +79,28 @@ extension Miri {
             }
             requestSessionRecovery(reason: "managed-key-down")
         } else {
-            handlePointerEvent(event, type: type)
+            guard sessionRecoveryInputTargetsManagedWindow(event, type: type) else {
+                return
+            }
+            requestSessionRecovery(reason: "managed-pointer-event-\(type.rawValue)")
         }
+    }
+
+    func handleSessionRecoveryKeyEvent(_ event: CGEvent?, command: Command?) -> Bool {
+        guard isAwaitingSessionRecoveryInteraction else {
+            return false
+        }
+        if let event {
+            guard sessionRecoveryInputTargetsManagedWindow(event, type: .keyDown) else {
+                return false
+            }
+        } else {
+            guard sessionRecoveryFocusedLayoutTarget() != nil else {
+                return false
+            }
+        }
+        requestSessionRecovery(reason: "managed-key-down", command: command)
+        return command != nil
     }
 
     func sessionRecoveryInputTargetsManagedWindow(
@@ -366,22 +350,4 @@ extension Miri {
         }
         debugLog("layout tracking resumed reason=\(reason) generation=\(generation)")
     }
-}
-
-private func sessionRecoveryEventTapCallback(
-    _ proxy: CGEventTapProxy,
-    _ type: CGEventType,
-    _ event: CGEvent,
-    _ refcon: UnsafeMutableRawPointer?
-) -> Unmanaged<CGEvent>? {
-    guard let refcon else {
-        return Unmanaged.passUnretained(event)
-    }
-    let app = Unmanaged<Miri>.fromOpaque(refcon).takeUnretainedValue()
-    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-        app.handleSessionRecoveryEventTapDisabled()
-    } else {
-        app.handleSessionRecoveryInput(event, type: type)
-    }
-    return Unmanaged.passUnretained(event)
 }

@@ -5,129 +5,63 @@ import IOKit
 
 extension Miri {
     var isSessionAvailable: Bool {
-        isWorkspaceSessionActive && !isScreenLocked && !isSystemSleeping
+        sessionController.isAvailable
     }
 
     var isLayoutTrackingAllowed: Bool {
-        isSessionAvailable && !isAwaitingSessionRecoveryInteraction
+        sessionController.isLayoutTrackingAllowed
+    }
+
+    var isScreenLocked: Bool {
+        get { sessionController.isScreenLocked }
+        set { sessionController.isScreenLocked = newValue }
+    }
+
+    var isWorkspaceSessionActive: Bool {
+        get { sessionController.isWorkspaceSessionActive }
+        set { sessionController.isWorkspaceSessionActive = newValue }
+    }
+
+    var isSystemSleeping: Bool {
+        get { sessionController.isSystemSleeping }
+        set { sessionController.isSystemSleeping = newValue }
+    }
+
+    var isAwaitingSessionRecoveryInteraction: Bool {
+        get { sessionController.isAwaitingRecoveryInteraction }
+        set { sessionController.isAwaitingRecoveryInteraction = newValue }
+    }
+
+    var isSessionRecoveryResumeScheduled: Bool {
+        get { sessionController.isRecoveryResumeScheduled }
+        set { sessionController.isRecoveryResumeScheduled = newValue }
+    }
+
+    var sessionResumeGeneration: UInt64 {
+        get { sessionController.resumeGeneration }
+        set { sessionController.resumeGeneration = newValue }
     }
 
     func observeSessionState() {
-        if let locked = currentConsoleLockState() {
-            isScreenLocked = locked
-        } else {
+        let locked = currentConsoleLockState()
+        if locked == nil {
             debugLog("session state initial lock state unavailable; assuming unlocked")
         }
 
+        let workspaceActive: Bool?
         if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
            let onConsole = session[kCGSessionOnConsoleKey as String] as? Bool
         {
-            isWorkspaceSessionActive = onConsole
+            workspaceActive = onConsole
         } else {
+            workspaceActive = nil
             debugLog("session state initial console ownership unavailable; assuming active")
         }
-
-        let distributedCenter = DistributedNotificationCenter.default()
-        distributedCenter.addObserver(
-            self,
-            selector: #selector(screenDidLock(_:)),
-            name: Notification.Name("com.apple.screenIsLocked"),
-            object: nil
-        )
-        distributedCenter.addObserver(
-            self,
-            selector: #selector(screenDidUnlock(_:)),
-            name: Notification.Name("com.apple.screenIsUnlocked"),
-            object: nil
-        )
-
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceSessionDidBecomeActive(_:)),
-            name: NSWorkspace.sessionDidBecomeActiveNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceSessionDidResignActive(_:)),
-            name: NSWorkspace.sessionDidResignActiveNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceWillSleep(_:)),
-            name: NSWorkspace.willSleepNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceDidWake(_:)),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
-
-        if !isSessionAvailable {
-            isAwaitingSessionRecoveryInteraction = true
-        }
+        sessionController.start(initialLocked: locked, initialWorkspaceActive: workspaceActive)
 
         logSessionState(
             "session monitor locked=\(isScreenLocked) active=\(isWorkspaceSessionActive) sleeping=\(isSystemSleeping) awaitingInteraction=\(isAwaitingSessionRecoveryInteraction) tracking=\(isLayoutTrackingAllowed)"
         )
-    }
-
-    @objc private func screenDidLock(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: true,
-            workspaceActive: nil,
-            systemSleeping: nil,
-            reason: notification.name.rawValue
-        )))
-    }
-
-    @objc private func screenDidUnlock(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: false,
-            workspaceActive: nil,
-            systemSleeping: nil,
-            reason: notification.name.rawValue
-        )))
-    }
-
-    @objc private func workspaceSessionDidBecomeActive(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: currentConsoleLockState(),
-            workspaceActive: true,
-            systemSleeping: nil,
-            reason: notification.name.rawValue
-        )))
-    }
-
-    @objc private func workspaceSessionDidResignActive(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: nil,
-            workspaceActive: false,
-            systemSleeping: nil,
-            reason: notification.name.rawValue
-        )))
-    }
-
-    @objc private func workspaceWillSleep(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: nil,
-            workspaceActive: nil,
-            systemSleeping: true,
-            reason: notification.name.rawValue
-        )))
-    }
-
-    @objc private func workspaceDidWake(_ notification: Notification) {
-        enqueue(.session(.stateChanged(
-            screenLocked: currentConsoleLockState(),
-            workspaceActive: nil,
-            systemSleeping: false,
-            reason: notification.name.rawValue
-        )))
     }
 
     func updateSessionStateImplementation(
@@ -136,38 +70,21 @@ extension Miri {
         systemSleeping: Bool? = nil,
         reason: String
     ) {
-        let wasAvailable = isSessionAvailable
-        let previousLocked = isScreenLocked
-        let previousActive = isWorkspaceSessionActive
-        let previousSleeping = isSystemSleeping
+        let transition = sessionController.apply(
+            screenLocked: screenLocked,
+            workspaceActive: workspaceActive,
+            systemSleeping: systemSleeping
+        )
+        guard transition.changed else { return }
 
-        if let screenLocked {
-            isScreenLocked = screenLocked
-        }
-        if let workspaceActive {
-            isWorkspaceSessionActive = workspaceActive
-        }
-        if let systemSleeping {
-            isSystemSleeping = systemSleeping
-        }
-
-        let isAvailable = isSessionAvailable
-        guard previousLocked != isScreenLocked
-                || previousActive != isWorkspaceSessionActive
-                || previousSleeping != isSystemSleeping
-                || wasAvailable != isAvailable
-        else {
-            return
-        }
-
-        if wasAvailable, !isAvailable {
+        if transition.wasAvailable, !transition.isAvailable {
             pauseLayoutTrackingForSession()
-        } else if !wasAvailable, isAvailable {
+        } else if !transition.wasAvailable, transition.isAvailable {
             awaitManagedInteractionForSessionRecovery(reason: reason)
         }
 
         logSessionState(
-            "session state reason=\(reason) locked=\(isScreenLocked) active=\(isWorkspaceSessionActive) sleeping=\(isSystemSleeping) available=\(isAvailable) awaitingInteraction=\(isAwaitingSessionRecoveryInteraction) tracking=\(isLayoutTrackingAllowed)"
+            "session state reason=\(reason) locked=\(isScreenLocked) active=\(isWorkspaceSessionActive) sleeping=\(isSystemSleeping) available=\(transition.isAvailable) awaitingInteraction=\(isAwaitingSessionRecoveryInteraction) tracking=\(isLayoutTrackingAllowed)"
         )
     }
 
@@ -189,8 +106,9 @@ extension Miri {
         pendingCoordinatorReconciliation = nil
         pendingAXCreationSettleGenerations.removeAll()
         pendingSnapshotDeferredLayout = false
+        pendingSnapshotDeferredLayoutGeneration &+= 1
         stopAnimation(clearPresentation: true)
-        isApplyingLayout = false
+        cancelActiveLayoutRequest(reason: "session-unavailable")
         syncSessionRecoveryInputTracking()
         debugLog("layout tracking paused for unavailable session")
     }
@@ -211,22 +129,7 @@ extension Miri {
     }
 
     func currentConsoleLockState() -> Bool? {
-        let root = IORegistryGetRootEntry(kIOMainPortDefault)
-        guard root != 0 else {
-            return nil
-        }
-        defer { IOObjectRelease(root) }
-
-        guard let value = IORegistryEntryCreateCFProperty(
-            root,
-            "IOConsoleLocked" as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue()
-        else {
-            return nil
-        }
-        return value as? Bool
+        SessionController.currentConsoleLockState()
     }
 
     func currentConsoleSessionIsActive() -> Bool? {

@@ -5,7 +5,7 @@
 - Plan status: Proposed
 - Migration status: In progress
 - Last updated: 2026-08-24
-- Current phase: Phase 1 — coordinator contracts and event-routing seam
+- Current phase: Phase 3 — configuration, persistence, and UI boundaries
 - Last verified revision: working tree
 
 This is the living plan and progress record for moving Miri from one shared
@@ -133,9 +133,9 @@ Status values are `Not started`, `In progress`, `Blocked`, and `Complete`.
 
 | Phase | Description | Status | Last update | Notes |
 | --- | --- | --- | --- | --- |
-| 0 | Correctness prerequisites and observability | In progress | 2026-08-24 | Reconciliation gateway and idempotent termination landed; layout/snapshot prerequisites remain |
-| 1 | Coordinator contracts and event-routing seam | In progress | 2026-08-24 | Event queue and routing seam implemented; live manual trace pass remains |
-| 2 | Input and session event sources | Not started | 2026-08-24 | Move event-source state and orchestration |
+| 0 | Correctness prerequisites and observability | Complete | 2026-08-24 | Layout ownership, snapshot consistency, reconciliation, termination, builds, and user-run smoke pass complete |
+| 1 | Coordinator contracts and event-routing seam | Complete | 2026-08-24 | Deterministic event queue/routing landed; user reported the application smoke pass healthy |
+| 2 | Input and session event sources | Complete | 2026-08-24 | Ownership extracted; debug/release builds and user-run focused runtime pass complete |
 | 3 | Configuration, persistence, and UI boundaries | Not started | 2026-08-24 | Remove storage/UI reach-through |
 | 4 | Layout and presentation ownership | Not started | 2026-08-24 | One owner for layout request lifecycle |
 | 5 | Logical window and workspace ownership | Not started | 2026-08-24 | Move commands, placement, and Space state |
@@ -468,9 +468,9 @@ ownership.
 
 | State group | Current owner | Target owner | Phase | Status |
 | --- | --- | --- | --- | --- |
-| Application phase and cross-domain pending intents | Transitional coordinator core in `Miri`; domain state remains in extensions | `AppCoordinator` | 1 | In progress |
-| Event tap, hotkeys, key maps, focused interaction monitor | `Miri` | `InputController` | 2 | Not started |
-| Lock/sleep/console/recovery input state | `Miri` | `SessionController` | 2 | Not started |
+| Application phase and cross-domain pending intents | Transitional coordinator core in `Miri`; domain state remains in extensions | `AppCoordinator` | 1 | Complete |
+| Event tap, hotkeys, key maps, focused interaction monitor | `InputController`, with temporary lifecycle forwarding methods on `Miri` | `InputController` | 2 | Complete |
+| Lock/sleep/console/recovery input state | `SessionController`, with temporary state forwarding properties on `Miri` | `SessionController` | 2 | Complete |
 | Loaded config and modification tracking | `Miri`/`MiriConfig` | `ConfigStore` | 3 | Not started |
 | Persistent timers, state files, restore snapshot, watcher | `Miri` | `PersistenceController` | 3 | Not started |
 | Settings/status integration | UI controllers with direct `Miri` access | UI actions and immutable view state | 3 | Not started |
@@ -583,9 +583,80 @@ line counts. For example, "snapshot session state is now private to
 
 Add new entries above older entries.
 
+### 2026-08-24 — Phase 2: input and session source ownership
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - `InputController` now privately owns the normal event tap and run-loop
+    source, Carbon registrations and command map, normalized key maps, and the
+    focused-window interaction monitor.
+  - `SessionController` now owns lock/sleep/console state, session notification
+    subscriptions, recovery generation state, and the recovery event tap.
+  - Input and session callbacks emit typed coordinator events. Recovery-target
+    validation remains a narrow coordinator-mediated query of window state.
+- Contract changes:
+  - Added a typed recovery-input candidate carrying the observed event and type.
+  - Normal input keeps its synchronous consume/pass-through result while
+    commands and interactions enter the coordinator queue in their prior order.
+- Intentional behavior changes:
+  - None.
+- Temporary compatibility:
+  - `Miri` retains narrow lifecycle forwarding methods for call sites that will
+    be cleaned up in Phase 7.
+  - Computed session properties on `Miri` forward to `SessionController`; no
+    duplicate session state is stored by the coordinator.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - Manual scenarios: Pass, user-reported focused post-extraction runtime pass;
+    exact shortcut-backend and scenario-by-scenario coverage was not retained
+  - Runtime invariants/log review: ownership audit confirms handles and mapping
+    collections are stored only by their owning controllers
+  - Shadow comparison: Not applicable
+- Known issues and risks:
+  - Exact shortcut-backend coverage was not recorded and remains part of the
+    full Phase 8 stabilization matrix.
+- Decisions:
+  - D-008.
+- Next step:
+  - Begin the configuration, persistence, and UI ownership transfer in Phase 3.
+
+### 2026-08-24 — Phase 0: layout request ownership prerequisites
+
+- Status: Complete
+- Revision/commit: working tree
+- Structural changes:
+  - Every admitted layout now receives a monotonic owner token; completion,
+    cancellation, snapshot preparation, and delayed unlocks validate that token.
+  - Snapshot retargeting now prunes stale layers, targets, hidden-window records,
+    and presentation frames as one operation.
+- Contract changes:
+  - Layout request begin, cancel, and release operations now carry an explicit
+    generation through immediate and snapshot paths.
+- Intentional behavior changes:
+  - An older delayed unlock can no longer release a newer layout request.
+  - Stale snapshot runners cancel instead of remaining alive indefinitely.
+- Temporary compatibility:
+  - Layout state still lives on `Miri` until Phase 4.
+- Verification:
+  - `swift build`: Pass
+  - `swift build -c release`: Pass
+  - Manual scenarios: Pass, user-reported post-change runtime pass including
+    the requested rapid-input and session-recovery focus areas
+  - Runtime invariants/log review: debug assertions cover active-token/activity
+    agreement and snapshot layer/target/hidden/final-layout membership
+  - Shadow comparison: Not applicable
+- Known issues and risks:
+  - Full scenario-by-scenario trace detail remains for Phase 8 stabilization.
+- Decisions:
+  - D-007.
+- Next step:
+  - Continue with Phase 2 input and session ownership.
+
 ### 2026-08-24 — Phase 1: coordinator event-routing seam
 
-- Status: In progress
+- Status: Complete
 - Revision/commit: working tree
 - Structural changes:
   - The coordinator core now owns application phase, a main-actor FIFO event
@@ -616,24 +687,22 @@ Add new entries above older entries.
 - Verification:
   - `swift build`: Pass
   - `swift build -c release`: Pass
-  - Manual scenarios: Not run; require an interactive Accessibility-enabled
-    macOS session
+  - Manual scenarios: Pass, user-reported application smoke pass after the
+    Phase 1 runbook; individual scenario trace detail was not retained
   - Runtime invariants/log review: Compile-time main-actor queue boundary plus
     debug assertions for main-thread execution, non-reentrancy, and bounded
     event/command queues added; live trace review not run
   - Shadow comparison: Not applicable; routing changed without duplicating
     domain algorithms
 - Known issues and risks:
-  - Phase 0 layout-token and snapshot-session correctness prerequisites remain
-    unresolved and prevent Phase 1 from being marked complete.
-  - Live event ordering and affected manual scenarios have not yet been run.
+  - The broader scenario matrix remains for stabilization; no Phase 1 regression
+    was reported in the user-run smoke pass.
   - Existing Swift 6 AppKit actor-isolation warnings in snapshot presentation
     code remain for the later actor-isolation phase.
 - Decisions:
   - D-005 and D-006.
 - Next step:
-  - Complete the Phase 0 layout-token prerequisites, then run the Phase 1 live
-    trace and manual scenario pass before closing this phase.
+  - Transfer input and session event-source ownership in Phase 2.
 
 ### 2026-08-24 — Migration plan created
 
@@ -673,3 +742,5 @@ so progress entries can refer to them.
 | D-004 | 2026-08-24 | Preserve reference identity during logical-model extraction | Existing behavior relies on shared `ManagedWindow` and `Workspace` identity | The migration changes ownership, not the fundamental model semantics |
 | D-005 | 2026-08-24 | Establish the coordinator seam inside `Miri` before renaming or moving domain state | Phase 1 is a routing change and later phases transfer ownership incrementally | Existing algorithms remain behind temporary implementation methods while external callbacks use typed events |
 | D-006 | 2026-08-24 | Coalesce reconciliation at the coordinator into one bounded intent | Source-specific queues allowed competing sequencing decisions | Full scans dominate targeted scans, PID targets union, and focus adoption combines with logical OR |
+| D-007 | 2026-08-24 | Treat the monotonic layout generation as an exclusive request-ownership token | Delayed completion must prove it still owns the application gate | Old unlocks are ignored; preparation, completion, cancellation, and session interruption correlate to one request |
+| D-008 | 2026-08-24 | Give input and session sources typed event sinks plus narrow synchronous query closures | Event taps must return consumption synchronously while subsystem state remains private | Controllers do not retain `Miri` or mutate window/layout state; compatibility forwarding remains temporary |

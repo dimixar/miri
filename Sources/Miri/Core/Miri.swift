@@ -30,16 +30,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingLogicalSpaceSwitch = false
     var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] = [:]
     var observers: [pid_t: AXObserver] = [:]
-    var focusedWindowInputMonitor: Any?
     var focusedWindowProbeGeneration: UInt64 = 0
-    var eventTap: CFMachPort?
-    var eventTapSource: CFRunLoopSource?
-    var sessionRecoveryEventTap: CFMachPort?
-    var sessionRecoveryEventTapSource: CFRunLoopSource?
-    var carbonHotKeys: [EventHotKeyRef] = []
-    var carbonEventHandler: EventHandlerRef?
-    var carbonCommandByID: [UInt32: Command] = [:]
-    var commandByKeybinding: [String: Command] = [:]
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:]
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:]
     var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:]
@@ -55,21 +46,14 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var snapshotWriteTimer: DispatchSourceTimer?
     var logicalSpaceSnapshotTimer: DispatchSourceTimer?
     @MainActor var settingsWindowController: SettingsWindowController?
-    var excludedKeybindingSet = Set<String>()
     var reconciliationTimer: Timer?
     var activeRescanTimer: Timer?
     var appLaunchSettlingTimer: Timer?
     var appLaunchSettlingDeadlines: [pid_t: CFAbsoluteTime] = [:]
     var appLaunchObservedPIDs = Set<pid_t>()
     var appLaunchMissingWindowSince: [pid_t: [ObjectIdentifier: CFAbsoluteTime]] = [:]
-    var isScreenLocked = false
-    var isWorkspaceSessionActive = true
-    var isSystemSleeping = false
-    var isAwaitingSessionRecoveryInteraction = false
-    var isSessionRecoveryResumeScheduled = false
     var pendingSessionRecoveryCommands: [Command] = []
     var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
-    var sessionResumeGeneration: UInt64 = 0
     var debugLoggedWindowSignatures = Set<String>()
     var isApplyingLayout = false
     var animationTimer: AnimationTimer?
@@ -77,9 +61,11 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var snapshotOverlayWindow: SnapshotOverlayWindow?
     var snapshotHiddenWindows: [ManagedWindow] = []
     var snapshotAnimationPreparing = false
+    var snapshotAnimationPreparingRequestGeneration: UInt64?
     var pendingSnapshotDeferredLayout = false
     var pendingSnapshotDeferredFocusActiveWindow = false
     var pendingSnapshotDeferredLayoutLockDelay: TimeInterval = 0.08
+    var pendingSnapshotDeferredLayoutGeneration: UInt64 = 0
     var pendingAXCreationSettleGenerations: [pid_t: UInt64] = [:]
     var axCreationSettleGeneration: UInt64 = 0
     var lastAXCreatedPlaceholderProbeAt: [pid_t: CFAbsoluteTime] = [:]
@@ -90,6 +76,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     var pendingFocusCommands: [Command] = []
     var keyboardFocusAuthorityUntil: CFAbsoluteTime = 0
     var layoutRequestGeneration: UInt64 = 0
+    var activeLayoutRequestGeneration: UInt64?
     let floatingWindowLevel = Int32(CGWindowLevelForKey(.floatingWindow))
     var transientWindowStateCheckedAt: CFAbsoluteTime = 0
     var manualResizeEndTimer: DispatchSourceTimer?
@@ -109,6 +96,23 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
     let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
     var cleanupWatcher: Process?
+
+    lazy var sessionController = SessionController { [weak self] event in
+        self?.enqueue(event)
+    }
+
+    lazy var inputController = InputController(
+        emit: { [weak self] event in self?.enqueue(event) },
+        isAwaitingSessionRecovery: { [weak self] in
+            self?.isAwaitingSessionRecoveryInteraction ?? false
+        },
+        handleRecoveryKey: { [weak self] event, command in
+            self?.handleSessionRecoveryKeyEvent(event, command: command) ?? false
+        },
+        shouldSuppressCommand: { [weak self] in
+            self?.transientSystemWindowIsActive() ?? true
+        }
+    )
 
     func start() {
         guard requestAccessibilityPermission() else {
@@ -141,7 +145,7 @@ final class Miri: NSObject, NSApplicationDelegate, @unchecked Sendable {
         schedulePeriodicLogicalSpaceSnapshotWrite()
 
         print("miri: running")
-        print("miri: loaded \(commandByKeybinding.count) keybindings")
+        print("miri: loaded \(inputController.commandCount) keybindings")
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
     }
 

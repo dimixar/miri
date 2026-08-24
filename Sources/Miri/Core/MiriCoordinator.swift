@@ -135,6 +135,8 @@ extension Miri {
             handleEventTapDisabledImplementation(type)
         case .sessionRecoveryEventTapDisabled:
             handleSessionRecoveryEventTapDisabledImplementation()
+        case .sessionRecoveryCandidate(let event, let type):
+            handleSessionRecoveryInput(event, type: type)
         }
     }
 
@@ -356,9 +358,13 @@ extension Miri {
         activeRescanTimer?.invalidate()
         appLaunchSettlingTimer?.invalidate()
         uninstallFocusedWindowInputMonitor()
-        uninstallSessionRecoveryEventTap()
+        sessionController.stop()
         uninstallEventTap()
         uninstallCarbonHotKeys()
+        pendingSnapshotDeferredLayout = false
+        pendingSnapshotDeferredLayoutGeneration &+= 1
+        stopAnimation(clearPresentation: true)
+        cancelActiveLayoutRequest(reason: "termination")
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
         restoreManagedWindowsForExit()
@@ -372,6 +378,27 @@ extension Miri {
         assert(!isHandlingCoordinatorEvent || activeCoordinatorSequence == nil)
         assert(coordinatorEventQueue.count < 1_024, "Coordinator event queue is unexpectedly unbounded")
         assert(pendingFocusCommands.count < 256, "Pending command queue is unexpectedly unbounded")
+        assert(
+            isApplyingLayout == (activeLayoutRequestGeneration != nil),
+            "Layout activity and request ownership must change together"
+        )
+        if let session = snapshotAnimationSession {
+            assert(
+                session.requestGeneration == activeLayoutRequestGeneration,
+                "The snapshot session must belong to the active layout request"
+            )
+        }
+        if snapshotAnimationPreparing {
+            assert(
+                snapshotAnimationPreparingRequestGeneration == activeLayoutRequestGeneration,
+                "Snapshot preparation must belong to the active layout request"
+            )
+        } else {
+            assert(
+                snapshotAnimationPreparingRequestGeneration == nil,
+                "Inactive snapshot preparation cannot retain a request"
+            )
+        }
         #endif
     }
 }
@@ -414,6 +441,7 @@ private extension InputEvent {
         case .focusedWindowProbeDue: return "input.focused-window-probe-due"
         case .eventTapDisabled: return "input.tap-disabled"
         case .sessionRecoveryEventTapDisabled: return "input.recovery-tap-disabled"
+        case .sessionRecoveryCandidate: return "input.recovery-candidate"
         }
     }
 }

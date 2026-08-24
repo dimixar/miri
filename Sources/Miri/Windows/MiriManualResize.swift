@@ -247,11 +247,13 @@ extension Miri {
         manualResizeElement = element
         manualResizeEndTimer?.cancel()
         stopAnimation(clearPresentation: false)
+        cancelActiveLayoutRequest(reason: "manual-resize-interrupt")
 
         if updateManualWidthRatio(for: element) {
             schedulePersistentLayoutSnapshotWrite()
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0)
         }
+        drainPendingCoordinatorWorkIfPossible()
 
         scheduleManualResizeEnd(for: element)
     }
