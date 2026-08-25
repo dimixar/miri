@@ -31,18 +31,18 @@ struct PersistenceConfiguration: Equatable {
 @MainActor
 final class PersistenceController {
     private let emit: (PersistenceEvent) -> Void
-    private(set) var configuration: PersistenceConfiguration
+    private var configuration: PersistenceConfiguration
     private var layoutDebounceTimer: DispatchSourceTimer?
     private var logicalSpaceAutosaveTimer: DispatchSourceTimer?
     private var cleanupWatcher: Process?
 
     private(set) var layoutSnapshot: PersistentLayoutSnapshot?
     private(set) var needsLayoutRestore = true
-    private(set) var logicalSpaceSnapshot: PersistentLogicalSpaceSnapshot?
+    private var logicalSpaceSnapshot: PersistentLogicalSpaceSnapshot?
     private(set) var needsLogicalSpaceRestore = true
     private(set) var pendingLogicalSpaceContexts: [PersistentLogicalSpaceContext] = []
 
-    let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
+    private let restoreStateURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("miri-\(ProcessInfo.processInfo.processIdentifier).restore.json")
 
     init(configuration: PersistenceConfiguration, emit: @escaping (PersistenceEvent) -> Void) {
@@ -51,7 +51,7 @@ final class PersistenceController {
         loadRestorationDocuments()
     }
 
-    var logicalSpaceStateURL: URL {
+    private var logicalSpaceStateURL: URL {
         configuration.layoutStateURL.deletingLastPathComponent().appendingPathComponent("logical-spaces.json")
     }
 

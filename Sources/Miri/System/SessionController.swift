@@ -15,7 +15,7 @@ final class SessionController {
     private(set) var isWorkspaceSessionActive = true
     private(set) var isSystemSleeping = false
     private(set) var isAwaitingRecoveryInteraction = false
-    private(set) var isRecoveryResumeScheduled = false
+    private var isRecoveryResumeScheduled = false
     private(set) var resumeGeneration: UInt64 = 0
 
     init(emit: @escaping (AppEvent) -> Void) {

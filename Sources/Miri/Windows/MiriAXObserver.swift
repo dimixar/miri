@@ -5,7 +5,7 @@ import Foundation
 
 extension Miri {
     var axReconciliationShouldDefer: Bool {
-        layoutController.activity.isActive
+        layoutController.isActive
     }
 
     func deferAXReconciliation(
@@ -30,10 +30,6 @@ extension Miri {
             )
         }
         requestReconciliation(intent)
-    }
-
-    func drainPendingAXReconciliationIfReady() {
-        drainPendingCoordinatorWorkIfPossible()
     }
 
     func shouldRateLimitAXCreatedPlaceholderProbe(pid: pid_t) -> Bool {
@@ -325,7 +321,7 @@ extension Miri {
                     return
                 }
                 beginOrContinueManualResize(for: element)
-            } else if !layoutController.activity.isActive {
+            } else if !layoutController.isActive {
                 beginOrContinueManualResize(for: element)
             }
         case kAXWindowMovedNotification:
@@ -351,7 +347,7 @@ extension Miri {
                     return
                 }
                 beginOrContinueManualResize(for: element)
-            } else if !layoutController.activity.isActive {
+            } else if !layoutController.isActive {
                 guard let window = tiledWindow(for: element) else {
                     layoutController.restoreFloatingVisibility()
                     return

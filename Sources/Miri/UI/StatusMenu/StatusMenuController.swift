@@ -13,7 +13,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var lastWorkspaceBarSignature: WorkspaceBarRenderSignature?
     private var workspaceBarRefreshScheduled = false
     private var iconCache: [String: NSImage] = [:]
-    private var statusButtonAppearanceObserver: StatusBarAppearanceObserverView?
     private lazy var fallbackIcon = NSWorkspace.shared.icon(for: .application)
 
     init(stateProvider: @escaping () -> StatusMenuViewState, actionSink: @escaping (UIAction) -> Void) {
@@ -45,7 +44,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 self?.invalidateWorkspaceBarAppearance()
             }
             button.addSubview(observer)
-            statusButtonAppearanceObserver = observer
         }
         refreshWorkspaceBar(force: true)
     }

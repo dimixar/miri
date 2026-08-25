@@ -31,14 +31,6 @@ struct EventSequence: Hashable, Comparable, CustomStringConvertible {
     var description: String { String(rawValue) }
 }
 
-struct LayoutRequest {
-    let token: LayoutRequestToken
-    let previousLayout: LayoutSnapshot?
-    let currentLayout: LayoutSnapshot
-    let focusActiveWindow: Bool
-    let animated: Bool
-}
-
 enum LayoutEvent {
     case completed(token: LayoutRequestToken)
     case cancelled(token: LayoutRequestToken)
@@ -50,7 +42,6 @@ typealias LayoutSnapshot = LayoutState
 
 struct ModelChange {
     var previousLayout: LayoutSnapshot?
-    var currentLayout: LayoutSnapshot
     var layoutRequired: Bool
     var focusRequested: Bool
     var persistenceChanged: Bool

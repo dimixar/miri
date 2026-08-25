@@ -12,8 +12,6 @@ struct WorkspaceModelSnapshot {
     let workspaces: [WorkspaceSnapshot]
     let floatingWindows: [ManagedWindow]
     let activeWorkspace: Int
-    let previousWorkspace: Int?
-    let activeLogicalSpaceContextID: Int
 
     var layoutState: LayoutState {
         LayoutState(
@@ -30,17 +28,6 @@ struct WorkspaceModelSnapshot {
     var allWindows: [ManagedWindow] {
         tiledWindows + floatingWindows
     }
-}
-
-struct WorkspaceSelectionResult {
-    let changed: Bool
-    let previousIndex: Int
-    let activeIndex: Int
-}
-
-struct WindowRemovalResult {
-    let removed: Bool
-    let wasFloating: Bool
 }
 
 struct GlobalWindowCleanupResult {
@@ -119,16 +106,12 @@ final class WindowManagement {
     var workspaces: [Workspace] { model.activeContext.workspaces }
     var floatingWindows: [ManagedWindow] { model.activeContext.floatingWindows }
     var activeWorkspace: Int { model.activeContext.activeWorkspace }
-    var previousWorkspace: Workspace? { model.previousWorkspace }
     var emptyWorkspaceFocusAuthority: Workspace? { model.emptyWorkspaceFocusAuthority }
     var logicalSpaceContexts: [LogicalSpaceContext] { model.logicalSpaceContexts }
     var activeLogicalSpaceContextID: Int { model.activeLogicalSpaceContextID }
-    var nextLogicalSpaceContextID: Int { model.nextLogicalSpaceContextID }
     var pendingLogicalSpaceSwitch: Bool { model.pendingLogicalSpaceSwitch }
     var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] { model.spaceBufferedWindows }
-    var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] { model.activeContext.minimizedWindowStates }
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { model.activeContext.fullscreenWindowStates }
-    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] { model.activeContext.pendingFullscreenTransitionSince }
     var fullscreenSpaceChangeGuardWorkspace: Int? { model.activeContext.fullscreenSpaceChangeGuardWorkspace }
 
     func snapshot() -> WorkspaceModelSnapshot {
@@ -143,11 +126,7 @@ final class WindowManagement {
                 )
             },
             floatingWindows: model.activeContext.floatingWindows,
-            activeWorkspace: activeIndex,
-            previousWorkspace: model.previousWorkspace.flatMap { previous in
-                workspaces.firstIndex(where: { $0 === previous })
-            },
-            activeLogicalSpaceContextID: model.activeLogicalSpaceContextID
+            activeWorkspace: activeIndex
         )
     }
 
@@ -266,18 +245,18 @@ final class WindowManagement {
     }
 
     @discardableResult
-    func selectWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> WorkspaceSelectionResult {
+    func selectWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> Bool {
         let context = model.activeContext
         let oldIndex = context.activeWorkspace
         guard context.workspaces.indices.contains(requestedIndex), requestedIndex != oldIndex else {
-            return WorkspaceSelectionResult(changed: false, previousIndex: oldIndex, activeIndex: oldIndex)
+            return false
         }
         let oldWorkspace = context.workspaces[oldIndex]
         model.emptyWorkspaceFocusAuthority = nil
         context.activeWorkspace = requestedIndex
         if rememberPrevious { model.previousWorkspace = oldWorkspace }
         assertInvariants()
-        return WorkspaceSelectionResult(changed: true, previousIndex: oldIndex, activeIndex: requestedIndex)
+        return true
     }
 
     func previousWorkspaceIndex() -> Int? {
@@ -371,12 +350,12 @@ final class WindowManagement {
         return true
     }
 
-    func remove(_ window: ManagedWindow, preferRightFocus: Bool = false) -> WindowRemovalResult {
+    func remove(_ window: ManagedWindow, preferRightFocus: Bool = false) {
         let context = model.activeContext
         if let index = context.floatingWindows.firstIndex(where: { $0 === window }) {
             context.floatingWindows.remove(at: index)
             assertInvariants()
-            return WindowRemovalResult(removed: true, wasFloating: true)
+            return
         }
         for workspace in context.workspaces {
             guard let index = workspace.columns.firstIndex(where: { $0 === window }) else { continue }
@@ -390,9 +369,8 @@ final class WindowManagement {
             workspace.scrollOffset = nil
             workspace.clampFocus()
             assertInvariants()
-            return WindowRemovalResult(removed: true, wasFloating: false)
+            return
         }
-        return WindowRemovalResult(removed: false, wasFloating: false)
     }
 
     func moveActiveColumn(to requestedIndex: Int) -> Bool {

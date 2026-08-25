@@ -2,10 +2,6 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
-    var persistLayoutEnabled: Bool {
-        persistenceController.configuration.enabled
-    }
-
     func schedulePersistentLayoutSnapshotWrite() {
         persistenceController.scheduleLayoutAutosave()
     }

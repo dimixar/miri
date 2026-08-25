@@ -56,7 +56,7 @@ extension Miri {
         }
 
         windowManagement.observation.scheduleApplicationActivationSettled(app)
-        guard !layoutController.activity.isActive else { return }
+        guard !layoutController.isActive else { return }
         guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
             return
         }
@@ -145,7 +145,7 @@ extension Miri {
         guard sessionController.isLayoutTrackingAllowed else {
             return
         }
-        guard !layoutController.activity.isActive else {
+        guard !layoutController.isActive else {
             requestReconciliation(
                 .application(
                     pid: app.processIdentifier,
@@ -188,8 +188,7 @@ extension Miri {
         )
     }
 
-    @discardableResult
-    func removeVanishedWindows(forPID pid: pid_t, adoptFocused: Bool, reason: String) -> Bool {
+    func removeVanishedWindows(forPID pid: pid_t, adoptFocused: Bool, reason: String) {
         var changed = false
         var removedActive = false
 
@@ -210,7 +209,6 @@ extension Miri {
             projectLayout(focusActiveWindow: adoptFocused || removedActive, layoutLockDelay: 0.02)
             saveActiveLogicalSpaceContext()
         }
-        return changed
     }
 
     func reconcileDiscoveredWindows(
@@ -281,7 +279,7 @@ extension Miri {
     func upsertDiscoveredWindow(_ found: ManagedWindow) -> Bool {
         if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
             windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(existing))
-            _ = consumeBufferedWindowIfNeeded(existing)
+            consumeBufferedWindowIfNeeded(existing)
             let previousBehavior = behavior(for: existing)
             let metadataChanged = existing.title != found.title
                 || existing.appName != found.appName
@@ -343,7 +341,7 @@ extension Miri {
         guard sessionController.isLayoutTrackingAllowed else {
             return
         }
-        guard !layoutController.activity.isActive else {
+        guard !layoutController.isActive else {
             requestReconciliation(
                 .all(adoptFocused: adoptFocused, source: .periodicTimer, reason: "rescan-gate")
             )

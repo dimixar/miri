@@ -18,7 +18,7 @@ final class WindowObservationController: NSObject {
     private var activeRescanPIDs = Set<pid_t>()
     private var launchSettlingTimer: Timer?
 
-    private(set) var focusedWindowProbeGeneration: UInt64 = 0
+    private var focusedWindowProbeGeneration: UInt64 = 0
     private(set) var launchSettlingDeadlines: [pid_t: CFAbsoluteTime] = [:]
     private var launchObservedPIDs = Set<pid_t>()
     private var launchMissingWindowSince: [pid_t: [ObjectIdentifier: CFAbsoluteTime]] = [:]
@@ -191,10 +191,6 @@ final class WindowObservationController: NSObject {
         launchMissingWindowSince.removeAll()
         configureLaunchSettlingTimer(enabled: false, interval: 1)
         return pids
-    }
-
-    func launchDeadline(for pid: pid_t) -> CFAbsoluteTime? {
-        launchSettlingDeadlines[pid]
     }
 
     func noteLaunchWindowObserved(pid: pid_t, identity: ObjectIdentifier) {

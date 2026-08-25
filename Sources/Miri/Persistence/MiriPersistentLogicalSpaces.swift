@@ -1,10 +1,6 @@
 import Foundation
 
 extension Miri {
-    func schedulePeriodicLogicalSpaceSnapshotWrite() {
-        persistenceController.schedulePeriodicLogicalSpaceAutosave()
-    }
-
     func writePersistentLogicalSpaceSnapshotIfSafe() {
         guard logicalSpacePersistenceIsSafe() else {
             return

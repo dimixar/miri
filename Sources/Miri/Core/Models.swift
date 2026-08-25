@@ -84,10 +84,6 @@ final class LogicalSpaceContext {
 struct BufferedSpaceWindow {
     var window: ManagedWindow
     var sourceContextID: Int
-    var sourceWorkspace: Int?
-    var sourceColumn: Int?
-    var sourceFloatingIndex: Int?
-    var bufferedAt: CFAbsoluteTime
 }
 
 struct RestoreSnapshot: Codable {

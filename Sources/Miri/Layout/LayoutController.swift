@@ -57,17 +57,6 @@ struct LayoutRequestToken: Hashable, CustomStringConvertible, Sendable {
     var description: String { String(rawValue) }
 }
 
-struct LayoutControllerActivity: Sendable {
-    var requestToken: LayoutRequestToken?
-    var isSnapshotActive: Bool
-    var isSnapshotPreparing: Bool
-    var hasDeferredSubmission: Bool
-
-    var isActive: Bool {
-        requestToken != nil || isSnapshotActive || isSnapshotPreparing || hasDeferredSubmission
-    }
-}
-
 private struct LayoutSubmission {
     let token: LayoutRequestToken
     let previousState: LayoutState?
@@ -152,13 +141,11 @@ final class LayoutController {
         self.emit = emit
     }
 
-    var activity: LayoutControllerActivity {
-        LayoutControllerActivity(
-            requestToken: activeRequestToken ?? pendingSubmission?.token,
-            isSnapshotActive: snapshotAnimationSession != nil,
-            isSnapshotPreparing: snapshotAnimationPreparing,
-            hasDeferredSubmission: pendingSubmission != nil
-        )
+    var isActive: Bool {
+        activeRequestToken != nil
+            || snapshotAnimationSession != nil
+            || snapshotAnimationPreparing
+            || pendingSubmission != nil
     }
 
     func assertInvariants() {
@@ -224,7 +211,6 @@ final class LayoutController {
         )
     }
 
-    @discardableResult
     func submit(
         previousState: LayoutState?,
         targetState: LayoutState,
@@ -232,7 +218,7 @@ final class LayoutController {
         focusActiveWindow: Bool,
         animated: Bool,
         lockDelay: TimeInterval
-    ) -> LayoutRequestToken {
+    ) {
         let submission = LayoutSubmission(
             token: allocateRequestToken(),
             previousState: previousState,
@@ -248,7 +234,6 @@ final class LayoutController {
         } else {
             execute(submission)
         }
-        return submission.token
     }
 
     private func execute(_ submission: LayoutSubmission) {
@@ -338,10 +323,6 @@ final class LayoutController {
             }
         }
         hiddenWorkspaceWindowIDs = hiddenWorkspaceWindowIDs.filter { !activeIDs.contains($0) }
-    }
-
-    func isHiddenForInactiveWorkspace(_ window: ManagedWindow) -> Bool {
-        hiddenWorkspaceWindowIDs.contains(ObjectIdentifier(window))
     }
 
     func cancel(reason: String) {

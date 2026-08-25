@@ -18,7 +18,7 @@ extension Miri {
 
     func drainPendingFocusCommands() {
         guard !pendingFocusCommands.isEmpty,
-              !layoutController.activity.isActive
+              !layoutController.isActive
         else {
             return
         }
@@ -169,7 +169,6 @@ extension Miri {
         applyModelChange(
             ModelChange(
                 previousLayout: previousState,
-                currentLayout: newState,
                 layoutRequired: true,
                 focusRequested: true,
                 persistenceChanged: previousState != newState || frameAnimated,
@@ -242,7 +241,7 @@ extension Miri {
 
     @discardableResult
     func setActiveWorkspace(_ requestedIndex: Int, rememberPrevious: Bool = true) -> Bool {
-        windowManagement.selectWorkspace(requestedIndex, rememberPrevious: rememberPrevious).changed
+        windowManagement.selectWorkspace(requestedIndex, rememberPrevious: rememberPrevious)
     }
 
     func previousWorkspaceIndex() -> Int? {

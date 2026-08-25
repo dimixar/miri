@@ -80,7 +80,7 @@ extension Miri {
         let id = ObjectIdentifier(window)
         layoutController.removeTracking(for: window)
         windowManagement.clearPendingFullscreenTransition(for: id)
-        _ = windowManagement.remove(window, preferRightFocus: preferRightFocus)
+        windowManagement.remove(window, preferRightFocus: preferRightFocus)
         reconcileWorkspaceCapacity()
     }
 

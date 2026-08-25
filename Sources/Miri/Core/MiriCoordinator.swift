@@ -267,7 +267,7 @@ extension Miri {
     }
 
     @MainActor private var reconciliationAdmissionClosed: Bool {
-        layoutController.activity.isActive
+        layoutController.isActive
     }
 
     @MainActor private func coalescePendingReconciliation(_ intent: ReconciliationIntent, reason: String) {

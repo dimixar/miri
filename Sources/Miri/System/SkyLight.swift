@@ -7,7 +7,6 @@ struct SkyLightWindowShadowParameters: Sendable {
     let density: CGFloat
     let offsetX: CGFloat
     let offsetY: CGFloat
-    let flags: UInt32
 }
 
 final class SkyLight: @unchecked Sendable {
@@ -92,15 +91,6 @@ final class SkyLight: @unchecked Sendable {
         connectionID = mainConnection?()
     }
 
-    var canSetWindowLevel: Bool {
-        connectionID != nil && setWindowLevel != nil
-    }
-
-    var canPositionWindows: Bool {
-        connectionID != nil
-            && (transactionMoveWindowWithGroup != nil || moveWindow != nil || setWindowTransform != nil)
-    }
-
     func windowID(for element: AXUIElement) -> UInt32? {
         guard let axUIElementGetWindow else {
             return nil
@@ -166,8 +156,7 @@ final class SkyLight: @unchecked Sendable {
             standardDeviation: CGFloat(standardDeviation),
             density: CGFloat(density),
             offsetX: CGFloat(offsetX),
-            offsetY: CGFloat(offsetY),
-            flags: flags
+            offsetY: CGFloat(offsetY)
         )
     }
 
