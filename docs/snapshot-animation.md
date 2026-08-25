@@ -96,8 +96,9 @@ Useful log lines:
 - `snapshot retarget`: active session received a new target.
 - `snapshot tick`: per-frame progress, step size, and unsettled layer count.
 - `snapshot no-op`: target layout had no meaningful motion.
-- `layout deferred during snapshot`: real AX layout was deferred.
-- `ax reconciliation deferred`: AX events were queued until animation settled.
+- `layout deferred request=... during snapshot`: real AX layout was deferred.
+- `reconciliation deferred ... reason=layout-active`: reconciliation was
+  coalesced until animation and layout settled.
 
 ## Disabled Animation
 

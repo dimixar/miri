@@ -260,9 +260,9 @@ The project dynamically resolves these private symbols at runtime:
 - `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
   `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
   `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
-  `SLSSetWindowTransform`: maintain true floating-window levels and correct
-  parked-window positions and shadow outsets when Accessibility placement is
-  constrained.
+  `SLSGetWindowTransform`/`SLSSetWindowTransform`: maintain true
+  floating-window levels and correct parked-window positions and shadow
+  outsets when Accessibility placement is constrained.
 
 It also relies on a few undocumented macOS contracts that are not private
 function calls but are absent from the public SDK documentation:

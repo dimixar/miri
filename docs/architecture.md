@@ -136,8 +136,9 @@ visible AX windows, and chooses the best matching context. Matching prefers
 CG window IDs and falls back to persistent window identity when needed.
 
 Moved windows are handled non-destructively. If a known live window disappears
-because it moved to another native Space, miri buffers its old placement and
-reattaches it when the window appears in another context.
+because it moved to another native Space, miri buffers the window and its source
+logical-Space context. When the window appears in another context, miri removes
+any stale source-context reference and adopts it through normal placement.
 
 ## Private And Undocumented API Scope
 
@@ -148,9 +149,9 @@ narrow macOS gaps:
 - `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
   `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
   `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
-  `SLSSetWindowTransform`: maintain true floating-window levels and correct
-  parked positions and shadow outsets when Accessibility placement is
-  constrained.
+  `SLSGetWindowTransform`/`SLSSetWindowTransform`: maintain true
+  floating-window levels and correct parked positions and shadow outsets when
+  Accessibility placement is constrained.
 
 miri also consumes undocumented system contracts rather than private callable
 symbols:

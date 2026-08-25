@@ -212,8 +212,8 @@ Useful log lines in `~/.config/miri/debug.log`:
 - `window discovered`: a window accepted into the managed model.
 - `app launch settling started`: an observed regular-app launch opened its
   30-second targeted reconciliation period.
-- `app launch settling reconciliation`: the initial or once-per-second scan ran
-  for a settling PID.
+- `reconciliation admitted ... source=launchSettling`: an initial or
+  once-per-second scan was admitted for a settling PID.
 - `preserving launch-settling window`: a known window was absent from one scan
   and retained during the transient-miss grace period.
 - `app launch settling finished`: the deadline expired, the process terminated,
@@ -222,8 +222,10 @@ Useful log lines in `~/.config/miri/debug.log`:
 - `reconcile skipped reason=...`: per-app reconciliation was deliberately
   skipped, for example because the app was not regular yet or AX was in a
   transient system state.
-- `ax reconciliation deferred`: event queued while layout/animation is busy.
-- `ax reconciliation draining`: queued PID reconciliation begins.
+- `reconciliation deferred`: work was coalesced while layout/animation was
+  busy.
+- `reconciliation admitted`: reconciliation begins, including work admitted
+  after a deferred request drains.
 - `focus adopted reason=focused-window-probe:...`: the input fallback found a
   different managed focused window and adopted its column.
 - `ax observer registration failed`: registering an AX notification for an app
@@ -232,13 +234,15 @@ Useful log lines in `~/.config/miri/debug.log`:
   queued targeted PID reconciliation.
 - `active rescan reason=...`: optional active rescan ran for a configured
   bundle currently present in the tiled layout.
-- `ignoring malformed ax-windows response containing AXApplication`: an app
-  returned a non-window root from `AXWindows`; known state was preserved.
+- `ignoring malformed root-only ax-windows response`: an app returned only a
+  non-window root from `AXWindows`; known state was preserved. A malformed mixed
+  response instead logs the `accepted windows from malformed mixed ax-windows response`
+  message and preserves omitted known windows.
 - `layout tracking paused for unavailable session`: lock, inactive session, or
   sleep suspended discovery and layout work.
 - `layout tracking awaiting managed-window interaction`: the desktop is
   available but recovery is still guarded.
 - `session recovery requested` / `layout tracking resumed`: a validated target
   released recovery and the rescan completed.
-- `removing vanished window`: CG fallback removed a stale tracked window.
-- `layout workspace=...`: layout projection and application happened.
+- `removing missing window`: reconciliation removed a stale tracked window.
+- `layout request=... workspace=...`: layout projection and application began.

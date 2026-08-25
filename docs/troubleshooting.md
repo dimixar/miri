@@ -34,7 +34,7 @@ Useful commands:
 
 ```bash
 tail -n 300 ~/.config/miri/debug.log
-rg "window discovered|ax reconciliation|snapshot|layout workspace" ~/.config/miri/debug.log
+rg "window discovered|reconciliation (deferred|admitted)|snapshot|layout request=" ~/.config/miri/debug.log
 ```
 
 ## Miri Appears Paused After Unlock Or Wake
@@ -105,9 +105,9 @@ Useful log lines:
 
 - `AXUIElementDestroyed`
 - `NSWorkspaceDidTerminate`
-- `removing vanished window`
-- `ax reconciliation draining`
-- `layout workspace=...`
+- `removing missing window`
+- `reconciliation deferred` / `reconciliation admitted`
+- `layout request=... workspace=...`
 
 Some apps do not emit useful destroy events for their real windows. miri uses
 per-PID reconciliation and a CoreGraphics fallback to remove tracked windows
@@ -125,7 +125,9 @@ one of its windows is tiled.
 Telegram has also been observed returning an `AXApplication` element from an
 `AXWindows` query during screen locking. miri now rejects that enumeration as
 unreliable and preserves its existing window/layout state. The corresponding
-log line is `ignoring malformed ax-windows response containing AXApplication`.
+log line is `ignoring malformed root-only ax-windows response`. A malformed
+mixed response logs `accepted windows from malformed mixed ax-windows response`
+and preserves known windows missing from that response.
 
 Active rescans are only a recovery aid. They can remove stale windows sooner,
 but they cannot make an app's Accessibility frame data correct. If a problematic
@@ -149,8 +151,10 @@ rg "AXFocusedWindowChanged|AXMainWindowChanged|focused-window-probe|ax observer 
 - `focus adopted reason=focused-window-probe:mouse-down` confirms mouse fallback.
 - `focus adopted reason=focused-window-probe:command-window-switch` confirms a
   Command-based switch fallback.
-- `ax reconciliation deferred reason=focused-window-probe:...` means the probe
-  arrived during layout or animation and will be adopted after it settles.
+- `reconciliation deferred ... source=accessibility reason=layout-active` means
+  AX work, including a focused-window probe, arrived while layout was active.
+  A later `reconciliation admitted ... reason=focused-window-probe:...` confirms
+  that the queued probe was admitted after layout settled.
 - `ax focus adoption ignored reason=non-frontmost` confirms that an app-local
   focus notification from a background application was intentionally rejected.
 - `activation settle ignored reason=stale-app` confirms that another app became
@@ -170,7 +174,7 @@ verbose and can create extra I/O.
 Then check for repeated work:
 
 ```bash
-rg "source=scan|ax reconciliation draining|layout workspace|snapshot tick" ~/.config/miri/debug.log
+rg "source=scan|reconciliation (deferred|admitted)|layout request=|snapshot tick" ~/.config/miri/debug.log
 ```
 
 Things to look for:
@@ -184,7 +188,7 @@ Things to look for:
 Layout lines distinguish an animation-capable request from actual presentation:
 
 ```text
-animationRequested=true animationStrategy=off animationActive=false duration=0.300
+layout request=... workspace=... animationRequested=true animationStrategy=off animationActive=false
 ```
 
 This is an immediate layout. `animationRequested` records the caller's intent;
