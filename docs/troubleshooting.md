@@ -37,6 +37,24 @@ tail -n 300 ~/.config/miri/debug.log
 rg "window discovered|reconciliation (deferred|admitted)|snapshot|layout request=" ~/.config/miri/debug.log
 ```
 
+## An Unresponsive App Does Not Move
+
+Accessibility operations are synchronous calls into the application that owns
+a window. miri bounds each call to 250 ms so a loading or beachballing app cannot
+hold its event loop indefinitely. After a frame write times out, miri skips more
+frame writes to that PID for one second; other applications remain manageable.
+The affected app may keep its old frame until it recovers and another layout
+request retries it.
+
+With debug logging enabled, check:
+
+```bash
+rg "ax messaging timed out|ax observer registration timed out" ~/.config/miri/debug.log
+```
+
+A discovery timeout preserves known window state instead of treating the app's
+temporarily unavailable `AXWindows` response as proof that its windows closed.
+
 ## Miri Appears Paused After Unlock Or Wake
 
 This can be expected briefly. miri deliberately remains paused after the

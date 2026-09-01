@@ -81,6 +81,12 @@ final class WindowObservationController: NSObject {
         ]
         for notification in notifications {
             let error = AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
+            if error == .cannotComplete {
+                // A hung application can time out every registration. Abort after
+                // the first failure and let a later reconciliation retry the app.
+                log("ax observer registration timed out pid=\(pid) notification=\(notification)")
+                return
+            }
             if error != .success, error != .notificationAlreadyRegistered {
                 log("ax observer registration failed pid=\(pid) notification=\(notification) error=\(error.rawValue)")
             }

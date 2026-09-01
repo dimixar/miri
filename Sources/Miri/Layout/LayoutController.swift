@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 protocol LayoutWindowSystemAdapting: AnyObject {
     func frame(of window: ManagedWindow) -> CGRect?
-    func setFrame(_ frame: CGRect, for window: ManagedWindow)
+    @discardableResult func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError
     func setLevel(_ level: Int32, for windowID: UInt32?)
     func transform(for windowID: UInt32) -> CGAffineTransform?
     func setTransform(_ transform: CGAffineTransform, for windowID: UInt32) -> Bool
@@ -32,7 +32,10 @@ final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: position, size: size)
     }
-    func setFrame(_ frame: CGRect, for window: ManagedWindow) { setAXFrame(frame, for: window) }
+    @discardableResult
+    func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError {
+        setAXFrame(frame, for: window)
+    }
     func setLevel(_ level: Int32, for windowID: UInt32?) { _ = SkyLight.shared.setLevel(level, for: windowID) }
     func transform(for windowID: UInt32) -> CGAffineTransform? { SkyLight.shared.transform(for: windowID) }
     func setTransform(_ transform: CGAffineTransform, for windowID: UInt32) -> Bool {
@@ -47,7 +50,8 @@ final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
     }
     func focus(_ window: ManagedWindow) {
         NSRunningApplication(processIdentifier: window.pid)?.activate(options: [.activateIgnoringOtherApps])
-        AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+        let raiseError = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+        guard raiseError != .cannotComplete else { return }
         AXUIElementSetAttributeValue(window.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
     }
 }
@@ -125,6 +129,7 @@ final class LayoutController {
 
     private var pendingSubmission: LayoutSubmission?
     private var deferredSubmissionGeneration: UInt64 = 0
+    private var axUnavailableUntil: [pid_t: CFAbsoluteTime] = [:]
 
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0
@@ -406,8 +411,11 @@ final class LayoutController {
         }
         originalWindowTransforms.removeAll()
         guard restoreFrames else { return }
+        // Give every app one final bounded attempt even if it timed out during
+        // the layout operation that initiated termination.
+        axUnavailableUntil.removeAll()
         for window in tiledWindows {
-            windowSystem.setFrame(viewport, for: window)
+            _ = setWindowFrame(viewport, for: window)
         }
         for window in floatingWindows {
             windowSystem.setLevel(dependencies.settings().floatingWindowLevel, for: window.windowID)
@@ -448,9 +456,10 @@ final class LayoutController {
         if visibilityChanged && !item.visible { appliedVisibility[id] = false }
         if shouldApplyFrame {
             resetCompositorTransform(for: item.window)
-            windowSystem.setFrame(item.frame, for: item.window)
-            if !item.visible { applyCompositorParkingCorrection(to: item.frame, for: item.window) }
-            appliedFrames[id] = item.frame
+            if setWindowFrame(item.frame, for: item.window) {
+                if !item.visible { applyCompositorParkingCorrection(to: item.frame, for: item.window) }
+                appliedFrames[id] = item.frame
+            }
         }
         if visibilityChanged && item.visible { appliedVisibility[id] = true }
     }
@@ -511,7 +520,33 @@ final class LayoutController {
         }
     }
 
+    @discardableResult
+    func setWindowFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
+        guard axMessagingIsAvailable(for: window.pid) else { return false }
+        let error = windowSystem.setFrame(frame, for: window)
+        guard error == .success else {
+            if error == .cannotComplete {
+                axUnavailableUntil[window.pid] = CFAbsoluteTimeGetCurrent() + miriAXFailureRetryDelay
+                dependencies.debugLog(
+                    "ax messaging timed out operation=set-frame pid=\(window.pid) app='\(window.appName)' retryIn=\(String(format: "%.2f", miriAXFailureRetryDelay))s"
+                )
+            }
+            return false
+        }
+        return true
+    }
+
+    private func axMessagingIsAvailable(for pid: pid_t) -> Bool {
+        guard let unavailableUntil = axUnavailableUntil[pid] else { return true }
+        if CFAbsoluteTimeGetCurrent() >= unavailableUntil {
+            axUnavailableUntil.removeValue(forKey: pid)
+            return true
+        }
+        return false
+    }
+
     func focus(_ window: ManagedWindow) {
+        guard axMessagingIsAvailable(for: window.pid) else { return }
         focusRequestGeneration &+= 1
         let generation = focusRequestGeneration
         dependencies.setFocusedNotificationSuppressionUntil(CFAbsoluteTimeGetCurrent() + 1.0)

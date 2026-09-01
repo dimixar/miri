@@ -230,6 +230,9 @@ Useful log lines in `~/.config/miri/debug.log`:
   different managed focused window and adopted its column.
 - `ax observer registration failed`: registering an AX notification for an app
   failed; the line includes the PID, notification name, and AX error code.
+- `ax messaging timed out` / `ax observer registration timed out`: an app did
+  not answer within the bounded AX IPC timeout; known state is preserved and
+  frame writes to that PID are briefly quarantined.
 - `snapshot missing image`: snapshot capture failed for a tracked window and
   queued targeted PID reconciliation.
 - `active rescan reason=...`: optional active rescan ran for a configured

@@ -21,6 +21,11 @@ struct DiscoveredWindowObservation {
     let title: String
 }
 
+private struct WindowDiscoverySnapshot {
+    let observations: [DiscoveredWindowObservation]
+    let unavailablePIDs: Set<pid_t>
+}
+
 private struct MissingWindowContext {
     let isFullScan: Bool
     let axEnumerationUnavailable: Bool
@@ -351,7 +356,8 @@ extension Miri {
             return
         }
 
-        let discovered = canonicalWindows(from: discoverWindows())
+        let discovery = discoverWindows()
+        let discovered = canonicalWindows(from: discovery.observations)
         for found in discovered {
             noteAppLaunchSettlingWindowObserved(found)
         }
@@ -389,7 +395,7 @@ extension Miri {
                     window,
                     context: MissingWindowContext(
                         isFullScan: true,
-                        axEnumerationUnavailable: false,
+                        axEnumerationUnavailable: discovery.unavailablePIDs.contains(window.pid),
                         reason: "full-rescan"
                     )
                 )
@@ -438,13 +444,15 @@ extension Miri {
         let now = CFAbsoluteTimeGetCurrent()
         let identity = ObjectIdentifier(window)
         let runningApp = NSRunningApplication(processIdentifier: window.pid)
-        let temporarilyHidden = isHiddenOrMinimizedWindow(window.element)
-            || runningApp?.isHidden == true
+        // Once the app-level AXWindows query has timed out, do not issue more
+        // synchronous AX calls for each of that app's known windows.
+        let temporarilyHidden = runningApp?.isHidden == true
+            || (!context.axEnumerationUnavailable && isHiddenOrMinimizedWindow(window.element))
         let pendingFullscreenWithinGrace = windowManagement
             .pendingFullscreenTransition(for: identity)
             .map { now - $0 < fullscreenTransitionGrace } == true
         let hasCGInfo = windowHasCGInfo(window)
-        let fullscreen = isFullscreenWindow(window.element)
+        let fullscreen = !context.axEnumerationUnavailable && isFullscreenWindow(window.element)
         let behaviorIsIgnored = behavior(for: window) == .ignore
         let fullscreenGuardActive = now < fullscreenTransitionGuardUntil
         let appearsInUnknownSpace = windowAppearsInUnknownSpace(window)
@@ -517,18 +525,27 @@ extension Miri {
         }
     }
 
-    func discoverWindows() -> [DiscoveredWindowObservation] {
+    private func discoverWindows() -> WindowDiscoverySnapshot {
         var windows: [DiscoveredWindowObservation] = []
+        var unavailablePIDs = Set<pid_t>()
 
         for app in NSWorkspace.shared.runningApplications.sorted(by: {
             $0.processIdentifier < $1.processIdentifier
         }) {
             if let appWindows = discoverWindows(for: app) {
                 windows.append(contentsOf: appWindows)
+            } else {
+                unavailablePIDs.insert(app.processIdentifier)
+                windows.append(contentsOf: allWindows()
+                    .filter { $0.pid == app.processIdentifier }
+                    .map(observationDescriptor))
             }
         }
 
-        return windows
+        return WindowDiscoverySnapshot(
+            observations: windows,
+            unavailablePIDs: unavailablePIDs
+        )
     }
 
     func discoverWindows(for app: NSRunningApplication) -> [DiscoveredWindowObservation]? {
@@ -546,6 +563,11 @@ extension Miri {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
         guard error == .success, let axWindows = value as? [AXUIElement] else {
+            if error == .cannotComplete {
+                debugLog(
+                    "ax messaging timed out operation=discover-windows app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) timeout=\(String(format: "%.2f", miriAXMessagingTimeout))s"
+                )
+            }
             return nil
         }
 

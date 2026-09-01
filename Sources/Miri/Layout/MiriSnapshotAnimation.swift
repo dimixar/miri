@@ -208,9 +208,10 @@ extension LayoutController {
                 height: frame.height
             )
             resetCompositorTransform(for: window)
-            windowSystem.setFrame(parked, for: window)
-            applyCompositorParkingCorrection(to: parked, for: window)
-            appliedFrames[id] = parked
+            if setWindowFrame(parked, for: window) {
+                applyCompositorParkingCorrection(to: parked, for: window)
+                appliedFrames[id] = parked
+            }
         }
     }
 
@@ -246,8 +247,9 @@ extension LayoutController {
                 continue
             }
             resetCompositorTransform(for: window)
-            windowSystem.setFrame(frame, for: window)
-            appliedFrames[id] = frame
+            if setWindowFrame(frame, for: window) {
+                appliedFrames[id] = frame
+            }
             appliedVisibility[id] = true
             presentationFrames[id] = frame
         }

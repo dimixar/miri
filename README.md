@@ -51,6 +51,9 @@ current scope and have not been tested.
 - **Reliable same-app focus tracking.** Focus and main-window AX notifications
   are backed by lightweight probes after mouse clicks and macOS Command-based
   window switching, covering apps that miss useful focus notifications.
+- **Hung-app isolation.** Accessibility IPC has a short process-wide timeout,
+  and timed-out frame writes are briefly quarantined per app so one beachballing
+  window cannot stall miri's event loop indefinitely.
 - **Active stale-window recovery.** Known problematic apps can be targeted for
   extra rescans while tiled, improving UX when they miss Accessibility events.
   This is a mitigation for broken app behavior, not a guarantee that those apps

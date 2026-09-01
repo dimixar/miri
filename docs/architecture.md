@@ -39,9 +39,13 @@ the source of truth.
 - `LogicalSpaceContext`: an inferred native macOS Space context with its own
   Miri workspaces, floating windows, active workspace, and visible signature.
 
-AX is used to discover, focus, move, and resize real app windows. CoreGraphics
-window IDs are used to make reconciliation, persistence, Space-context matching,
-debugging, and cleanup more stable.
+AX is used to discover, focus, move, and resize real app windows. Those calls
+are synchronous IPC into each target application, so miri installs a 250 ms
+global AX messaging timeout. A timed-out frame write also opens a one-second
+per-PID layout circuit breaker, preventing every window from the same hung app
+from serially blocking one layout pass. CoreGraphics window IDs are used to make
+reconciliation, persistence, Space-context matching, debugging, and cleanup
+more stable.
 
 ## Event Flow
 

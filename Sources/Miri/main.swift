@@ -2,6 +2,11 @@ import AppKit
 import Darwin
 import Foundation
 
+let axTimeoutError = configureAXMessagingTimeout()
+if axTimeoutError != .success {
+    fputs("miri: failed to configure Accessibility messaging timeout (error \(axTimeoutError.rawValue))\n", stderr)
+}
+
 if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--cleanup-watch" {
     guard let parentPID = pid_t(CommandLine.arguments[2]), parentPID > 0 else {
         fputs("miri: invalid cleanup watcher parent pid\n", stderr)
