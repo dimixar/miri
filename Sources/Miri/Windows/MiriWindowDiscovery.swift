@@ -33,18 +33,35 @@ private struct MissingWindowResult {
 }
 
 @MainActor
-private final class FullWindowDiscoveryAccumulator {
+final class FullWindowDiscoveryAccumulator {
     let generation: UInt64
     let completion: (Bool) -> Void
     var remaining: Int
+    var pendingPIDs: Set<pid_t>
     var observations: [DiscoveredWindowObservation] = []
     var unavailablePIDs = Set<pid_t>()
-    var staleRescanRequested = false
+    var finished = false
 
-    init(generation: UInt64, remaining: Int, completion: @escaping (Bool) -> Void) {
+    init(generation: UInt64, pids: Set<pid_t>, completion: @escaping (Bool) -> Void) {
         self.generation = generation
-        self.remaining = remaining
+        pendingPIDs = pids
+        remaining = pids.count
         self.completion = completion
+    }
+
+    @discardableResult
+    func recordCompletion(pid: pid_t) -> Bool {
+        guard !finished, pendingPIDs.remove(pid) != nil else { return false }
+        remaining -= 1
+        if remaining == 0 { finished = true }
+        return finished
+    }
+
+    func expirePendingPIDs() -> Set<pid_t> {
+        guard !finished else { return [] }
+        finished = true
+        unavailablePIDs.formUnion(pendingPIDs)
+        return pendingPIDs
     }
 }
 
@@ -52,12 +69,39 @@ extension Miri {
     func applicationActivatedImplementation(_ app: NSRunningApplication) {
         guard appPhase == .running,
               sessionController.isLayoutTrackingAllowed else { return }
+        debugLog("application activated app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
+
+        // Do not put first-activation focus behind the multi-application
+        // transient refresh barrier. A fresh focused-window result is safe to
+        // adopt immediately; cached fallback is disabled here so an actual
+        // dialog cannot reveal the app's previous managed window. Lifecycle
+        // reconciliation remains gated by the completed transient refresh.
+        if !windowManagement.observation.transientWindowActive {
+            requestFocusedWindowAdoption(
+                pid: app.processIdentifier,
+                animateIfSameWorkspace: true,
+                forceLayoutIfAlreadyFocused: true,
+                allowCachedFallback: false,
+                reason: "NSWorkspaceDidActivate:immediate"
+            )
+        }
+
         refreshTransientSystemWindowState { [weak self, weak app] in
-            guard let self,
-                  let app,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
-            else { return }
-            self.finishApplicationActivationAfterTransientRefresh(app)
+            guard let self, let app else { return }
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+                self.finishApplicationActivationAfterTransientRefresh(app)
+            } else {
+                // The bounded transient refresh can outlive a quick visit to an
+                // app that was hidden when Miri started. Lifecycle discovery
+                // must still admit its newly shown windows even though focus
+                // has since moved elsewhere.
+                self.requestReconciliation(.application(
+                    pid: app.processIdentifier,
+                    adoptFocused: false,
+                    source: .workspace,
+                    reason: "NSWorkspaceDidActivate:post-transient-background"
+                ))
+            }
         }
     }
 
@@ -87,6 +131,7 @@ extension Miri {
         requestFocusedWindowAdoption(
             pid: app.processIdentifier,
             animateIfSameWorkspace: true,
+            forceLayoutIfAlreadyFocused: true,
             reason: "NSWorkspaceDidActivate"
         )
     }
@@ -102,6 +147,16 @@ extension Miri {
             )
             return
         }
+        // The immediate focused read handles known windows and must re-project
+        // even if this was already Miri's logical active column. The targeted
+        // reconciliation remains frontmost-validated before adopting so a
+        // newly discovered activation target is handled as well.
+        requestFocusedWindowAdoption(
+            pid: app.processIdentifier,
+            animateIfSameWorkspace: true,
+            forceLayoutIfAlreadyFocused: true,
+            reason: "NSWorkspaceDidActivate:settle"
+        )
         requestReconciliation(
             .application(
                 pid: app.processIdentifier,
@@ -149,6 +204,10 @@ extension Miri {
     }
 
     func activeSpaceChangedImplementation() {
+        // A full scan started for the previous macOS Space must never apply
+        // after the active-Space event. PID-local lifecycle events are handled
+        // independently and do not invalidate healthy peers.
+        fullWindowScanGeneration &+= 1
         windowManagement.observation.noteGlobalStateChange()
         guard appPhase == .running,
               sessionController.isLayoutTrackingAllowed else {
@@ -231,7 +290,8 @@ extension Miri {
             pid: pid,
             priority: priority,
             supplementalHandles: supplementalHandles,
-            coalescingKey: "targeted-reconciliation"
+            coalescingKey: "targeted-reconciliation:\(stateGeneration)",
+            joinExisting: true
         ) { [weak self] result in
             guard let self,
                   self.sessionController.isLayoutTrackingAllowed,
@@ -280,17 +340,28 @@ extension Miri {
             }
             let observations = self.discoveredWindows(from: snapshot, app: liveApp)
             let discovered = self.canonicalWindows(from: observations)
-            self.reconcileDiscoveredWindows(
+            let changed = self.reconcileDiscoveredWindows(
                 discovered,
                 replacingPID: pid,
-                layoutLockDelay: 0.08
+                layoutLockDelay: 0.08,
+                applyLayout: !mayAdoptFocused,
+                enumerationComplete: snapshot.enumerationComplete
             )
             if mayAdoptFocused {
                 self.requestFocusedWindowAdoption(
                     pid: pid,
+                    applyLayout: false,
                     animateIfSameWorkspace: true,
                     reason: "targeted-reconciliation"
-                )
+                ) { [weak self] adopted in
+                    guard let self else { return }
+                    if changed || adopted {
+                        // Activation reconciliation is also a projection
+                        // barrier: the focused window may already be Miri's
+                        // logical column while its physical column is parked.
+                        self.projectLayout(focusActiveWindow: false, layoutLockDelay: 0.08)
+                    }
+                }
             }
         }
     }
@@ -318,18 +389,25 @@ extension Miri {
         }
     }
 
+    @discardableResult
     func reconcileDiscoveredWindows(
         _ discovered: [ManagedWindow],
         replacingPID pid: pid_t,
-        layoutLockDelay: TimeInterval
-    ) {
+        layoutLockDelay: TimeInterval,
+        applyLayout: Bool = true,
+        enumerationComplete: Bool = true
+    ) -> Bool {
+        // A focused remembered fullscreen window may already be represented by
+        // a normal post-exit snapshot. Restore it before consulting the guard;
+        // otherwise the guard suppresses the only reconciliation capable of
+        // clearing its remembered state until focus moves to a neighbor.
+        var changed = restoreExitedFullscreenWindows(discovered: discovered)
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping app reconciliation while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")'")
-            return
+            return changed
         }
 
-        var changed = false
         var shouldSaveLogicalSpaceContext = true
 
         for found in discovered {
@@ -340,6 +418,7 @@ extension Miri {
             if discovered.contains(where: { sameWindow($0.element, window.element) }) {
                 continue
             }
+            guard enumerationComplete else { continue }
 
             let result = reconcileMissingWindow(
                 window,
@@ -353,19 +432,18 @@ extension Miri {
             shouldSaveLogicalSpaceContext = result.canSaveLogicalSpace && shouldSaveLogicalSpaceContext
         }
 
-        restoreExitedFullscreenWindows(discovered: discovered)
-
         for found in discovered {
             changed = upsertDiscoveredWindow(found) || changed
         }
 
         reconcileWorkspaceCapacity()
-        if changed {
+        if changed, applyLayout {
             projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
         }
         if changed && shouldSaveLogicalSpaceContext {
             saveActiveLogicalSpaceContext()
         }
+        return changed
     }
 
     @discardableResult
@@ -377,11 +455,13 @@ extension Miri {
             let metadataChanged = existing.title != found.title
                 || existing.appName != found.appName
                 || existing.bundleID != found.bundleID
+            let windowIDEnriched = existing.windowID == nil && found.windowID != nil
             existing.title = found.title
             existing.appName = found.appName
             existing.bundleID = found.bundleID
+            if windowIDEnriched { existing.windowID = found.windowID }
 
-            if metadataChanged {
+            if metadataChanged || windowIDEnriched {
                 notifyWorkspaceBarNeedsRefresh()
             }
 
@@ -389,7 +469,7 @@ extension Miri {
             let shouldFloat = nextBehavior == .float
             let isFloating = windowManagement.floatingWindows.contains(where: { $0 === existing })
             guard previousBehavior != nextBehavior || shouldFloat != isFloating else {
-                return false
+                return windowIDEnriched
             }
             removeWindow(existing)
             if shouldFloat {
@@ -453,17 +533,25 @@ extension Miri {
 
         fullWindowScanGeneration &+= 1
         let generation = fullWindowScanGeneration
-        let stateGeneration = windowManagement.observation.globalStateGeneration
-        let apps = NSWorkspace.shared.runningApplications
+        let regularApps = NSWorkspace.shared.runningApplications
             .filter {
                 $0.activationPolicy == .regular
-                    && !$0.isHidden
                     && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
             }
             .sorted { $0.processIdentifier < $1.processIdentifier }
+        // Hidden applications have no discoverable windows yet, but observing
+        // them is what makes AXApplicationShown authoritative when they become
+        // visible without an application launch.
+        for app in regularApps {
+            startObservingApp(pid: app.processIdentifier)
+        }
+        let apps = regularApps.filter { !$0.isHidden }
+        let stateGenerations = Dictionary(uniqueKeysWithValues: apps.map {
+            ($0.processIdentifier, windowManagement.observation.stateGeneration(for: $0.processIdentifier))
+        })
         let accumulator = FullWindowDiscoveryAccumulator(
             generation: generation,
-            remaining: apps.count,
+            pids: Set(apps.map(\.processIdentifier)),
             completion: completion
         )
         guard !apps.isEmpty else {
@@ -475,8 +563,27 @@ extension Miri {
             return
         }
 
+        // Per-operation budgets prevent a worker from monopolizing a PID lane;
+        // this outer barrier additionally guarantees session recovery can make
+        // progress if an underlying call never returns at all.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self, weak accumulator] in
+            guard let self, let accumulator,
+                  !accumulator.finished,
+                  generation == self.fullWindowScanGeneration
+            else { return }
+            let expiredPIDs = accumulator.expirePendingPIDs()
+            self.debugLog("full rescan deadline exhausted unavailablePIDs=\(expiredPIDs.sorted())")
+            self.completeRescanWindows(
+                WindowDiscoverySnapshot(
+                    observations: accumulator.observations,
+                    unavailablePIDs: accumulator.unavailablePIDs
+                ),
+                adoptFocused: adoptFocused,
+                completion: accumulator.completion
+            )
+        }
+
         for app in apps {
-            startObservingApp(pid: app.processIdentifier)
             let pid = app.processIdentifier
             let supplementalHandles = allWindows().filter { $0.pid == pid }.map {
                 AXElementHandle(element: $0.element, pid: $0.pid, windowID: $0.windowID)
@@ -486,54 +593,38 @@ extension Miri {
                 priority: .normal,
                 supplementalHandles: supplementalHandles,
                 coalescingKey: "full-reconciliation"
-            ) { [weak self, weak app] result in
+            ) { [weak self] result in
                 guard let self,
+                      !accumulator.finished,
                       generation == self.fullWindowScanGeneration,
                       accumulator.generation == generation
                 else { return }
-                guard stateGeneration == self.windowManagement.observation.globalStateGeneration else {
-                    if !accumulator.staleRescanRequested {
-                        accumulator.staleRescanRequested = true
-                        self.fullWindowScanGeneration &+= 1
-                        accumulator.completion(false)
-                        self.requestReconciliation(.all(
-                            adoptFocused: false,
-                            source: .delayedProbe,
-                            reason: "stale-async-full-rescan"
-                        ))
-                    }
-                    return
-                }
-                if result.disposition == .completed,
-                   let snapshot = result.value,
-                   let liveApp = app ?? NSRunningApplication(processIdentifier: pid)
+
+                if let liveApp = NSRunningApplication(processIdentifier: pid),
+                   !liveApp.isTerminated,
+                   !liveApp.isHidden
                 {
-                    if liveApp.isHidden {
-                        self.windowManagement.observation.noteWindowStateChange(pid: pid)
-                        if !accumulator.staleRescanRequested {
-                            accumulator.staleRescanRequested = true
-                            self.fullWindowScanGeneration &+= 1
-                            accumulator.completion(false)
-                            self.requestReconciliation(.all(
-                                adoptFocused: false,
-                                source: .delayedProbe,
-                                reason: "app-hidden-during-full-rescan"
-                            ))
+                    let expectedState = stateGenerations[pid] ?? 0
+                    if expectedState != self.windowManagement.observation.stateGeneration(for: pid) {
+                        // Preserve only this PID. An unrelated noisy app must
+                        // not invalidate healthy results or restart the scan.
+                        accumulator.unavailablePIDs.insert(pid)
+                        self.debugLog("full rescan pid result discarded reason=stale-state pid=\(pid)")
+                    } else if result.disposition == .completed, let snapshot = result.value {
+                        accumulator.observations.append(contentsOf: self.discoveredWindows(
+                            from: snapshot,
+                            app: liveApp
+                        ))
+                        if !snapshot.enumerationComplete {
+                            accumulator.unavailablePIDs.insert(pid)
                         }
-                        return
+                    } else {
+                        accumulator.unavailablePIDs.insert(pid)
                     }
-                    accumulator.observations.append(contentsOf: self.discoveredWindows(
-                        from: snapshot,
-                        app: liveApp
-                    ))
-                } else {
-                    accumulator.unavailablePIDs.insert(pid)
-                    accumulator.observations.append(contentsOf: self.allWindows()
-                        .filter { $0.pid == pid }
-                        .map(self.observationDescriptor))
                 }
-                accumulator.remaining -= 1
-                guard accumulator.remaining == 0 else { return }
+                // A PID that terminated or became hidden during the scan is
+                // intentionally absent and can be reconciled as unavailable=false.
+                guard accumulator.recordCompletion(pid: pid) else { return }
                 self.completeRescanWindows(
                     WindowDiscoverySnapshot(
                         observations: accumulator.observations,
@@ -566,17 +657,38 @@ extension Miri {
         }
 
         let discovered = canonicalWindows(from: discovery.observations)
+        for pid in discovery.unavailablePIDs {
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                // Bounded full reads can intentionally return partial progress.
+                // Reuse the launch-settling retry window so a large healthy app
+                // continues from its rotating cursor without creating an
+                // unbounded permanent retry loop for a truly hung process.
+                beginAppLaunchSettling(for: app, reason: "full-rescan-partial")
+            }
+        }
+        // Unavailable windows are lifecycle-preserved below, but they are not
+        // evidence of visibility on the current macOS Space. Include them only
+        // in transient-disappearance heuristics, never in Space signatures.
+        let stabilityDiscovered = discovered + allWindows().filter { window in
+            discovery.unavailablePIDs.contains(window.pid)
+                && !discovered.contains { sameWindow($0.element, window.element) }
+        }
         for found in discovered {
             noteAppLaunchSettlingWindowObserved(found)
         }
-        let restoredPersistentLogicalSpace = restorePersistentLogicalSpaceContextsIfNeeded(discovered: discovered)
+        let restoredPersistentLogicalSpace = restorePersistentLogicalSpaceContextsIfNeeded(
+            discovered: discovered,
+            preservedWindows: stabilityDiscovered,
+            finalizeLayoutRestore: discovery.unavailablePIDs.isEmpty
+        )
+        let restoredFullscreenExit = restoreExitedFullscreenWindows(discovered: discovered)
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
             completion(true)
             return
         }
-        if likelyFullscreenExitSettle(discovered: discovered) {
+        if likelyFullscreenExitSettle(discovered: stabilityDiscovered) {
             debugLog("freezing logical macOS space during fullscreen settle visible=0 known=\(currentLogicalSpaceSignature().count)")
             windowManagement.observation.scheduleReconciliation(
                 .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-settle"),
@@ -586,11 +698,26 @@ extension Miri {
             return
         }
 
+        if windowManagement.pendingLogicalSpaceSwitch,
+           discovered.isEmpty,
+           !discovery.unavailablePIDs.isEmpty
+        {
+            debugLog("deferring logical macOS space switch reason=no-authoritative-visible-windows unavailablePIDs=\(discovery.unavailablePIDs.sorted())")
+            windowManagement.observation.scheduleReconciliation(
+                .all(adoptFocused: true, source: .delayedProbe, reason: "active-space-unavailable"),
+                delay: 0.25
+            )
+            completion(false)
+            return
+        }
+
         let switchedLogicalSpace = handlePendingLogicalSpaceSwitch(discovered: discovered)
-        var changed = switchedLogicalSpace || restoredPersistentLogicalSpace
+        var changed = switchedLogicalSpace
+            || restoredPersistentLogicalSpace
+            || restoredFullscreenExit
         var shouldSaveLogicalSpaceContext = true
 
-        if likelyBulkTransientDisappearance(discovered: discovered) {
+        if likelyBulkTransientDisappearance(discovered: stabilityDiscovered) {
             debugLog("freezing logical macOS space during bulk transient disappearance visible=\(discoveredSignature(discovered).count) known=\(currentLogicalSpaceSignature().count)")
             windowManagement.observation.scheduleReconciliation(
                 .all(adoptFocused: true, source: .delayedProbe, reason: "bulk-disappearance-settle"),
@@ -615,13 +742,13 @@ extension Miri {
             }
         }
 
-        restoreExitedFullscreenWindows(discovered: discovered)
-
         for found in discovered {
             changed = upsertDiscoveredWindow(found) || changed
         }
 
-        let restoredPersistentLayout = applyPersistentLayoutSnapshotIfNeeded()
+        let restoredPersistentLayout = applyPersistentLayoutSnapshotIfNeeded(
+            finalize: discovery.unavailablePIDs.isEmpty
+        )
         reconcileWorkspaceCapacity()
 
         if adoptFocused {
@@ -630,27 +757,36 @@ extension Miri {
                 enforceFullscreenSpaceGuardWorkspace()
                 projectLayout(focusActiveWindow: false, layoutLockDelay: layoutDelay)
             } else {
-                projectLayout(focusActiveWindow: false, layoutLockDelay: layoutDelay)
+                // Restore the pre-async ordering: adopt the authoritative focus
+                // into the model first, then perform one projection. Projecting
+                // before the read parks windows and queues same-PID frame writes
+                // ahead of the focus query.
                 let focusRequestGeneration = focusStateGeneration
+                let scanGeneration = fullWindowScanGeneration
                 requestFocusedWindowAdoption(
                     pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                    applyLayout: false,
                     animateIfSameWorkspace: false,
                     reason: "full-reconciliation"
                 ) { [weak self] adopted in
-                    guard let self else {
+                    guard let self,
+                          scanGeneration == self.fullWindowScanGeneration,
+                          self.sessionController.isLayoutTrackingAllowed
+                    else {
                         completion(false)
                         return
                     }
-                    if !adopted,
-                       self.focusStateGeneration == focusRequestGeneration,
-                       self.restorePersistentFocusedWindow()
-                    {
-                        self.projectLayout(focusActiveWindow: true, layoutLockDelay: layoutDelay)
+                    let restoredPersistentFocus = !adopted
+                        && self.focusStateGeneration == focusRequestGeneration
+                        && self.restorePersistentFocusedWindow()
+                    self.projectLayout(
+                        focusActiveWindow: restoredPersistentFocus,
+                        layoutLockDelay: layoutDelay
+                    )
+                    if shouldSaveLogicalSpaceContext {
+                        self.saveActiveLogicalSpaceContext()
                     }
                     completion(true)
-                }
-                if shouldSaveLogicalSpaceContext {
-                    saveActiveLogicalSpaceContext()
                 }
                 return
             }
@@ -765,6 +901,7 @@ extension Miri {
         }
 
         if snapshot.containsApplicationRoot, windowSnapshots.isEmpty {
+            guard snapshot.enumerationComplete else { return [] }
             debugLog("ignoring malformed root-only ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
             return knownWindows.map(observationDescriptor)
         }
@@ -772,7 +909,7 @@ extension Miri {
         var windows = windowSnapshots.compactMap {
             discoveredWindow(from: $0, app: app, source: "async-scan")
         }
-        if snapshot.containsApplicationRoot {
+        if snapshot.containsApplicationRoot, snapshot.enumerationComplete {
             for knownWindow in knownWindows where !windows.contains(where: {
                 sameWindow($0.element, knownWindow.element)
             }) {
@@ -789,11 +926,7 @@ extension Miri {
         source: String
     ) -> DiscoveredWindowObservation? {
         let element = snapshot.handle.element
-        if debugLogging {
-            debugLog(
-                "raw ax window source=\(source) app='\(app.localizedName ?? "pid \(snapshot.handle.pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(snapshot.handle.pid) title='\(snapshot.title)' id=\(snapshot.handle.windowID.map(String.init) ?? "nil") role=\(snapshot.role ?? "nil") subrole=\(snapshot.subrole ?? "nil") frame=\(snapshot.frame.map { String(describing: $0) } ?? "nil") minimized=\(snapshot.minimized.map(String.init) ?? "nil") fullscreen=\(snapshot.fullscreen.map(String.init) ?? "nil") manageable=\(isManageableWindow(snapshot)) known=\(isKnownWindow(element))"
-            )
-        }
+        logRawAXWindowIfNeeded(snapshot, app: app, source: source)
         noteFullscreenSpaceHelperIfNeeded(snapshot)
         guard snapshot.subrole != "AXUnknown",
               snapshot.minimized != true,
@@ -841,7 +974,7 @@ extension Miri {
     }
 
     func canonicalWindows(from observations: [DiscoveredWindowObservation]) -> [ManagedWindow] {
-        observations.map { observation in
+        observations.sorted(by: observationSortOrder).map { observation in
             return ManagedWindow(
                 element: observation.element,
                 pid: observation.pid,
@@ -894,35 +1027,6 @@ extension Miri {
 
         let viewport = currentViewport()
         return frame.width >= viewport.width * 1.2 || frame.height >= viewport.height * 1.2
-    }
-
-    func isManageableWindow(_ element: AXUIElement) -> Bool {
-        guard axString(element, kAXRoleAttribute) == kAXWindowRole else {
-            return false
-        }
-
-        let subrole = axString(element, kAXSubroleAttribute)
-        if let subrole, subrole != kAXStandardWindowSubrole {
-            return false
-        }
-
-        if subrole == "AXUnknown" {
-            return false
-        }
-
-        if axBool(element, kAXMinimizedAttribute) == true {
-            return false
-        }
-
-        guard let frame = axFrame(element), frame.width >= 120, frame.height >= 80 else {
-            return false
-        }
-
-        var positionSettable = DarwinBoolean(false)
-        var sizeSettable = DarwinBoolean(false)
-        let positionError = AXUIElementIsAttributeSettable(element, kAXPositionAttribute as CFString, &positionSettable)
-        let sizeError = AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &sizeSettable)
-        return positionError == .success && sizeError == .success && positionSettable.boolValue && sizeSettable.boolValue
     }
 
     func isKnownWindow(_ element: AXUIElement) -> Bool {

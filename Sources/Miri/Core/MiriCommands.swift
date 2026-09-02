@@ -24,6 +24,14 @@ extension Miri {
         }
         let command = pendingFocusCommands.removeFirst()
         perform(command)
+        if !layoutController.isActive, !pendingFocusCommands.isEmpty {
+            // A queued command can legitimately be a no-op (for example,
+            // column-left at the first column). Do not let it strand the rest
+            // of the post-recovery/deferred command sequence.
+            DispatchQueue.main.async { [weak self] in
+                self?.drainPendingFocusCommands()
+            }
+        }
     }
 
     func shouldQueueFocusCommand(_ command: Command) -> Bool {

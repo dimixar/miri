@@ -17,6 +17,9 @@ final class Miri: NSObject, NSApplicationDelegate {
     var reconciliationDrainGeneration: UInt64 = 0
     var fullWindowScanGeneration: UInt64 = 0
     var terminationPrepared = false
+    var terminationCompleted = false
+    var terminationReason = "AppKit"
+    var terminationWaiters: [() -> Void] = []
     let configStore = ConfigStore()
     lazy var axOperations = AXOperationController { [weak self] message in
         self?.debugLog(message)
@@ -54,7 +57,13 @@ final class Miri: NSObject, NSApplicationDelegate {
     var transientWindowRefreshCompletions: [() -> Void] = []
     var pendingTransientWindowRefreshCompletions: [() -> Void] = []
     var focusStateGeneration: UInt64 = 0
+    var focusedWindowAdoptionGeneration: UInt64 = 0
     var lastKnownFocusedElements: [pid_t: AXUIElement] = [:]
+    var authoredPhysicalFocusElement: AXUIElement?
+    var authoredPhysicalFocusUntil: CFAbsoluteTime = 0
+    var persistentLayoutRestoreAssignments: [ObjectIdentifier: Int] = [:]
+    var persistentLayoutRestoreConsideredWindows = Set<ObjectIdentifier>()
+    var persistentLayoutInitialStateApplied = false
     var signalSources: [DispatchSourceSignal] = []
 
     lazy var persistenceController = PersistenceController(
@@ -104,9 +113,6 @@ final class Miri: NSObject, NSApplicationDelegate {
         reconcileWorkspaceCapacity()
         windowManagement.observation.startWorkspaceObservation()
         observeSessionState()
-        if sessionController.isLayoutTrackingAllowed {
-            refreshTransientSystemWindowState()
-        }
         installTerminationHandlers()
         persistenceController.start()
         inputController.configure(configStore.effectiveConfig)
@@ -116,9 +122,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
         if sessionController.isLayoutTrackingAllowed {
-            requestReconciliation(
-                .all(adoptFocused: true, source: .startup, reason: "startup")
-            )
+            beginStartupDiscoveryAfterTransientRefresh()
         } else {
             print("miri: layout tracking paused because the user session is unavailable")
         }
@@ -130,8 +134,37 @@ final class Miri: NSObject, NSApplicationDelegate {
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
     }
 
+    private func beginStartupDiscoveryAfterTransientRefresh() {
+        // Preserve the pre-async startup ordering: establish the transient
+        // environment guard before admitting discovery and projection.
+        refreshTransientSystemWindowState { [weak self] in
+            guard let self,
+                  self.appPhase == .running,
+                  self.sessionController.isLayoutTrackingAllowed
+            else { return }
+            guard !self.windowManagement.observation.transientWindowActive else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.beginStartupDiscoveryAfterTransientRefresh()
+                }
+                return
+            }
+            self.requestReconciliation(
+                .all(adoptFocused: true, source: .startup, reason: "startup")
+            )
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if terminationCompleted { return .terminateNow }
+        prepareForTermination(reason: terminationReason) {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        enqueue(.terminate(reason: "NSApplicationWillTerminate"))
+        appPhase = .terminated
+        debugLog("application will terminate restorationComplete=\(terminationCompleted)")
     }
 
     private func requestAccessibilityPermission() -> Bool {
@@ -177,6 +210,8 @@ final class Miri: NSObject, NSApplicationDelegate {
             },
             notePhysicalFocusTarget: { [unowned self] window in
                 lastKnownFocusedElements[window.pid] = window.element
+                authoredPhysicalFocusElement = window.element
+                authoredPhysicalFocusUntil = CFAbsoluteTimeGetCurrent() + 1.0
             },
             workspaceProjection: { [unowned self] in windowManagement.workspaceProjection(at: $0) }
         )
@@ -187,8 +222,9 @@ final class Miri: NSObject, NSApplicationDelegate {
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler { [weak self] in
-                self?.enqueue(.terminate(reason: "signal-\(sig)"))
-                exit(0)
+                guard let self else { return }
+                self.terminationReason = "signal-\(sig)"
+                NSApp.terminate(nil)
             }
             source.resume()
             signalSources.append(source)

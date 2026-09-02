@@ -248,7 +248,7 @@ extension Miri {
         case .saveConfig(let config, let closeOnSuccess):
             saveConfigFromSettingsImplementation(config, closeOnSuccess: closeOnSuccess)
         case .quit:
-            prepareForTermination(reason: "menu")
+            terminationReason = "menu"
             NSApp.terminate(nil)
         }
     }
@@ -286,13 +286,35 @@ extension Miri {
     }
 
     @MainActor private func executeReconciliation(_ intent: ReconciliationIntent) {
-        var intent = intent
-        if intent.source == .periodicTimer {
-            guard !reloadConfigIfNeeded() else { return }
-            let wasTransient = windowManagement.observation.transientWindowActive
-            guard !windowManagement.observation.transientWindowActive else { return }
-            intent.adoptFocused = intent.adoptFocused || wasTransient
+        guard intent.source == .periodicTimer else {
+            executeReconciliationAfterEnvironmentRefresh(intent)
+            return
         }
+        guard !reloadConfigIfNeeded() else { return }
+        let wasTransient = windowManagement.observation.transientWindowActive
+        refreshTransientSystemWindowState { [weak self] in
+            guard let self,
+                  self.appPhase == .running,
+                  self.sessionController.isLayoutTrackingAllowed,
+                  !self.windowManagement.observation.transientWindowActive
+            else { return }
+            var refreshedIntent = intent
+            refreshedIntent.adoptFocused = refreshedIntent.adoptFocused || wasTransient
+            guard !self.reconciliationAdmissionClosed else {
+                self.coalescePendingReconciliation(
+                    refreshedIntent,
+                    reason: "layout-active-after-environment-refresh"
+                )
+                self.scheduleCoordinatorReconciliationDrain()
+                return
+            }
+            self.executeReconciliationAfterEnvironmentRefresh(refreshedIntent)
+        }
+    }
+
+    @MainActor private func executeReconciliationAfterEnvironmentRefresh(
+        _ intent: ReconciliationIntent
+    ) {
         debugLog(
             "reconciliation admitted request=\(intent.id?.description ?? "unassigned") source=\(intent.source.rawValue) scope=\(intent.logScope) adoptFocused=\(intent.adoptFocused) reason=\(intent.reason)"
         )
@@ -377,16 +399,38 @@ extension Miri {
         debugLog("command deferred command=\(String(describing: command)) pending=\(pendingFocusCommands.count)")
     }
 
-    @MainActor func prepareForTermination(reason: String) {
+    @MainActor func prepareForTermination(
+        reason: String,
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
+        if terminationCompleted {
+            completion()
+            return
+        }
+        terminationWaiters.append(completion)
         guard !terminationPrepared else {
-            debugLog("termination preparation ignored reason=already-prepared source=\(reason)")
+            debugLog("termination preparation joined reason=already-preparing source=\(reason)")
             return
         }
         terminationPrepared = true
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
+        pendingFocusCommands.removeAll()
+        pendingCoordinatorReconciliation = nil
+        reconciliationDrainGeneration &+= 1
+        reconciliationDrainScheduled = false
+        fullWindowScanGeneration &+= 1
+        focusStateGeneration &+= 1
+        activeRescanInputGeneration &+= 1
+        lastKnownFocusedElements.removeAll()
+        manualResizeController.cancel()
+        windowManagement.observation.invalidateAsyncStateForSessionTransition()
+        cancelTransientSystemWindowRefreshForSessionTransition()
         persistenceController.stopTimers()
-        windowManagement.observation.stop()
+        // Keep PID lanes registered until the controller has closed admission
+        // and quiesced them; removing a running lane here could orphan a late
+        // physical frame write and let it race final restoration.
+        windowManagement.observation.stop(removeAXLanes: false)
         inputController.uninstallFocusedWindowMonitor()
         sessionController.stop()
         inputController.uninstallEventTap()
@@ -394,10 +438,24 @@ extension Miri {
         layoutController.cancel(reason: "termination")
         writePersistentLayoutSnapshot()
         writePersistentLogicalSpaceSnapshot()
-        restoreManagedWindowsForExit()
-        persistenceController.stopCleanupWatcher(removeRestoreFile: true)
-        appPhase = .terminated
-        debugLog("termination preparation complete source=\(reason)")
+        restoreManagedWindowsForExit { [weak self] summary in
+            guard let self else { return }
+            if summary.succeeded {
+                self.persistenceController.stopCleanupWatcher(removeRestoreFile: true)
+            } else {
+                // Leave both the watcher and its current snapshot alive. Once
+                // this parent exits, it independently retries failed PIDs.
+                self.debugLog(
+                    "termination restoration incomplete timedOut=\(summary.timedOut) restored=\(summary.restoredPIDs.sorted()) failed=\(summary.failedPIDs.sorted())"
+                )
+            }
+            self.terminationCompleted = true
+            self.appPhase = .terminated
+            self.debugLog("termination preparation complete source=\(reason) success=\(summary.succeeded)")
+            let waiters = self.terminationWaiters
+            self.terminationWaiters.removeAll()
+            for waiter in waiters { waiter() }
+        }
     }
 
     @MainActor private func assertCoordinatorInvariants() {

@@ -7,7 +7,7 @@ import Foundation
 final class ManagedWindow {
     let element: AXUIElement
     let pid: pid_t
-    let windowID: UInt32?
+    var windowID: UInt32?
     var bundleID: String?
     var appName: String
     var title: String
@@ -88,10 +88,48 @@ struct BufferedSpaceWindow {
     var sourceContextID: Int
 }
 
-struct RestoreSnapshot: Codable {
+enum RestoreWindowKind: String, Codable, Sendable {
+    case tiled
+    case floating
+}
+
+struct RestoreWindowRecord: Codable, Sendable {
+    var windowID: UInt32
+    var ownerPID: pid_t?
+    var kind: RestoreWindowKind
+}
+
+struct RestoreSnapshot: Codable, Sendable {
+    static let currentVersion = 2
+
+    var version: Int?
+    var windows: [RestoreWindowRecord]?
+    // Retained in version 2 so an older cleanup helper can still decode a
+    // snapshot written immediately before an application update.
     var windowIDs: [UInt32]
     var floatingWindowIDs: [UInt32]?
     var viewport: RectSnapshot
+
+    init(records: [RestoreWindowRecord], viewport: RectSnapshot) {
+        version = Self.currentVersion
+        windows = records
+        windowIDs = records.filter { $0.kind == .tiled }.map(\.windowID)
+        floatingWindowIDs = records.filter { $0.kind == .floating }.map(\.windowID)
+        self.viewport = viewport
+    }
+
+    var restorationRecords: [RestoreWindowRecord] {
+        if version == Self.currentVersion, let windows {
+            return windows
+        }
+        let tiled = windowIDs.map {
+            RestoreWindowRecord(windowID: $0, ownerPID: nil, kind: .tiled)
+        }
+        let floating = (floatingWindowIDs ?? []).map {
+            RestoreWindowRecord(windowID: $0, ownerPID: nil, kind: .floating)
+        }
+        return tiled + floating
+    }
 }
 
 struct PersistentLayoutSnapshot: Codable {
@@ -147,7 +185,7 @@ struct PersistentWindowIdentity: Codable, Hashable {
     var title: String
 }
 
-struct RectSnapshot: Codable {
+struct RectSnapshot: Codable, Sendable {
     var x: Double
     var y: Double
     var width: Double

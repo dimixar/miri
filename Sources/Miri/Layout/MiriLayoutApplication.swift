@@ -16,6 +16,9 @@ extension Miri {
         defer { notifyWorkspaceBarNeedsRefresh() }
         enforceFullscreenSpaceGuardWorkspace()
         let viewport = currentViewport()
+        // The cleanup watcher must always describe the model that is about to
+        // be projected, including changes made since the preceding layout.
+        writeRestoreSnapshot(viewport: viewport)
         syncActiveRescanTimer()
         layoutController.submit(
             previousState: previousState,

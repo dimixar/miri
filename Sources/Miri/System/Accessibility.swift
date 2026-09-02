@@ -28,22 +28,6 @@ func setAXFrame(_ frame: CGRect, for element: AXUIElement) -> AXError {
     return positionError
 }
 
-@MainActor
-@discardableResult
-func setAXFrame(
-    _ frame: CGRect,
-    for window: ManagedWindow,
-    disableEnhancedUserInterface: Bool = true
-) -> AXError {
-    guard disableEnhancedUserInterface else {
-        return setAXFrame(frame, for: window.element)
-    }
-
-    return withDisabledEnhancedUserInterface(for: window.pid) {
-        setAXFrame(frame, for: window.element)
-    }
-}
-
 @discardableResult
 func setAXSize(_ size: CGSize, for element: AXUIElement) -> AXError {
     var size = CGSize(width: size.width, height: size.height)
@@ -83,6 +67,50 @@ func withDisabledEnhancedUserInterface(for pid: pid_t, _ body: () -> AXError) ->
         }
     }
     return bodyError
+}
+
+/// Synchronous target-process operations used only by the standalone cleanup
+/// watcher. Callers must run one invocation per PID on independent background
+/// queues; the interactive process uses `AXOperationController` instead.
+enum AXCleanupTransport {
+    static func restoreTiledFrames(
+        pid: pid_t,
+        windowIDs: Set<UInt32>,
+        frame: CGRect,
+        deadline: CFAbsoluteTime
+    ) -> AXError {
+        guard !windowIDs.isEmpty else { return .success }
+        guard CFAbsoluteTimeGetCurrent() < deadline else { return .cannotComplete }
+
+        let appElement = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        let windowsError = AXUIElementCopyAttributeValue(
+            appElement,
+            kAXWindowsAttribute as CFString,
+            &value
+        )
+        guard windowsError == .success, let axWindows = value as? [AXUIElement] else {
+            return windowsError
+        }
+
+        let matching = axWindows.filter { element in
+            guard CFAbsoluteTimeGetCurrent() < deadline,
+                  let windowID = SkyLight.shared.windowID(for: element)
+            else { return false }
+            return windowIDs.contains(windowID)
+        }
+
+        return withDisabledEnhancedUserInterface(for: pid) {
+            var finalError = AXError.success
+            for element in matching {
+                guard CFAbsoluteTimeGetCurrent() < deadline else { return .cannotComplete }
+                let error = setAXFrame(frame, for: element)
+                if error == .cannotComplete { return error }
+                if error != .success { finalError = error }
+            }
+            return finalError
+        }
+    }
 }
 
 func currentExecutableURL() -> URL? {

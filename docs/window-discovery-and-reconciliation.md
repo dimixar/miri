@@ -21,10 +21,11 @@ narrow queries rather than mutable coordinator forwarding collections.
 
 Startup performs a full discovery pass:
 
-1. Iterate regular running applications.
-2. Read each app's `AXWindows`.
-3. Filter out hidden, minimized, fullscreen, unknown-subrole, transient, and
-   ignored windows.
+1. Iterate regular running applications and register bounded AX observers,
+   including for applications currently hidden.
+2. Read each visible app's `AXWindows`.
+3. Filter out minimized, fullscreen, unknown-subrole, transient, and ignored
+   windows.
 4. Convert accepted AX elements into `ManagedWindow` values.
 5. Restore persisted layout and logical Space context when available.
 
@@ -39,10 +40,18 @@ NSWorkspace events provide process-level signals:
 - Launch: track the app PID for a 30-second settling period and reconcile only
   that process once per second. The period continues after the first window is
   found so later windows and changing metadata are still adopted.
-- Activation: reconcile the previously active app, then reconcile and adopt
-  focus for the newly active app. This catches windows that vanished while their
-  former app was frontmost. The delayed activation settle verifies that the app
-  is still globally frontmost before adopting its focused window.
+- Activation: reconcile the previously active app, then perform a fresh focused
+  read and reconcile the newly active app. This catches windows that vanished
+  while their former app was frontmost. Immediate and delayed activation reads
+  verify that the app is still globally frontmost. The adopted column is
+  revealed and projected even when it was already Miri's logical active column,
+  which keeps Cmd-Tab from focusing an offscreen or parked managed window. If
+  the activated app's focused-window endpoint is temporarily unavailable, Miri
+  can safely use a still-managed cached focused identity or that PID's sole
+  managed window; a multi-window app with no valid cache still requires a fresh
+  authoritative identity. If transient-window refresh outlives a quick visit to
+  an app that was hidden at startup, lifecycle reconciliation still runs in the
+  background so its newly shown windows are not lost when focus moves away.
 - Termination: remove the process from every logical context and transition
   store immediately; defer only the resulting layout/reconciliation work when
   presentation admission is closed.
@@ -87,16 +96,21 @@ lightweight focused-window probe after:
 - Command+Backtick or Command+Tab.
 
 After an 80 ms settle delay, the probe asks the frontmost application for its AX
-focused window. If that window belongs to a different managed layout column,
-miri adopts the column and applies the configured focus alignment. If the
-focused window is unmanaged or the active column has not changed, no layout is
-projected. Rapid inputs are coalesced, and a probe that lands during layout or
-snapshot work is deferred through the normal per-PID reconciliation queue.
+focused window. If that window belongs to a managed layout column, miri adopts
+it and applies the configured focus alignment. Application activation and the
+Command-based window-switch probe force a projection even when the logical
+column did not change; ordinary mouse fallback probes still avoid redundant
+projections. Rapid inputs are coalesced,
+and a probe that lands during layout or snapshot work is deferred through the
+normal per-PID reconciliation queue.
 
 `AXWindowMiniaturized` for a known tiled window is handled immediately when the
 layout is safe: miri remembers its placement, removes it from the tiled model,
 and projects the remaining windows. Deminiaturization follows the normal
-reconciliation path and can restore the remembered placement.
+reconciliation path and can restore the remembered placement. Native fullscreen
+uses the same remember/remove/restore pattern; on exit, a normal window snapshot
+is restored before the focused-fullscreen guard is re-evaluated, so the window
+can rejoin its prior column without first focusing a neighbor.
 
 ## Session Gating
 
@@ -205,14 +219,25 @@ used when a queued event explicitly requires global reconciliation and once
 after a valid session-recovery interaction. Rescans are ignored while session
 tracking is unavailable or still awaiting that interaction. During recovery,
 one full rescan is admitted directly as a completion barrier; normal
-reconciliation remains deferred until the coordinator returns to running.
+reconciliation remains deferred until the coordinator returns to running. Each
+application read has a whole-operation budget, and the full-scan accumulator has
+an outer deadline. Application windows are read in one-window lane turns so
+interactive same-PID work can run between them. A partial pass advances a
+rotating cursor and opens a bounded settling/retry window, allowing later scans
+to discover the rest of a large healthy application. A PID that exceeds either
+boundary is marked unavailable, its known windows are lifecycle-preserved but
+excluded from the current visible Space signature, and recovery can still
+complete. If a native Space switch has no authoritative visible result at all,
+Miri retains the pending switch and retries instead of selecting an empty
+context from unavailable data. Startup layout placement remains pending and is
+applied only to newly arriving windows until an authoritative scan finalizes it.
 
 Routine AX movement, resize, and creation events should prefer targeted per-PID
-reconciliation. Every asynchronous snapshot carries the PID/global lifecycle
-generation observed at submission; hide, minimize, fullscreen, destruction,
-launch, termination, and Space changes invalidate older results rather than
-allowing them to resurrect stale windows. Focus adoption is a separate fresh
-probe validated against the current frontmost PID.
+reconciliation. Every asynchronous app snapshot carries the PID-local lifecycle
+generation observed at submission; hide, minimize, fullscreen, destruction, and
+termination invalidate only that PID's older result. Active Space and session
+boundaries invalidate the whole full scan. Focus adoption has a separate global
+authority generation and is validated against the current frontmost PID.
 
 ## Debug Signals
 
@@ -244,8 +269,9 @@ Useful log lines in `~/.config/miri/debug.log`:
 - `ax observer registration failed`: registering an AX notification for an app
   failed; the line includes the PID, notification name, and AX error code.
 - `ax operation=... pid=... disposition=...`: a slow, failed, circuit-open, or
-  superseded per-PID operation. The line includes AX error, elapsed time, and
-  adaptive `retryAfter`; known discovery state remains preserved when the
+  superseded per-PID operation. The line includes AX error, queue wait, elapsed
+  time, budget exhaustion, estimated AX call count, and adaptive `retryAfter`;
+  known discovery state remains preserved when the
   operation is unavailable.
 - `snapshot missing image`: snapshot capture failed for a tracked window and
   queued targeted PID reconciliation.

@@ -177,8 +177,11 @@ current full rescan. See
 - `fullscreen_space_change_guard_ms`: guard window for fullscreen Space changes.
 - `logical_space_autosave_interval_minutes`: autosave interval for inferred
   macOS Space contexts.
-- `restore_on_exit`: restore managed windows on normal exit and via cleanup
-  watcher after abrupt termination.
+- `restore_on_exit`: restore managed tiled windows on normal exit and via a
+  cleanup watcher after abrupt termination. Normal restoration runs per PID
+  behind a global deadline; incomplete restoration keeps the current watcher
+  snapshot for a post-exit retry. Floating windows retain their frame while
+  Miri-owned compositor levels and transforms are normalized.
 - `persist_layout`: persist layout and logical Space state.
 - `state_path`: override the path for `layout.json`; `logical-spaces.json` is
   stored next to it.

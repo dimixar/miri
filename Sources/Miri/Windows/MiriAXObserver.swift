@@ -58,11 +58,10 @@ extension Miri {
             return
         }
         let stateGeneration = windowManagement.observation.stateGeneration(for: pid)
-        let handle = AXElementHandle(
-            element: element,
-            pid: pid,
-            windowID: SkyLight.shared.windowID(for: element)
-        )
+        // Window-ID resolution uses a private synchronous AX call. Created
+        // notifications may safely begin with pointer identity and enrich the
+        // ID during a later application snapshot on this PID's worker lane.
+        let handle = AXElementHandle(element: element, pid: pid, windowID: nil)
         axOperations.readWindow(handle: handle, priority: .background) { [weak self] result in
             guard let self else { return }
             guard stateGeneration == self.windowManagement.observation.stateGeneration(for: pid) else {
@@ -156,9 +155,13 @@ extension Miri {
         pid: pid_t?,
         applyLayout: Bool = true,
         animateIfSameWorkspace: Bool = false,
+        forceLayoutIfAlreadyFocused: Bool = false,
+        allowCachedFallback: Bool = true,
         reason: String = "focus-adoption",
         completion: @escaping (Bool) -> Void = { _ in }
     ) {
+        focusedWindowAdoptionGeneration &+= 1
+        let adoptionGeneration = focusedWindowAdoptionGeneration
         guard let pid else {
             completion(false)
             return
@@ -169,11 +172,34 @@ extension Miri {
             coalescingKey: "focus-adoption"
         ) { [weak self] result in
             guard let self,
+                  adoptionGeneration == self.focusedWindowAdoptionGeneration,
                   requestGeneration == self.focusStateGeneration,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-                  result.disposition == .completed,
-                  let focusedElement = result.value?.handle.element
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
             else {
+                completion(false)
+                return
+            }
+            let focusedElement: AXUIElement?
+            if result.disposition == .completed,
+               let current = result.value?.handle.element
+            {
+                focusedElement = current
+            } else if allowCachedFallback,
+                      let cached = self.lastKnownFocusedElements[pid],
+                      self.isKnownWindow(cached)
+            {
+                focusedElement = cached
+                self.debugLog("focus adoption using cached identity reason=\(reason) pid=\(pid)")
+            } else if allowCachedFallback {
+                let known = self.allWindows().filter { $0.pid == pid }
+                focusedElement = known.count == 1 ? known[0].element : nil
+                if focusedElement != nil {
+                    self.debugLog("focus adoption using sole managed window reason=\(reason) pid=\(pid)")
+                }
+            } else {
+                focusedElement = nil
+            }
+            guard let focusedElement else {
                 completion(false)
                 return
             }
@@ -182,6 +208,7 @@ extension Miri {
                 pid: pid,
                 applyLayout: applyLayout,
                 animateIfSameWorkspace: animateIfSameWorkspace,
+                forceLayoutIfAlreadyFocused: forceLayoutIfAlreadyFocused,
                 reason: reason
             )
             completion(adopted)
@@ -194,6 +221,7 @@ extension Miri {
         pid: pid_t,
         applyLayout: Bool = true,
         animateIfSameWorkspace: Bool = false,
+        forceLayoutIfAlreadyFocused: Bool = false,
         reason: String = "focus-adoption"
     ) -> Bool {
         lastKnownFocusedElements[pid] = focusedElement
@@ -221,11 +249,35 @@ extension Miri {
         }
 
         if let loc = location(of: focusedElement) {
-            if CFAbsoluteTimeGetCurrent() < keyboardFocusAuthorityUntil,
-               let active = activeWindow(),
+            if let active = activeWindow(),
                !sameWindow(active.element, focusedElement)
             {
-                return false
+                let now = CFAbsoluteTimeGetCurrent()
+                let isStaleAuthoredActivation = forceLayoutIfAlreadyFocused
+                    && active.pid == pid
+                    && now < authoredPhysicalFocusUntil
+                    && authoredPhysicalFocusElement.map {
+                        sameWindow($0, active.element)
+                    } == true
+                if isStaleAuthoredActivation {
+                    let delay = max(authoredPhysicalFocusUntil - now, 0.05)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self,
+                              self.sessionController.isLayoutTrackingAllowed,
+                              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+                        else { return }
+                        self.requestFocusedWindowAdoption(
+                            pid: pid,
+                            animateIfSameWorkspace: true,
+                            forceLayoutIfAlreadyFocused: true,
+                            reason: "authored-activation-settle"
+                        )
+                    }
+                    return false
+                }
+                if !forceLayoutIfAlreadyFocused && now < keyboardFocusAuthorityUntil {
+                    return false
+                }
             }
             let previousState = captureLayoutState()
             let previousWorkspace = windowManagement.activeWorkspace
@@ -235,9 +287,12 @@ extension Miri {
             windowManagement.setActiveColumn(loc.column, in: workspace)
             if changedFocus {
                 focusStateGeneration &+= 1
+            }
+            let shouldProject = changedFocus || forceLayoutIfAlreadyFocused
+            if shouldProject {
                 revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
             }
-            if applyLayout, changedFocus {
+            if applyLayout, shouldProject {
                 let shouldAnimate = animateIfSameWorkspace
                     && previousWorkspace == loc.workspace
                 debugLog(
@@ -387,10 +442,15 @@ extension Miri {
                 deferAXReconciliation(pid: pid, adoptFocused: false, reason: name)
                 return
             }
+            // Reuse model identity when available. Never invoke private AX
+            // window-ID mapping from the main-run-loop notification callback.
+            let knownWindowID = self.allWindows().first {
+                self.sameWindow($0.element, element)
+            }?.windowID
             let handle = AXElementHandle(
                 element: element,
                 pid: pid,
-                windowID: SkyLight.shared.windowID(for: element)
+                windowID: knownWindowID
             )
             let sessionGeneration = sessionController.resumeGeneration
             axOperations.readWindow(handle: handle) { [weak self] result in

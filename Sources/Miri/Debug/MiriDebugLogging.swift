@@ -26,6 +26,11 @@ extension Miri {
         let url = debugLogURL
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber,
+               size.int64Value > 8 * 1_024 * 1_024
+            {
+                try? FileManager.default.removeItem(at: url)
+            }
             if FileManager.default.fileExists(atPath: url.path), let data = text.data(using: .utf8) {
                 let handle = try FileHandle(forWritingTo: url)
                 try handle.seekToEnd()
@@ -37,6 +42,24 @@ extension Miri {
         } catch {
             print("miri: failed to write debug log: \(error)")
         }
+    }
+
+    func logRawAXWindowIfNeeded(
+        _ snapshot: AXWindowReadSnapshot,
+        app: NSRunningApplication,
+        source: String
+    ) {
+        guard debugLogging else { return }
+        let frameDescription = snapshot.frame.map(String.init(describing:)) ?? "nil"
+        let signature = "raw|\(source)|\(app.bundleIdentifier ?? "nil")|\(snapshot.title)|\(frameDescription)|\(snapshot.handle.windowID.map(String.init) ?? "nil")|\(snapshot.minimized.map(String.init) ?? "nil")|\(snapshot.fullscreen.map(String.init) ?? "nil")"
+        guard debugLoggedWindowSignatures.insert(signature).inserted else { return }
+        let manageable = isManageableWindow(snapshot)
+        let known = isKnownWindow(snapshot.handle.element)
+        let transientTitle = isChromiumTransientTitle(snapshot.title)
+        let cgInfo = snapshot.handle.windowID.flatMap { cgWindowDebugInfo(windowID: $0) } ?? "cg=nil"
+        debugLog(
+            "raw ax window source=\(source) app='\(app.localizedName ?? "pid \(snapshot.handle.pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(snapshot.handle.pid) title='\(snapshot.title)' id=\(snapshot.handle.windowID.map(String.init) ?? "nil") role=\(snapshot.role ?? "nil") subrole=\(snapshot.subrole ?? "nil") frame=\(frameDescription) minimized=\(snapshot.minimized.map(String.init) ?? "nil") fullscreen=\(snapshot.fullscreen.map(String.init) ?? "nil") manageable=\(manageable) known=\(known) chromiumTransientTitle=\(transientTitle) \(cgInfo)"
+        )
     }
 
     func logTransientPopupIfNeeded(

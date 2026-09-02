@@ -6,6 +6,7 @@ import CoreGraphics
 private final class TransientWindowRefreshAccumulator {
     var remaining: Int
     var windows: [AXWindowReadSnapshot] = []
+    var finished = false
 
     init(remaining: Int) {
         self.remaining = remaining
@@ -59,6 +60,21 @@ extension Miri {
             return
         }
 
+        // AX's configured messaging timeout is the first line of defense, but
+        // activation and session recovery must not depend on every target call
+        // honoring it. Preserve the last admitted guard state and release all
+        // waiters after a bounded outer deadline.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak accumulator] in
+            guard let self, let accumulator,
+                  generation == self.transientWindowRefreshGeneration,
+                  self.transientWindowRefreshInFlight,
+                  !accumulator.finished
+            else { return }
+            accumulator.finished = true
+            self.debugLog("transient refresh deadline exceeded pending=\(accumulator.remaining)")
+            self.finishTransientSystemWindowRefresh()
+        }
+
         for app in apps {
             let pid = app.processIdentifier
             axOperations.readFocusedWindow(
@@ -66,7 +82,10 @@ extension Miri {
                 priority: .background,
                 coalescingKey: "transient-focused-window"
             ) { [weak self, weak app] result in
-                guard let self, generation == self.transientWindowRefreshGeneration else { return }
+                guard let self,
+                      generation == self.transientWindowRefreshGeneration,
+                      !accumulator.finished
+                else { return }
                 if result.disposition == .completed,
                    let snapshot = result.value,
                    let liveApp = app ?? NSRunningApplication(processIdentifier: pid),
@@ -76,6 +95,7 @@ extension Miri {
                 }
                 accumulator.remaining -= 1
                 guard accumulator.remaining == 0 else { return }
+                accumulator.finished = true
 
                 let currentPIDs = Set(self.transientCheckApplications.map(\.processIdentifier))
                 let currentFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier

@@ -15,7 +15,7 @@ extension Miri {
     }
 
     @discardableResult
-    func applyPersistentLayoutSnapshotIfNeeded() -> Bool {
+    func applyPersistentLayoutSnapshotIfNeeded(finalize: Bool = true) -> Bool {
         guard persistenceController.needsLayoutRestore else {
             return false
         }
@@ -26,30 +26,55 @@ extension Miri {
         }
 
         let workspaces = windowManagement.workspaces
-        var usedSnapshotIndices = Set<Int>()
-        var placements: [(state: PersistentWindowState, window: ManagedWindow)] = []
+        let liveWindowIDs = Set(workspaces.flatMap(\.columns).map(ObjectIdentifier.init))
+        persistentLayoutRestoreAssignments = persistentLayoutRestoreAssignments.filter {
+            liveWindowIDs.contains($0.key)
+        }
+        persistentLayoutRestoreConsideredWindows.formIntersection(liveWindowIDs)
+        var usedSnapshotIndices = Set(persistentLayoutRestoreAssignments.values)
+        var placements: [(snapshotIndex: Int, state: PersistentWindowState, window: ManagedWindow)] = []
         for (workspaceIndex, workspace) in workspaces.enumerated() {
             for (columnIndex, window) in workspace.columns.enumerated() {
-                guard let state = persistentWindowState(
-                    for: window,
-                    currentWorkspace: workspaceIndex,
-                    currentColumn: columnIndex,
-                    in: snapshot,
-                    used: &usedSnapshotIndices
-                ) else {
+                let windowID = ObjectIdentifier(window)
+                guard !persistentLayoutRestoreConsideredWindows.contains(windowID) else {
                     continue
                 }
-                windowManagement.setWidthRatio(state.manualWidthRatio, for: window)
-                placements.append((state, window))
+                persistentLayoutRestoreConsideredWindows.insert(windowID)
+                guard let match = persistentWindowState(
+                          for: window,
+                          currentWorkspace: workspaceIndex,
+                          currentColumn: columnIndex,
+                          in: snapshot,
+                          used: &usedSnapshotIndices
+                      )
+                else {
+                    continue
+                }
+                windowManagement.setWidthRatio(match.state.manualWidthRatio, for: window)
+                persistentLayoutRestoreAssignments[windowID] = match.index
+                placements.append((match.index, match.state, window))
             }
         }
 
         guard !placements.isEmpty else {
+            if finalize, persistentLayoutInitialStateApplied {
+                persistenceController.finishLayoutRestore()
+                persistentLayoutRestoreAssignments.removeAll()
+                persistentLayoutRestoreConsideredWindows.removeAll()
+            }
             return false
         }
-        persistenceController.finishLayoutRestore()
+        if finalize {
+            persistenceController.finishLayoutRestore()
+        }
 
         let placedIDs = Set(placements.map { ObjectIdentifier($0.window) })
+        let priorActiveWindows = workspaces.map { workspace -> ManagedWindow? in
+            guard !workspace.columns.isEmpty else { return nil }
+            workspace.clampFocus()
+            return workspace.columns[workspace.activeColumn]
+        }
+        let priorScrollOffsets = workspaces.map(\.scrollOffset)
         let workspaceCount = max(
             workspaces.count,
             (placements.map(\.state.workspace).max() ?? 0) + 1,
@@ -79,20 +104,40 @@ extension Miri {
 
         let restoredActiveWorkspace = min(max(snapshot.activeWorkspace, 0), nextWorkspaces.count - 1)
         for (index, workspace) in nextWorkspaces.enumerated() {
-            if snapshot.activeColumns.indices.contains(index) {
-                workspace.activeColumn = snapshot.activeColumns[index]
-            }
-            if let scrollOffsets = snapshot.scrollOffsets, scrollOffsets.indices.contains(index) {
-                workspace.scrollOffset = scrollOffsets[index]
+            if !persistentLayoutInitialStateApplied {
+                if snapshot.activeColumns.indices.contains(index) {
+                    workspace.activeColumn = snapshot.activeColumns[index]
+                }
+                if let scrollOffsets = snapshot.scrollOffsets, scrollOffsets.indices.contains(index) {
+                    workspace.scrollOffset = scrollOffsets[index]
+                } else {
+                    workspace.scrollOffset = nil
+                }
             } else {
-                workspace.scrollOffset = nil
+                if priorActiveWindows.indices.contains(index),
+                   let priorActive = priorActiveWindows[index],
+                   let activeColumn = workspace.columns.firstIndex(where: { $0 === priorActive })
+                {
+                    workspace.activeColumn = activeColumn
+                }
+                workspace.scrollOffset = priorScrollOffsets.indices.contains(index)
+                    ? priorScrollOffsets[index]
+                    : nil
             }
             workspace.clampFocus()
         }
+        let nextActiveWorkspace = persistentLayoutInitialStateApplied
+            ? min(windowManagement.activeWorkspace, nextWorkspaces.count - 1)
+            : restoredActiveWorkspace
         windowManagement.replaceActiveProjection(
             workspaces: nextWorkspaces,
-            activeWorkspace: restoredActiveWorkspace
+            activeWorkspace: nextActiveWorkspace
         )
+        persistentLayoutInitialStateApplied = true
+        if finalize {
+            persistentLayoutRestoreAssignments.removeAll()
+            persistentLayoutRestoreConsideredWindows.removeAll()
+        }
         return true
     }
 
@@ -114,7 +159,7 @@ extension Miri {
         currentColumn: Int,
         in snapshot: PersistentLayoutSnapshot,
         used: inout Set<Int>
-    ) -> PersistentWindowState? {
+    ) -> (index: Int, state: PersistentWindowState)? {
         let identity = persistentIdentity(for: window)
         if let exact = bestPersistentWindowState(
             in: snapshot,
@@ -124,7 +169,7 @@ extension Miri {
             matches: { $0.identity == identity }
         ) {
             used.insert(exact.index)
-            return exact.state
+            return exact
         }
 
         if let bundleID = identity.bundleID,
@@ -137,7 +182,7 @@ extension Miri {
            )
         {
             used.insert(bundleMatch.index)
-            return bundleMatch.state
+            return bundleMatch
         }
 
         let normalizedAppName = identity.appName.lowercased()
@@ -149,7 +194,7 @@ extension Miri {
             matches: { $0.identity.appName.lowercased() == normalizedAppName }
         ) {
             used.insert(appMatch.index)
-            return appMatch.state
+            return appMatch
         }
 
         return nil

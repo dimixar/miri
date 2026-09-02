@@ -85,7 +85,10 @@ compositor transforms retained as verified fallbacks.
 
 Parking is intentionally separate from final layout. A parked real window is
 not the presentation state; it is only a staging detail to keep the overlay
-clean.
+clean. Before projection changes real frames, miri refreshes its versioned exit
+snapshot. During quit, presentation generations are invalidated before PID
+lanes quiesce, preventing a delayed parking/final-frame write from undoing exit
+restoration.
 
 ## Debug Signals
 

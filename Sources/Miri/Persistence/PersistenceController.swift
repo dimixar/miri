@@ -150,10 +150,13 @@ final class PersistenceController {
         needsLayoutRestore = false
     }
 
-    func takeLogicalSpaceRestoreSnapshot() -> PersistentLogicalSpaceSnapshot? {
+    func logicalSpaceRestoreSnapshotIfNeeded() -> PersistentLogicalSpaceSnapshot? {
         guard needsLogicalSpaceRestore else { return nil }
-        needsLogicalSpaceRestore = false
         return logicalSpaceSnapshot
+    }
+
+    func finishLogicalSpaceRestore() {
+        needsLogicalSpaceRestore = false
     }
 
     func replacePendingLogicalSpaceContexts(_ contexts: [PersistentLogicalSpaceContext]) {

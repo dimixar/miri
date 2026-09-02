@@ -41,8 +41,9 @@ rg "window discovered|reconciliation (deferred|admitted)|snapshot|layout request
 
 Accessibility operations are synchronous calls into the application that owns
 a window, but miri executes interactive AX IPC on independent per-process lanes
-rather than on its event loop. Each call remains bounded to 250 ms. A timeout
-opens a shared adaptive circuit for that PID, so repeated key presses do not
+rather than on its event loop. Each call remains bounded to 250 ms, composite
+reads have a whole-operation budget, and full-scan barriers have an outer
+deadline. A timeout opens a shared adaptive circuit for that PID, so repeated key presses do not
 accumulate more calls while healthy applications continue to move and focus.
 Frame and focus requests are coalesced; after recovery, only the latest requested
 state is retried. Lifecycle generations also discard reads made stale by a
@@ -57,6 +58,9 @@ rg "ax operation=.*disposition=" ~/.config/miri/debug.log
 
 A discovery timeout preserves known window state instead of treating the app's
 temporarily unavailable `AXWindows` response as proof that its windows closed.
+Bounded application reads yield after each window and rotate their cursor across
+partial scans; a bounded settling period lets a large responsive app make
+incremental discovery progress without retrying a permanently hung PID forever.
 Input-triggered active rescans are debounced and run at background priority, so
 they do not preempt focus/layout work.
 
@@ -162,6 +166,18 @@ app still behaves unpredictably while tiled, especially during rapid focus
 movement or multiple window changes, add a window rule with
 `behavior: "ignore"` for that app.
 
+## Window Content Does Not Reflow Until Focused
+
+Miri controls the outer macOS window frame through Accessibility; it does not
+control an application's internal rendering. Some browsers and embedded web
+views defer responsive-layout or redraw work while they are in the background.
+Their outer frame can already be correctly tiled while the old, wider content
+layout remains clipped until the application receives focus. Miri intentionally
+does not activate every resized background application merely to force a redraw,
+because doing so would steal focus. If focusing the window immediately fixes
+only its content while its outer frame was already correct, this is application
+rendering behavior rather than failed window placement.
+
 ## Same-App Window Focus Does Not Move The Layout
 
 miri normally adopts window focus from `AXFocusedWindowChanged` or
@@ -189,9 +205,25 @@ rg "AXFocusedWindowChanged|AXMainWindowChanged|focused-window-probe|ax observer 
 - `ax observer registration failed` identifies an app for which notification
   registration itself failed.
 
-No `focus adopted` line is expected when the probed window is unmanaged or is
-already the active layout column, because that case intentionally avoids a
-redundant layout projection.
+No `focus adopted` line is expected when an ordinary fallback probe finds an
+unmanaged window. Ordinary same-app probes may avoid a redundant projection,
+but `NSWorkspaceDidActivate` and its settle probe intentionally re-project an
+already-active logical column so Cmd-Tab reveals a parked or stale projection.
+
+## Quit Or Crash Restoration
+
+Normal quit closes new AX admission, quiesces old PID lanes, and restores tiled
+frames independently with a three-second global deadline. Useful log lines are:
+
+```bash
+rg "termination restoration|termination preparation" ~/.config/miri/debug.log
+```
+
+A successful normal restore removes the temporary exit snapshot and watcher. If
+one PID fails or the deadline expires, miri leaves them available so the watcher
+can retry after the parent exits. Abrupt termination uses the current versioned
+snapshot directly. Cleanup preserves floating-window geometry and restores AX
+frames only for tiled windows.
 
 ## High CPU Or Battery Usage
 

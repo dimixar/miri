@@ -114,7 +114,9 @@ extension Miri {
         ))
     }
 
-    func restoreExitedFullscreenWindows(discovered: [ManagedWindow]) {
+    @discardableResult
+    func restoreExitedFullscreenWindows(discovered: [ManagedWindow]) -> Bool {
+        var restored = false
         for found in discovered {
             guard let state = windowManagement.takeFullscreenState(matching: { identity, state in
                 sameWindow(state.element, found.element) || persistentIdentity(for: found) == identity
@@ -123,7 +125,9 @@ extension Miri {
             }
             windowManagement.setWidthRatio(state.widthRatio, for: found)
             insertRestoredFullscreenWindow(found, state: state)
+            restored = true
         }
+        return restored
     }
 
     func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {

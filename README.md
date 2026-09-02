@@ -48,12 +48,14 @@ current scope and have not been tested.
   30 seconds while its Accessibility windows and metadata settle. Normal
   updates then remain driven by NSWorkspace and AX events with a long safety
   reconciliation timer.
-- **Reliable same-app focus tracking.** Focus and main-window AX notifications
-  are backed by lightweight probes after mouse clicks and macOS Command-based
-  window switching, covering apps that miss useful focus notifications.
+- **Reliable focus tracking.** Focus and main-window AX notifications are
+  backed by lightweight probes after mouse clicks and macOS Command-based
+  window switching. Cmd-Tab activation re-reveals the focused managed column
+  even when it was already Miri's logical focus.
 - **Hung-app isolation.** Accessibility IPC runs on independent per-process
-  lanes with a short process-wide timeout and shared adaptive PID circuits, so
-  one beachballing app cannot block focus, layout, or discovery for healthy apps.
+  lanes with a short process-wide timeout, whole-read budgets, and shared
+  adaptive PID circuits, so one beachballing app cannot block focus, layout,
+  discovery, or exit restoration for healthy apps.
 - **Active stale-window recovery.** Known problematic apps can be targeted for
   extra rescans while tiled, improving UX when they miss Accessibility events.
   This is a mitigation for broken app behavior, not a guarantee that those apps
@@ -63,7 +65,8 @@ current scope and have not been tested.
   available, tracking resumes only after input targets a relevant managed
   window, avoiding lock-screen input and premature layout reconciliation.
 - **Persistent layout state.** Saved column positions, manual widths, focus, and
-  logical Space state across restarts.
+  logical Space state across restarts. A versioned, continuously refreshed exit
+  snapshot supports bounded cleanup after abrupt termination.
 - **Snapshot transitions.** Window movement and resizing animations using
   captured snapshots and final Accessibility placement.
 - **Precise window rules.** Rule matching and behavior overrides for apps and
@@ -262,7 +265,8 @@ The project dynamically resolves these private symbols at runtime:
 
 - `_AXUIElementGetWindow`: maps an `AXUIElement` to a `CGWindowID` for more
   reliable matching, persistence, logical Space recovery, debugging, and exit
-  restoration.
+  restoration. Mapping is optional and runs only on an isolated PID worker,
+  never in a main-run-loop AX notification callback.
 - `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
   `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
   `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
@@ -309,7 +313,9 @@ of the private list above.
   app-specific AX behavior may still need a later reconciliation pass.
 - AX IPC runs on isolated per-process lanes. A beachballing application opens
   an adaptive circuit for only its PID; focus/layout for healthy apps remains
-  responsive, and superseded frame/focus requests are coalesced.
+  responsive, and superseded frame/focus requests are coalesced. Normal quit
+  closes AX admission, quiesces prior work, and restores each PID independently
+  behind a global deadline. Failed restoration is left to the cleanup watcher.
 - Active rescans are enabled by default for known problematic apps such as
   Notion. They help recover stale windows when apps miss Accessibility events,
   but apps that report stale/contradictory AX frames can still behave

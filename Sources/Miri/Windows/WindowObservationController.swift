@@ -220,6 +220,7 @@ final class WindowObservationController: NSObject {
 
     func cancelLaunchSettling() -> [pid_t] {
         let pids = launchSettlingDeadlines.keys.sorted()
+        for pid in pids { launchObservedPIDs.remove(pid) }
         launchSettlingDeadlines.removeAll()
         launchMissingWindowSince.removeAll()
         configureLaunchSettlingTimer(enabled: false, interval: 1)
@@ -372,7 +373,7 @@ final class WindowObservationController: NSObject {
         return changed
     }
 
-    func stop() {
+    func stop(removeAXLanes: Bool = true) {
         stopped = true
         let center = NSWorkspace.shared.notificationCenter
         workspaceObserverTokens.forEach(center.removeObserver)
@@ -381,7 +382,9 @@ final class WindowObservationController: NSObject {
         axObservers.removeAll()
         pendingAXObserverPIDs.removeAll()
         observerRegistrationGenerations.removeAll()
-        for pid in observedPIDs { axOperations.remove(pid: pid) }
+        if removeAXLanes {
+            for pid in observedPIDs { axOperations.remove(pid: pid) }
+        }
         periodicTimer?.invalidate()
         activeRescanTimer?.invalidate()
         launchSettlingTimer?.invalidate()

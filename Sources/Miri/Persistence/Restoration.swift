@@ -4,46 +4,87 @@ import CoreGraphics
 import Darwin
 import Foundation
 
+/// Best-effort restoration used by the standalone cleanup watcher after its
+/// parent has exited. Target-app AX work is grouped by owner PID and runs on
+/// independent queues so one unhealthy application cannot delay the others.
 enum WindowRestoration {
-    static func restore(windowIDs: Set<UInt32>, floatingWindowIDs: Set<UInt32>, viewport: CGRect) {
-        let restoreWindowIDs = windowIDs.union(floatingWindowIDs)
-        guard !restoreWindowIDs.isEmpty else {
-            return
+    private static let overallTimeout: TimeInterval = 3.0
+
+    static func restore(_ snapshot: RestoreSnapshot) {
+        var records = snapshot.restorationRecords
+        guard !records.isEmpty else { return }
+
+        let ownerPIDs = cgOwnerPIDs(windowIDs: Set(records.map(\.windowID)))
+        for index in records.indices where records[index].ownerPID == nil {
+            records[index].ownerPID = ownerPIDs[records[index].windowID]
         }
 
-        for windowID in restoreWindowIDs {
-            if let bounds = cgWindowBounds(windowID: windowID) {
+        normalizeCompositorState(records: records)
+        guard AXIsProcessTrusted() else { return }
+
+        let tiledByPID = tiledWindowIDsByPID(records)
+        guard !tiledByPID.isEmpty else { return }
+
+        let deadline = CFAbsoluteTimeGetCurrent() + overallTimeout
+        let group = DispatchGroup()
+        for (pid, windowIDs) in tiledByPID {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = AXCleanupTransport.restoreTiledFrames(
+                    pid: pid,
+                    windowIDs: windowIDs,
+                    frame: snapshot.viewport.cgRect,
+                    deadline: deadline
+                )
+                group.leave()
+            }
+        }
+        _ = group.wait(timeout: .now() + overallTimeout)
+    }
+
+    static func tiledWindowIDsByPID(
+        _ records: [RestoreWindowRecord]
+    ) -> [pid_t: Set<UInt32>] {
+        var result: [pid_t: Set<UInt32>] = [:]
+        for record in records where record.kind == .tiled {
+            guard let pid = record.ownerPID else { continue }
+            result[pid, default: []].insert(record.windowID)
+        }
+        return result
+    }
+
+    private static func normalizeCompositorState(records: [RestoreWindowRecord]) {
+        let normalLevel = Int32(CGWindowLevelForKey(.normalWindow))
+        for record in records {
+            if let bounds = cgWindowBounds(windowID: record.windowID) {
                 let normalTransform = CGAffineTransform(
                     translationX: -bounds.minX,
                     y: -bounds.minY
                 )
-                SkyLight.shared.setTransform(normalTransform, for: windowID)
+                _ = SkyLight.shared.setTransform(normalTransform, for: record.windowID)
             }
-            SkyLight.shared.setLevel(Int32(CGWindowLevelForKey(.normalWindow)), for: windowID)
+            _ = SkyLight.shared.setLevel(normalLevel, for: record.windowID)
         }
+    }
 
-        guard AXIsProcessTrusted() else {
-            return
+    private static func cgOwnerPIDs(windowIDs: Set<UInt32>) -> [UInt32: pid_t] {
+        guard !windowIDs.isEmpty,
+              let entries = CGWindowListCopyWindowInfo(
+                [.optionAll],
+                CGWindowID(0)
+              ) as? [[String: Any]]
+        else { return [:] }
+
+        var owners: [UInt32: pid_t] = [:]
+        for entry in entries {
+            guard let number = entry[kCGWindowNumber as String] as? NSNumber,
+                  let owner = entry[kCGWindowOwnerPID as String] as? NSNumber
+            else { continue }
+            let windowID = number.uint32Value
+            guard windowIDs.contains(windowID) else { continue }
+            owners[windowID] = pid_t(owner.int32Value)
         }
-
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
-            let appElement = AXUIElementCreateApplication(app.processIdentifier)
-            var value: CFTypeRef?
-            let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
-            guard error == .success, let axWindows = value as? [AXUIElement] else {
-                continue
-            }
-
-            for element in axWindows {
-                guard let windowID = SkyLight.shared.windowID(for: element),
-                      restoreWindowIDs.contains(windowID)
-                else {
-                    continue
-                }
-
-                setAXFrame(viewport, for: element)
-            }
-        }
+        return owners
     }
 
     private static func cgWindowBounds(windowID: UInt32) -> CGRect? {
@@ -52,9 +93,7 @@ enum WindowRestoration {
             CGWindowID(windowID)
         ) as? [[String: Any]],
               let bounds = list.first?[kCGWindowBounds as String] as? NSDictionary
-        else {
-            return nil
-        }
+        else { return nil }
 
         var rect = CGRect.zero
         return CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &rect) ? rect : nil
@@ -80,14 +119,8 @@ enum CleanupWatcher {
         let url = URL(fileURLWithPath: snapshotPath)
         guard let data = try? Data(contentsOf: url),
               let snapshot = try? JSONDecoder().decode(RestoreSnapshot.self, from: data)
-        else {
-            return
-        }
+        else { return }
 
-        WindowRestoration.restore(
-            windowIDs: Set(snapshot.windowIDs),
-            floatingWindowIDs: Set(snapshot.floatingWindowIDs ?? []),
-            viewport: snapshot.viewport.cgRect
-        )
+        WindowRestoration.restore(snapshot)
     }
 }

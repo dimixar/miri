@@ -12,5 +12,10 @@ let package = Package(
             name: "miri",
             path: "Sources/Miri"
         ),
+        .testTarget(
+            name: "MiriTests",
+            dependencies: ["miri"],
+            path: "Tests/MiriTests"
+        ),
     ]
 )

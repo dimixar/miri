@@ -6,6 +6,9 @@ import Foundation
 extension Miri {
     func saveActiveLogicalSpaceContext() {
         windowManagement.saveActiveContext(signature: currentLogicalSpaceSignature())
+        if sessionController.isLayoutTrackingAllowed {
+            writeRestoreSnapshot(viewport: currentViewport())
+        }
     }
 
     func loadLogicalSpaceContext(_ context: LogicalSpaceContext) {

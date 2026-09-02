@@ -22,6 +22,7 @@ extension Miri {
         requestFocusedWindowAdoption(
             pid: pid,
             animateIfSameWorkspace: true,
+            forceLayoutIfAlreadyFocused: reason == "command-window-switch",
             reason: "focused-window-probe:\(reason)"
         )
     }

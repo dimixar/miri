@@ -2,24 +2,40 @@ import Foundation
 
 extension Miri {
     @discardableResult
-    func restorePersistentLogicalSpaceContextsIfNeeded(discovered: [ManagedWindow]) -> Bool {
+    func restorePersistentLogicalSpaceContextsIfNeeded(
+        discovered: [ManagedWindow],
+        preservedWindows: [ManagedWindow] = [],
+        finalizeLayoutRestore: Bool = true
+    ) -> Bool {
         guard persistenceController.needsLogicalSpaceRestore else {
             return false
         }
-        guard let snapshot = persistenceController.takeLogicalSpaceRestoreSnapshot() else {
+        guard let snapshot = persistenceController.logicalSpaceRestoreSnapshotIfNeeded() else {
             return false
         }
 
         let visibleSignature = discoveredSignature(discovered)
         guard let selected = bestPersistentLogicalSpaceContext(for: discovered, visibleSignature: visibleSignature, in: snapshot.contexts) else {
-            persistenceController.replacePendingLogicalSpaceContexts(snapshot.contexts)
-            windowManagement.setNextLogicalSpaceContextID(
-                max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
-            )
+            // Discovery may be only a bounded partial result. Keep the initial
+            // restore snapshot eligible until a later scan can select a context
+            // from real visible evidence. A complete scan can safely retain all
+            // contexts as pending candidates for future macOS Space switches.
+            if finalizeLayoutRestore {
+                persistenceController.finishLogicalSpaceRestore()
+                persistenceController.replacePendingLogicalSpaceContexts(snapshot.contexts)
+                windowManagement.setNextLogicalSpaceContextID(
+                    max(snapshot.nextContextID, (snapshot.contexts.map(\.id).max() ?? 0) + 1, 0)
+                )
+            }
             return false
         }
 
-        let activeContext = logicalSpaceContext(from: selected, discovered: discovered)
+        persistenceController.finishLogicalSpaceRestore()
+        let restorationWindows = discovered + preservedWindows.filter { preserved in
+            !discovered.contains { sameWindow($0.element, preserved.element) }
+        }
+        let activeContext = logicalSpaceContext(from: selected, discovered: restorationWindows)
+        activeContext.signature = visibleSignature
         windowManagement.replaceContexts(
             [activeContext],
             activeID: activeContext.id,
@@ -27,7 +43,9 @@ extension Miri {
         )
         persistenceController.replacePendingLogicalSpaceContexts(snapshot.contexts.filter { $0.id != selected.id })
         loadLogicalSpaceContext(activeContext)
-        persistenceController.finishLayoutRestore()
+        if finalizeLayoutRestore {
+            persistenceController.finishLayoutRestore()
+        }
         debugLog("restored persisted logical macOS space id=\(activeContext.id) visible=\(visibleSignature.count) pending=\(persistenceController.pendingLogicalSpaceContexts.count)")
         return true
     }

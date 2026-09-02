@@ -5,7 +5,6 @@ import Foundation
 
 @MainActor
 protocol LayoutWindowSystemAdapting: AnyObject {
-    @discardableResult func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError
     func setLevel(_ level: Int32, for windowID: UInt32?)
     func transform(for windowID: UInt32) -> CGAffineTransform?
     func setTransform(_ transform: CGAffineTransform, for windowID: UInt32) -> Bool
@@ -15,10 +14,6 @@ protocol LayoutWindowSystemAdapting: AnyObject {
 }
 
 final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
-    @discardableResult
-    func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError {
-        setAXFrame(frame, for: window)
-    }
     func setLevel(_ level: Int32, for windowID: UInt32?) { _ = SkyLight.shared.setLevel(level, for: windowID) }
     func transform(for windowID: UInt32) -> CGAffineTransform? { SkyLight.shared.transform(for: windowID) }
     func setTransform(_ transform: CGAffineTransform, for windowID: UInt32) -> Bool {
@@ -36,6 +31,15 @@ final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
 struct LayoutRequestToken: Hashable, CustomStringConvertible, Sendable {
     let rawValue: UInt64
     var description: String { String(rawValue) }
+}
+
+func shouldApplyProjectedFrame(
+    forceFrame: Bool,
+    isVisible: Bool,
+    wasVisible: Bool?,
+    frameChanged: Bool
+) -> Bool {
+    forceFrame || isVisible || wasVisible != false || frameChanged
 }
 
 private struct LayoutSubmission {
@@ -449,23 +453,23 @@ final class LayoutController {
         emit(.completed(token: token))
     }
 
-    func restoreForTermination(
-        tiledWindows: [ManagedWindow],
-        floatingWindows: [ManagedWindow],
-        viewport: CGRect,
-        restoreFrames: Bool
-    ) {
+    /// Stops presentation work and restores compositor-owned state. AX frame
+    /// restoration is deliberately owned by `AXOperationController` so this
+    /// main-actor controller cannot perform target-process IPC during quit.
+    func preparePresentationForTermination(windows: [ManagedWindow]) {
         cancel(reason: "termination")
+        focusRequestGeneration &+= 1
+        floatingRaiseGeneration &+= 1
+        frameWriteEpoch &+= 1
+        frameRetryGenerations.removeAll()
+        requestedFrames.removeAll()
         for (windowID, transform) in originalWindowTransforms {
             _ = windowSystem.setTransform(transform, for: windowID)
         }
         originalWindowTransforms.removeAll()
-        guard restoreFrames else { return }
-        for window in tiledWindows {
-            _ = windowSystem.setFrame(viewport, for: window)
-        }
-        for window in floatingWindows {
-            windowSystem.setLevel(dependencies.settings().floatingWindowLevel, for: window.windowID)
+        let normalLevel = Int32(CGWindowLevelForKey(.normalWindow))
+        for window in windows {
+            windowSystem.setLevel(normalLevel, for: window.windowID)
         }
     }
 
@@ -523,7 +527,15 @@ final class LayoutController {
             frameDelta(from: $0, to: item.frame) >= dependencies.settings().animationPixelThreshold
         } ?? true
         let visibilityChanged = wasVisible != item.visible
-        let shouldApplyFrame = frameChanged || (forceFrame && requestedFrame == nil) || visibilityChanged
+        // Preserve the pre-async corrective semantics: every visible window is
+        // rewritten on projection, and the focused item is always forced. A
+        // cached request describes intent, not authoritative physical geometry.
+        let shouldApplyFrame = shouldApplyProjectedFrame(
+            forceFrame: forceFrame,
+            isVisible: item.visible,
+            wasVisible: wasVisible,
+            frameChanged: frameChanged
+        )
         if visibilityChanged && !item.visible { appliedVisibility[id] = false }
         if shouldApplyFrame {
             resetCompositorTransform(for: item.window)
