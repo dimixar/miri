@@ -15,6 +15,8 @@ struct MainRunLoopCallbackValue<Value>: @unchecked Sendable {
 /// The coordinator-owned lifecycle used to admit or defer cross-domain work.
 enum AppPhase: String {
     case starting
+    case onboarding
+    case permissionRequired
     case running
     case sessionUnavailable
     case sessionRecovering
@@ -158,10 +160,15 @@ enum TimerEvent {
 
 enum UIAction {
     case showSettings
+    case requestAccessibilityPermission
+    case requestScreenRecordingPermission
+    case restart
     case openConfig
     case reloadConfig
     case rescanWindows
     case saveConfig(MiriConfig, closeOnSuccess: Bool)
+    case saveConfigAndRestart(MiriConfig)
+    case completeOnboarding(OnboardingProgress)
     case quit
 }
 

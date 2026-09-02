@@ -31,7 +31,9 @@ let statusMenu = StatusMenuController(
                 workspaceSummaries: [],
                 fullscreenWindows: []
             ),
-            config: .fallback
+            config: .fallback,
+            permissions: MiriPermissionStatus(accessibility: .missing, screenRecording: .missing),
+            onboardingActive: false
         )
     },
     actionSink: { [weak miri] action in miri?.enqueue(.ui(action)) }

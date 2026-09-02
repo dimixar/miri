@@ -84,6 +84,13 @@ current scope and have not been tested.
   backend and for detecting managed-window interaction after session recovery.
 - Screen Recording permission is needed for snapshot animations.
 
+On first launch, miri presents an onboarding window and does not discover or
+tile windows until setup is complete. It checks Accessibility access in place,
+then lets you choose focus alignment, outer margin, and optional snapshot
+animations. If animations are enabled, onboarding requests Screen Recording
+access and resumes on the same step after the required restart. On later
+launches, missing Accessibility access is recoverable from the menu bar.
+
 If you run miri from a terminal, macOS may request permissions for that terminal
 app rather than for a packaged `Miri.app`.
 
@@ -166,6 +173,7 @@ available in Settings. It also exposes:
 - empty and occupied workspace summaries with app names/icons;
 - fullscreen app indicators grouped by source workspace;
 - **Settings...** for the GUI config editor;
+- an Accessibility permission or restart action when setup is incomplete;
 - **Open Config**, **Reload Config**, and **Rescan Windows**;
 - **Quit Miri**, which performs normal window restoration.
 

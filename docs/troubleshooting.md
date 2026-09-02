@@ -3,13 +3,22 @@
 ## Permissions
 
 miri needs Accessibility permission to focus, move, and resize app windows.
+First-run onboarding requests it, checks its status automatically, and keeps
+window management stopped until the final **Start using Miri** action. If access
+is removed after onboarding, miri remains available in the menu bar but pauses
+window management; use **Grant Accessibility Access…** and the follow-up restart
+action.
 
 The `event_tap` shortcut backend may also require Input Monitoring permission.
 The temporary event tap that validates managed-window interaction after an
 unlock, login, or wake may need the same permission even with the
 `registered_hot_keys` backend. Configured Carbon hot keys remain an alternate
 recovery path when a managed window is focused. Snapshot animation needs Screen
-Recording permission because it captures window images.
+Recording permission because it captures window images. Onboarding explains
+this use, persists its current step across the required restart, and continues
+at the animation permission screen. **Settings → Animations** provides the same
+request/restart controls later; animations fall back to immediate window
+updates until access is ready.
 
 If miri is run from Terminal, iTerm, kitty, or another shell app, macOS may grant
 permissions to that terminal app rather than to a packaged `Miri.app`.

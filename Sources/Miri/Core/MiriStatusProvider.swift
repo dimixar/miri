@@ -1,8 +1,14 @@
 import AppKit
 import Foundation
 
+private enum PermissionCheckKind {
+    case accessibility
+    case screenRecording
+}
+
 extension Notification.Name {
     static let miriWorkspaceBarNeedsRefresh = Notification.Name("MiriWorkspaceBarNeedsRefresh")
+    static let miriPermissionsDidChange = Notification.Name("MiriPermissionsDidChange")
 }
 
 extension Miri {
@@ -14,7 +20,9 @@ extension Miri {
         StatusMenuViewState(
             status: currentStatus(),
             workspaceBar: currentWorkspaceBarStatus(),
-            config: configStore.effectiveConfig
+            config: configStore.effectiveConfig,
+            permissions: permissionController.status,
+            onboardingActive: appPhase == .onboarding
         )
     }
 
@@ -135,7 +143,11 @@ extension Miri {
     @MainActor func showSettingsFromMenuImplementation() {
         let apps = availableRuleApps()
         if let settingsWindowController {
-            settingsWindowController.refresh(config: configStore.documentConfig, availableApps: apps)
+            settingsWindowController.refresh(
+                config: configStore.documentConfig,
+                availableApps: apps,
+                permissions: permissionController.status
+            )
             settingsWindowController.showWindow(nil)
             settingsWindowController.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -145,12 +157,116 @@ extension Miri {
         let controller = SettingsWindowController(
             config: configStore.documentConfig,
             availableApps: apps,
+            permissions: permissionController.status,
             actionSink: { [weak self] action in self?.enqueue(.ui(action)) }
         )
         settingsWindowController = controller
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor func requestAccessibilityPermissionImplementation() {
+        _ = permissionController.requestAccessibility()
+        permissionsMayHaveChanged()
+        schedulePermissionChecks(for: .accessibility)
+    }
+
+    @MainActor func requestScreenRecordingPermissionImplementation() {
+        let permissions = permissionController.requestScreenRecording()
+        permissionsMayHaveChanged()
+        if permissions.screenRecording == .missing,
+           let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        {
+            NSWorkspace.shared.open(settingsURL)
+        }
+        schedulePermissionChecks(for: .screenRecording)
+    }
+
+    @MainActor private func schedulePermissionChecks(
+        for kind: PermissionCheckKind,
+        remaining: Int = 120
+    ) {
+        permissionCheckGeneration &+= 1
+        let generation = permissionCheckGeneration
+        schedulePermissionCheck(for: kind, generation: generation, remaining: remaining)
+    }
+
+    @MainActor private func schedulePermissionCheck(
+        for kind: PermissionCheckKind,
+        generation: UInt64,
+        remaining: Int
+    ) {
+        guard remaining > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.permissionCheckGeneration == generation else { return }
+            self.permissionsMayHaveChanged()
+            let status = self.permissionController.status
+            let isMissing = switch kind {
+            case .accessibility: status.accessibility == .missing
+            case .screenRecording: status.screenRecording == .missing
+            }
+            guard isMissing else { return }
+            self.schedulePermissionCheck(
+                for: kind,
+                generation: generation,
+                remaining: remaining - 1
+            )
+        }
+    }
+
+    @MainActor private func permissionsMayHaveChanged() {
+        let permissions = permissionController.status
+        settingsWindowController?.updatePermissions(permissions)
+        onboardingWindowController?.updatePermissions(permissions)
+        NotificationCenter.default.post(name: .miriPermissionsDidChange, object: self)
+    }
+
+    @MainActor func restartApplicationImplementation() {
+        let launchCommand: [String]
+        let bundleURL = Bundle.main.bundleURL
+        if bundleURL.pathExtension.lowercased() == "app" {
+            launchCommand = ["/usr/bin/open", "-n", bundleURL.path]
+        } else if let executableURL = currentExecutableURL() {
+            launchCommand = [executableURL.path]
+        } else {
+            presentRestartFailure("Miri could not determine its application or executable path.")
+            return
+        }
+
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = [
+            "-c",
+            "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; shift; exec \"$@\"",
+            "miri-restart",
+            String(ProcessInfo.processInfo.processIdentifier),
+        ] + launchCommand
+        do {
+            try helper.run()
+            terminationReason = "restart"
+            NSApp.terminate(nil)
+        } catch {
+            presentRestartFailure(error.localizedDescription)
+        }
+    }
+
+    @MainActor private func presentRestartFailure(_ reason: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not restart Miri"
+        alert.informativeText = reason
+        alert.runModal()
+    }
+
+    @MainActor func saveConfigAndRestartFromSettingsImplementation(_ updatedConfig: MiriConfig) {
+        switch configStore.save(updatedConfig) {
+        case .saved(let destination):
+            enqueue(.config(.saved(destination: destination)))
+            restartApplicationImplementation()
+        case .failed(let reason):
+            enqueue(.config(.saveFailed(reason: reason)))
+            settingsWindowController?.presentSaveFailure(reason: reason)
+        }
     }
 
     @MainActor func saveConfigFromSettingsImplementation(
@@ -222,6 +338,10 @@ extension Miri {
     }
 
     private func applyConfigChange(source: URL) {
+        guard runtimeStarted else {
+            print("miri: reloaded config \(source.path); runtime remains paused for Accessibility access")
+            return
+        }
         // Reconfiguration order is deliberate: capacity first, then input,
         // persistence policy/timers, reconciliation timers, and finally model
         // discovery plus layout projection.

@@ -18,9 +18,12 @@ final class Miri: NSObject, NSApplicationDelegate {
     var fullWindowScanGeneration: UInt64 = 0
     var terminationPrepared = false
     var terminationCompleted = false
+    var runtimeStarted = false
+    var permissionCheckGeneration: UInt64 = 0
     var terminationReason = "AppKit"
     var terminationWaiters: [() -> Void] = []
     let configStore = ConfigStore()
+    let permissionController = MiriPermissionController()
     lazy var axOperations = AXOperationController { [weak self] message in
         self?.debugLog(message)
     }
@@ -33,6 +36,11 @@ final class Miri: NSObject, NSApplicationDelegate {
     var spaceChangeGeneration: UInt64 = 0
     var suppressFocusedWindowNotificationsUntil: CFAbsoluteTime = 0
     @MainActor var settingsWindowController: SettingsWindowController?
+    @MainActor var onboardingWindowController: OnboardingWindowController?
+    lazy var onboardingStore = OnboardingStore(
+        config: configStore.documentConfig,
+        hasExistingConfiguration: configStore.sourceURL != nil
+    )
     var pendingSessionRecoveryCommands: [Command] = []
     var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
     var sessionPauseQuiescenceGeneration: UInt64 = 0
@@ -105,15 +113,26 @@ final class Miri: NSObject, NSApplicationDelegate {
     )
 
     func start() {
-        guard requestAccessibilityPermission() else {
-            fputs("miri: Accessibility permission is required. Enable it for this binary or Terminal, then run again.\n", stderr)
-            exit(1)
+        installTerminationHandlers()
+        if onboardingStore.isRequired {
+            appPhase = .onboarding
+            showOnboardingImplementation()
+            return
         }
+        guard permissionController.status.accessibility == .granted else {
+            appPhase = .permissionRequired
+            print("miri: running with window management paused until Accessibility access is granted")
+            return
+        }
+        startRuntime()
+    }
 
+    func startRuntime() {
+        guard !runtimeStarted else { return }
+        runtimeStarted = true
         reconcileWorkspaceCapacity()
         windowManagement.observation.startWorkspaceObservation()
         observeSessionState()
-        installTerminationHandlers()
         persistenceController.start()
         inputController.configure(configStore.effectiveConfig)
         inputController.install(backend: keyboardShortcutBackend)
@@ -165,11 +184,6 @@ final class Miri: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         appPhase = .terminated
         debugLog("application will terminate restorationComplete=\(terminationCompleted)")
-    }
-
-    private func requestAccessibilityPermission() -> Bool {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
     }
 
     private func makeLayoutControllerDependencies() -> LayoutControllerDependencies {

@@ -5,19 +5,29 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private let actionSink: (UIAction) -> Void
     private var draft: MiriConfig
     private var availableApps: [RuleAppInfo]
+    private var permissions: MiriPermissionStatus
     private let tabView = NSTabView()
     private let rulesTable = NSTableView()
     private let activeRescanBundleTable = NSTableView()
     private weak var ruleTitleMatchHelpLabel: NSTextField?
     private weak var keyboardShortcutBackendHelpLabel: NSTextField?
     private weak var workspaceBarCustomColorControls: NSView?
+    private weak var animationPermissionView: NSView?
+    private weak var animationPermissionStatusLabel: NSTextField?
+    private weak var animationPermissionButton: NSButton?
 
     private var controls: [String: NSControl] = [:]
 
-    init(config: MiriConfig, availableApps: [RuleAppInfo], actionSink: @escaping (UIAction) -> Void) {
+    init(
+        config: MiriConfig,
+        availableApps: [RuleAppInfo],
+        permissions: MiriPermissionStatus,
+        actionSink: @escaping (UIAction) -> Void
+    ) {
         self.actionSink = actionSink
         self.draft = config
         self.availableApps = availableApps
+        self.permissions = permissions
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
@@ -35,10 +45,16 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         fatalError("init(coder:) has not been implemented")
     }
 
-    func refresh(config: MiriConfig, availableApps: [RuleAppInfo]) {
+    func refresh(config: MiriConfig, availableApps: [RuleAppInfo], permissions: MiriPermissionStatus) {
         draft = config
         self.availableApps = availableApps
+        self.permissions = permissions
         rebuildTabs()
+    }
+
+    func updatePermissions(_ permissions: MiriPermissionStatus) {
+        self.permissions = permissions
+        updateAnimationPermissionUI()
     }
 
     private func buildUI() {
@@ -166,10 +182,87 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     private func animationsView() -> NSView { form([
         ("Snapshot speed", slider("snapshotAnimationSpeed", draft.snapshotAnimationSpeed ?? MiriConfig.fallback.snapshotAnimationSpeed ?? 50, min: 1, max: 100)),
-        ("Strategy", popup("animationStrategy", AnimationStrategy.allCasesStrings, draft.animationStrategy?.rawValue ?? MiriConfig.fallback.animationStrategy?.rawValue ?? "snapshot")),
+        ("Strategy", animationStrategyPopup()),
+        ("Screen Recording", animationPermissionControls()),
         ("Animation FPS", intField("animationFPS", draft.animationFPS ?? 60)),
         ("Pixel threshold", doubleField("animationPixelThreshold", Double(draft.animationPixelThreshold ?? 0.5))),
     ]) }
+
+    private func animationStrategyPopup() -> NSPopUpButton {
+        let selected = draft.animationStrategy?.rawValue
+            ?? MiriConfig.fallback.animationStrategy?.rawValue
+            ?? "snapshot"
+        let control = popup("animationStrategy", AnimationStrategy.allCasesStrings, selected)
+        control.target = self
+        control.action = #selector(animationStrategyChanged(_:))
+        return control
+    }
+
+    private func animationPermissionControls() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        let statusLabel = helpLabel("")
+        statusLabel.widthAnchor.constraint(equalToConstant: 330).isActive = true
+        stack.addArrangedSubview(statusLabel)
+
+        let permissionButton = button("Request Screen Recording Access…", #selector(animationPermissionButtonClicked))
+        stack.addArrangedSubview(permissionButton)
+
+        animationPermissionView = stack
+        animationPermissionStatusLabel = statusLabel
+        animationPermissionButton = permissionButton
+        updateAnimationPermissionUI()
+        return stack
+    }
+
+    @objc private func animationStrategyChanged(_ sender: NSPopUpButton) {
+        updateAnimationPermissionUI()
+    }
+
+    @objc private func animationPermissionButtonClicked() {
+        switch permissions.screenRecording {
+        case .missing:
+            actionSink(.requestScreenRecordingPermission)
+        case .restartRequired:
+            guard prepareDraftForSubmission() else { return }
+            actionSink(.saveConfigAndRestart(draft))
+        case .granted:
+            break
+        }
+    }
+
+    private func updateAnimationPermissionUI() {
+        guard let permissionView = animationPermissionView,
+              let statusLabel = animationPermissionStatusLabel,
+              let permissionButton = animationPermissionButton
+        else { return }
+
+        let strategy = (controls["animationStrategy"] as? NSPopUpButton)?.titleOfSelectedItem
+        let snapshotSelected = strategy == AnimationStrategy.snapshot.rawValue
+        permissionView.isHidden = false
+        guard snapshotSelected else {
+            statusLabel.stringValue = "Only required for snapshot animations."
+            permissionButton.isHidden = true
+            return
+        }
+
+        switch permissions.screenRecording {
+        case .missing:
+            statusLabel.stringValue = "Snapshot animations need Screen Recording access. Without it, Miri uses immediate window updates."
+            permissionButton.title = "Request Screen Recording Access…"
+            permissionButton.isHidden = false
+        case .restartRequired:
+            statusLabel.stringValue = "Access was granted. Save your settings and restart Miri to enable snapshot animations."
+            permissionButton.title = "Save & Restart Miri"
+            permissionButton.isHidden = false
+        case .granted:
+            statusLabel.stringValue = "Screen Recording access is granted."
+            permissionButton.isHidden = true
+        }
+    }
 
     private func workspaceBarView() -> NSView { form([
         ("Show fullscreen apps", checkbox("workspaceBarShowFullscreen", draft.workspaceBarShowFullscreen ?? MiriConfig.fallback.workspaceBarShowFullscreen ?? true)),
@@ -707,21 +800,22 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     @objc private func cancel() { close() }
 
     @objc private func apply() {
-        readControlsIntoDraft()
-        if let validationError = validateDraft() {
-            showAlert(title: "Invalid Settings", message: validationError)
-            return
-        }
+        guard prepareDraftForSubmission() else { return }
         actionSink(.saveConfig(draft, closeOnSuccess: false))
     }
 
     @objc private func save() {
+        guard prepareDraftForSubmission() else { return }
+        actionSink(.saveConfig(draft, closeOnSuccess: true))
+    }
+
+    private func prepareDraftForSubmission() -> Bool {
         readControlsIntoDraft()
         if let validationError = validateDraft() {
             showAlert(title: "Invalid Settings", message: validationError)
-            return
+            return false
         }
-        actionSink(.saveConfig(draft, closeOnSuccess: true))
+        return true
     }
 
     func presentSaveSuccess(closeOnSuccess: Bool) {

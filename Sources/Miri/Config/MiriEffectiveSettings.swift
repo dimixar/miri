@@ -7,7 +7,11 @@ extension Miri {
     }
 
     var animationStrategy: AnimationStrategy {
-        configStore.effectiveConfig.animationStrategy ?? MiriConfig.fallback.animationStrategy ?? .snapshot
+        let configured = configStore.effectiveConfig.animationStrategy
+            ?? MiriConfig.fallback.animationStrategy
+            ?? .snapshot
+        guard configured == .snapshot else { return configured }
+        return permissionController.status.screenRecording == .granted ? .snapshot : .off
     }
 
     var snapshotAnimationSpeed: Int {

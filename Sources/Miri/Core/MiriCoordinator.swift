@@ -69,14 +69,14 @@ extension Miri {
             }
             return
         }
-        if appPhase == .starting {
+        if appPhase == .starting || appPhase == .onboarding || appPhase == .permissionRequired {
             switch event {
-            case .session:
+            case .session, .ui:
                 break
             case .input(.command), .windows(.reconciliationRequested), .terminate:
                 break
             default:
-                debugLog("coordinator event ignored sequence=\(sequence) reason=starting event=\(event.logName)")
+                debugLog("coordinator event ignored sequence=\(sequence) reason=\(appPhase.rawValue) event=\(event.logName)")
                 return
             }
         }
@@ -236,7 +236,17 @@ extension Miri {
     @MainActor private func handleCoordinatorUI(_ action: UIAction) {
         switch action {
         case .showSettings:
-            showSettingsFromMenuImplementation()
+            if appPhase == .onboarding {
+                showOnboardingImplementation()
+            } else {
+                showSettingsFromMenuImplementation()
+            }
+        case .requestAccessibilityPermission:
+            requestAccessibilityPermissionImplementation()
+        case .requestScreenRecordingPermission:
+            requestScreenRecordingPermissionImplementation()
+        case .restart:
+            restartApplicationImplementation()
         case .openConfig:
             openConfigFromMenuImplementation()
         case .reloadConfig:
@@ -247,6 +257,10 @@ extension Miri {
             )
         case .saveConfig(let config, let closeOnSuccess):
             saveConfigFromSettingsImplementation(config, closeOnSuccess: closeOnSuccess)
+        case .saveConfigAndRestart(let config):
+            saveConfigAndRestartFromSettingsImplementation(config)
+        case .completeOnboarding(let progress):
+            completeOnboardingImplementation(progress)
         case .quit:
             terminationReason = "menu"
             NSApp.terminate(nil)
@@ -415,6 +429,14 @@ extension Miri {
         terminationPrepared = true
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
+        guard runtimeStarted else {
+            terminationCompleted = true
+            appPhase = .terminated
+            let waiters = terminationWaiters
+            terminationWaiters.removeAll()
+            for waiter in waiters { waiter() }
+            return
+        }
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil
         reconciliationDrainGeneration &+= 1
@@ -556,10 +578,15 @@ private extension UIAction {
     var logName: String {
         switch self {
         case .showSettings: return "ui.show-settings"
+        case .requestAccessibilityPermission: return "ui.request-accessibility-permission"
+        case .requestScreenRecordingPermission: return "ui.request-screen-recording-permission"
+        case .restart: return "ui.restart"
         case .openConfig: return "ui.open-config"
         case .reloadConfig: return "ui.reload-config"
         case .rescanWindows: return "ui.rescan-windows"
         case .saveConfig: return "ui.save-config"
+        case .saveConfigAndRestart: return "ui.save-config-and-restart"
+        case .completeOnboarding: return "ui.complete-onboarding"
         case .quit: return "ui.quit"
         }
     }

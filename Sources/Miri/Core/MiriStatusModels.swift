@@ -18,6 +18,8 @@ struct StatusMenuViewState {
     let status: MiriStatus
     let workspaceBar: MiriWorkspaceBarStatus
     let config: MiriConfig
+    let permissions: MiriPermissionStatus
+    let onboardingActive: Bool
 }
 
 struct MiriWorkspaceSummary: Equatable {

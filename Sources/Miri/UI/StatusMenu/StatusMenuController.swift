@@ -9,6 +9,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let workspaceItem = NSMenuItem(title: "Workspace: —", action: nil, keyEquivalent: "")
     private let focusedItem = NSMenuItem(title: "Focused: —", action: nil, keyEquivalent: "")
     private let widthItem = NSMenuItem(title: "Width: —", action: nil, keyEquivalent: "")
+    private let permissionItem = NSMenuItem(title: "Grant Accessibility Access…", action: nil, keyEquivalent: "")
+    private let permissionSeparator = NSMenuItem.separator()
+    private let rescanItem = NSMenuItem(title: "Rescan Windows", action: #selector(rescanWindows), keyEquivalent: "")
     private var workspaceMenuItems: [NSMenuItem] = []
     private var lastWorkspaceBarSignature: WorkspaceBarRenderSignature?
     private var workspaceBarRefreshScheduled = false
@@ -30,6 +33,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             self,
             selector: #selector(systemColorsDidChange(_:)),
             name: NSColor.systemColorsDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(permissionsDidChange(_:)),
+            name: .miriPermissionsDidChange,
             object: nil
         )
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -66,10 +75,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(focusedItem)
         menu.addItem(widthItem)
         menu.addItem(.separator())
+        menu.addItem(permissionItem)
+        menu.addItem(permissionSeparator)
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Open Config", action: #selector(openConfig), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Rescan Windows", action: #selector(rescanWindows), keyEquivalent: ""))
+        menu.addItem(rescanItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Miri", action: #selector(quitMiri), keyEquivalent: "q"))
 
@@ -78,14 +89,27 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
 
         statusItem.menu = menu
+        refreshPermissionItem()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        let status = stateProvider().status
+        let state = stateProvider()
+        let status = state.status
 
-        workspaceItem.title = "Workspace: \(status.workspace) of \(status.workspaceCount)"
-        focusedItem.title = "Focused: \(status.focusedWindow)"
-        widthItem.title = status.widthPercent.map { "Width: \($0)%" } ?? "Width: —"
+        if state.onboardingActive {
+            workspaceItem.title = "Welcome to Miri"
+            focusedItem.title = "Setup is waiting for you"
+            widthItem.title = "Window management has not started"
+        } else if state.permissions.accessibility == .granted {
+            workspaceItem.title = "Workspace: \(status.workspace) of \(status.workspaceCount)"
+            focusedItem.title = "Focused: \(status.focusedWindow)"
+            widthItem.title = status.widthPercent.map { "Width: \($0)%" } ?? "Width: —"
+        } else {
+            workspaceItem.title = "Miri Setup"
+            focusedItem.title = "Window management is paused"
+            widthItem.title = "Accessibility access is required"
+        }
+        refreshPermissionItem(state.permissions)
         refreshWorkspaceMenuItems()
         refreshWorkspaceBar(force: true)
     }
@@ -96,7 +120,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         workspaceMenuItems.removeAll()
 
-        let barStatus = stateProvider().workspaceBar
+        let state = stateProvider()
+        guard !state.onboardingActive, state.permissions.accessibility == .granted else { return }
+        let barStatus = state.workspaceBar
         guard !barStatus.workspaceSummaries.isEmpty else {
             return
         }
@@ -128,6 +154,53 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func systemColorsDidChange(_ notification: Notification) {
         invalidateWorkspaceBarAppearance()
+    }
+
+    @objc private func permissionsDidChange(_ notification: Notification) {
+        refreshPermissionItem()
+    }
+
+    private func refreshPermissionItem(_ permissions: MiriPermissionStatus? = nil) {
+        let state = stateProvider()
+        let permissions = permissions ?? state.permissions
+        let snapshotAnimationsConfigured = (state.config.animationStrategy
+            ?? MiriConfig.fallback.animationStrategy
+            ?? .snapshot) == .snapshot
+        if state.onboardingActive {
+            permissionItem.title = "Continue Miri Setup…"
+            permissionItem.action = #selector(continueOnboarding)
+            permissionItem.target = self
+            permissionItem.isHidden = false
+            permissionSeparator.isHidden = false
+            rescanItem.isEnabled = false
+            return
+        }
+        switch permissions.accessibility {
+        case .missing:
+            permissionItem.title = "Grant Accessibility Access…"
+            permissionItem.action = #selector(requestAccessibilityPermission)
+            permissionItem.isHidden = false
+            permissionSeparator.isHidden = false
+            rescanItem.isEnabled = false
+        case .restartRequired:
+            permissionItem.title = "Restart Miri to Finish Setup"
+            permissionItem.action = #selector(restartMiri)
+            permissionItem.isHidden = false
+            permissionSeparator.isHidden = false
+            rescanItem.isEnabled = false
+        case .granted:
+            if snapshotAnimationsConfigured, permissions.screenRecording == .restartRequired {
+                permissionItem.title = "Restart Miri to Enable Animations"
+                permissionItem.action = #selector(restartMiri)
+                permissionItem.isHidden = false
+                permissionSeparator.isHidden = false
+            } else {
+                permissionItem.isHidden = true
+                permissionSeparator.isHidden = true
+            }
+            rescanItem.isEnabled = true
+        }
+        permissionItem.target = self
     }
 
     private func invalidateWorkspaceBarAppearance() {
@@ -668,6 +741,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func openSettings() {
         actionSink(.showSettings)
+    }
+
+    @objc private func continueOnboarding() {
+        actionSink(.showSettings)
+    }
+
+    @objc private func requestAccessibilityPermission() {
+        actionSink(.requestAccessibilityPermission)
+    }
+
+    @objc private func restartMiri() {
+        actionSink(.restart)
     }
 
     @objc private func openConfig() {
