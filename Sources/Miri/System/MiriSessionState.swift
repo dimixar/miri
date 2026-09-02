@@ -60,8 +60,41 @@ extension Miri {
         manualResizeController.cancel()
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil
-        windowManagement.observation.cancelCreationReconciliations()
-        layoutController.cancel(reason: "session-unavailable")
+        reconciliationDrainGeneration &+= 1
+        reconciliationDrainScheduled = false
+        fullWindowScanGeneration &+= 1
+        focusStateGeneration &+= 1
+        activeRescanInputGeneration &+= 1
+        lastKnownFocusedElements.removeAll()
+        sessionRecoveryFocusedValidationPID = nil
+        sessionRecoveryFocusedValidationGeneration = nil
+        let validationWaiters = sessionRecoveryFocusedValidationWaiters
+        sessionRecoveryFocusedValidationWaiters.removeAll()
+        for waiter in validationWaiters { waiter(nil) }
+        windowManagement.observation.invalidateAsyncStateForSessionTransition()
+        cancelTransientSystemWindowRefreshForSessionTransition()
+
+        let layoutPauseGeneration = layoutController.beginUnavailableSessionPause()
+        sessionPauseQuiescenceGeneration &+= 1
+        let quiescenceGeneration = sessionPauseQuiescenceGeneration
+        sessionPauseQuiescenceInFlight = true
+        let staleWaiters = sessionPauseQuiescenceWaiters
+        sessionPauseQuiescenceWaiters.removeAll()
+        for waiter in staleWaiters { waiter() }
+        axOperations.quiesceForUnavailableSession { [weak self] in
+            guard let self,
+                  self.sessionPauseQuiescenceGeneration == quiescenceGeneration
+            else { return }
+            self.windowManagement.observation.completeAXQuiescenceForSessionTransition()
+            self.layoutController.completeUnavailableSessionPause(
+                generation: layoutPauseGeneration
+            )
+            self.sessionPauseQuiescenceInFlight = false
+            let waiters = self.sessionPauseQuiescenceWaiters
+            self.sessionPauseQuiescenceWaiters.removeAll()
+            for waiter in waiters { waiter() }
+            self.debugLog("session AX operations quiesced generation=\(quiescenceGeneration)")
+        }
         syncSessionRecoveryInputTracking()
         debugLog("layout tracking paused for unavailable session")
     }
@@ -70,9 +103,22 @@ extension Miri {
         guard sessionController.isAwaitingRecoveryInteraction else {
             return
         }
+        fullWindowScanGeneration &+= 1
+        focusStateGeneration &+= 1
+        lastKnownFocusedElements.removeAll()
+        windowManagement.observation.invalidateAsyncStateForSessionTransition()
+        axOperations.resetHealthForSessionRecovery()
         sessionController.prepareRecoveryInteraction()
         refreshSessionRecoveryInputTracking()
         debugLog("layout tracking awaiting managed-window interaction reason=\(reason) generation=\(sessionController.resumeGeneration)")
+    }
+
+    func afterSessionAXQuiescence(_ completion: @escaping () -> Void) {
+        if sessionPauseQuiescenceInFlight {
+            sessionPauseQuiescenceWaiters.append(completion)
+        } else {
+            completion()
+        }
     }
 
     private func logSessionState(_ message: String) {

@@ -158,9 +158,13 @@ final class InputController {
         if isAwaitingSessionRecovery() {
             return handleRecoveryKeyForCarbon(command) ? noErr : OSStatus(eventNotHandledErr)
         }
-        guard !shouldSuppressCommand() else { return noErr }
+        let suppressed = shouldSuppressCommand()
         DispatchQueue.main.async { [weak self] in
-            self?.emit(.input(.command(command, animateWorkspace: false)))
+            if !suppressed {
+                self?.emit(.input(.command(command, animateWorkspace: false)))
+            }
+            // Even a suppressed registered hot key must refresh cached
+            // transient-window state so a closed dialog cannot lock out Miri.
             self?.emit(.input(.userInteraction))
         }
         return noErr

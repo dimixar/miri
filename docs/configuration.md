@@ -165,8 +165,9 @@ Rules can match on `bundle_id`, `app_name`, or `title_contains`.
 ## Recovery And Persistence
 
 Session lock/sleep recovery is automatic rather than configurable. Layout work
-pauses while the session is unavailable and resumes only after interaction with
-a relevant managed window. See
+pauses while the session is unavailable and resumes only after asynchronously
+validated interaction with a relevant managed window, AX quiescence, and a
+current full rescan. See
 [Session Lock And Sleep Recovery](../README.md#session-lock-and-sleep-recovery).
 
 - `window_reconciliation_interval_ms`: long safety timer for missed

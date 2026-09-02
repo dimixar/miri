@@ -17,6 +17,7 @@ enum AppPhase: String {
     case starting
     case running
     case sessionUnavailable
+    case sessionRecovering
     case terminating
     case terminated
 }

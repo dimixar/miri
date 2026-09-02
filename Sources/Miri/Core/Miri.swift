@@ -15,9 +15,13 @@ final class Miri: NSObject, NSApplicationDelegate {
     var pendingCoordinatorReconciliation: ReconciliationIntent?
     var reconciliationDrainScheduled = false
     var reconciliationDrainGeneration: UInt64 = 0
+    var fullWindowScanGeneration: UInt64 = 0
     var terminationPrepared = false
     let configStore = ConfigStore()
-    lazy var windowManagement = WindowManagement { [weak self] event in
+    lazy var axOperations = AXOperationController { [weak self] message in
+        self?.debugLog(message)
+    }
+    lazy var windowManagement = WindowManagement(axOperations: axOperations) { [weak self] event in
         self?.enqueue(event)
     }
     var fullscreenTransitionGuardUntil: CFAbsoluteTime = 0
@@ -28,6 +32,12 @@ final class Miri: NSObject, NSApplicationDelegate {
     @MainActor var settingsWindowController: SettingsWindowController?
     var pendingSessionRecoveryCommands: [Command] = []
     var pendingSessionRecoveryLaunchedPIDs = Set<pid_t>()
+    var sessionPauseQuiescenceGeneration: UInt64 = 0
+    var sessionPauseQuiescenceInFlight = false
+    var sessionPauseQuiescenceWaiters: [() -> Void] = []
+    var sessionRecoveryFocusedValidationPID: pid_t?
+    var sessionRecoveryFocusedValidationGeneration: UInt64?
+    var sessionRecoveryFocusedValidationWaiters: [(((pid: pid_t, windowID: UInt32?))?) -> Void] = []
     var debugLoggedWindowSignatures = Set<String>()
     var lastActivatedApplicationPID: pid_t?
     var pendingFocusCommands: [Command] = []
@@ -36,6 +46,15 @@ final class Miri: NSObject, NSApplicationDelegate {
     var lastHorizontalFocusDirection: Int = 1
     var lastIntelligentResizeWindowID: ObjectIdentifier?
     var lastIntelligentGrowDirection: IntelligentResizeDirection?
+    var activeRescanInputGeneration: UInt64 = 0
+    var transientWindowRefreshGeneration: UInt64 = 0
+    var transientWindowRefreshInFlight = false
+    var transientWindowRefreshPending = false
+    var transientWindowRefreshPendingAllowsSessionRecovery = false
+    var transientWindowRefreshCompletions: [() -> Void] = []
+    var pendingTransientWindowRefreshCompletions: [() -> Void] = []
+    var focusStateGeneration: UInt64 = 0
+    var lastKnownFocusedElements: [pid_t: AXUIElement] = [:]
     var signalSources: [DispatchSourceSignal] = []
 
     lazy var persistenceController = PersistenceController(
@@ -45,7 +64,8 @@ final class Miri: NSObject, NSApplicationDelegate {
     }
 
     lazy var layoutController = LayoutController(
-        dependencies: makeLayoutControllerDependencies()
+        dependencies: makeLayoutControllerDependencies(),
+        axOperations: axOperations
     ) { [weak self] event in
         self?.enqueue(.layout(event))
     }
@@ -68,7 +88,10 @@ final class Miri: NSObject, NSApplicationDelegate {
             self?.handleSessionRecoveryKeyEvent(event, command: command) ?? false
         },
         shouldSuppressCommand: { [weak self] in
-            self?.transientSystemWindowIsActive() ?? true
+            // Hot-key callbacks must remain constant-time. AX-backed transient
+            // detection refreshes asynchronously elsewhere; input consumes only
+            // the last admitted environment-guard state.
+            self?.windowManagement.observation.transientWindowActive ?? true
         }
     )
 
@@ -81,6 +104,9 @@ final class Miri: NSObject, NSApplicationDelegate {
         reconcileWorkspaceCapacity()
         windowManagement.observation.startWorkspaceObservation()
         observeSessionState()
+        if sessionController.isLayoutTrackingAllowed {
+            refreshTransientSystemWindowState()
+        }
         installTerminationHandlers()
         persistenceController.start()
         inputController.configure(configStore.effectiveConfig)
@@ -136,7 +162,6 @@ final class Miri: NSObject, NSApplicationDelegate {
             suppressManualResize: { [unowned self] in manualResizeController.suppress(for: $0) },
             isLayoutTrackingAllowed: { [unowned self] in sessionController.isLayoutTrackingAllowed },
             currentViewport: { [unowned self] in currentViewport() },
-            axFrame: { [unowned self] in axFrame($0) },
             parkedSliverPoints: { [unowned self] in parkedSliverPoints(for: $0) },
             location: { [unowned self] in location(of: $0) },
             tiledWindows: { [unowned self] in tiledWindows() },
@@ -149,6 +174,9 @@ final class Miri: NSObject, NSApplicationDelegate {
             },
             setFocusedNotificationSuppressionUntil: { [unowned self] in
                 suppressFocusedWindowNotificationsUntil = $0
+            },
+            notePhysicalFocusTarget: { [unowned self] window in
+                lastKnownFocusedElements[window.pid] = window.element
             },
             workspaceProjection: { [unowned self] in windowManagement.workspaceProjection(at: $0) }
         )

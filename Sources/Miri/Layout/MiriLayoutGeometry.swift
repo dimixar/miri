@@ -299,18 +299,28 @@ extension Miri {
         }
 
         guard let windowID = window.windowID,
-              let renderedBounds = cgWindowBounds(windowID: windowID),
-              let axFrame = axFrame(window.element),
-              axFrame.width > 0,
-              renderedBounds.width > 0
+              let renderedBounds = cgWindowBounds(windowID: windowID)
+        else {
+            return (0, 0, 0, 0)
+        }
+        let id = ObjectIdentifier(window)
+        guard let logicalFrame = layoutController.appliedFrames[id]
+                ?? layoutController.presentationFrames[id]
+                ?? layoutController.requestedFrames[id],
+              logicalFrame.width > 0,
+              renderedBounds.width > 0,
+              abs(logicalFrame.midX - renderedBounds.midX) <= 128,
+              abs(logicalFrame.midY - renderedBounds.midY) <= 128,
+              abs(logicalFrame.width - renderedBounds.width) <= 256,
+              abs(logicalFrame.height - renderedBounds.height) <= 256
         else {
             return (0, 0, 0, 0)
         }
 
-        let left = min(max(axFrame.minX - renderedBounds.minX, 0), 128)
-        let right = min(max(renderedBounds.maxX - axFrame.maxX, 0), 128)
-        let top = min(max(axFrame.minY - renderedBounds.minY, 0), 128)
-        let bottom = min(max(renderedBounds.maxY - axFrame.maxY, 0), 128)
+        let left = min(max(logicalFrame.minX - renderedBounds.minX, 0), 128)
+        let right = min(max(renderedBounds.maxX - logicalFrame.maxX, 0), 128)
+        let top = min(max(logicalFrame.minY - renderedBounds.minY, 0), 128)
+        let bottom = min(max(renderedBounds.maxY - logicalFrame.maxY, 0), 128)
         return (left, right, top, bottom)
     }
 

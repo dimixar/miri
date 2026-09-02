@@ -4,8 +4,14 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
-    func handleFullscreenTransitionIfNeeded(_ element: AXUIElement) -> Bool {
-        if isFullscreenWindow(element), let location = tiledWindowLocation(for: element) {
+    func handleFullscreenTransitionIfNeeded(
+        _ element: AXUIElement,
+        isFullscreen: Bool
+    ) -> Bool {
+        if isFullscreen, let location = tiledWindowLocation(for: element) {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == location.window.pid {
+                lastKnownFocusedElements[location.window.pid] = element
+            }
             windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(location.window))
             fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, CFAbsoluteTimeGetCurrent() + fullscreenTransitionGrace)
             rememberFullscreenWindowState(location.window)
@@ -20,7 +26,7 @@ extension Miri {
             return true
         }
 
-        if !isFullscreenWindow(element), isRememberedFullscreenWindow(element) {
+        if !isFullscreen, isRememberedFullscreenWindow(element) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 self?.requestReconciliation(
                     .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-enter-settle")
@@ -58,43 +64,14 @@ extension Miri {
             return nil
         }
 
-        let pid = frontmost.processIdentifier
-        let appElement = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let focused = value
-        else {
-            return windowManagement.fullscreenWindowStates.values.first { state in
-                state.pid == pid && state.bundleID == frontmost.bundleIdentifier && isFullscreenWindow(state.element)
-            }
-        }
-
-        let focusedElement = focused as! AXUIElement
-        guard isFullscreenWindow(focusedElement) else {
+        // Keep this focus-critical guard AX-IPC-free while retaining exact
+        // identity from the most recent asynchronous focused-window snapshot.
+        guard let focusedElement = lastKnownFocusedElements[frontmost.processIdentifier] else {
             return nil
         }
-
-        let focusedWindowID = SkyLight.shared.windowID(for: focusedElement)
-        let focusedTitle = axString(focusedElement, kAXTitleAttribute) ?? ""
         return windowManagement.fullscreenWindowStates.values.first { state in
-            guard state.pid == pid else {
-                return false
-            }
-            if sameWindow(state.element, focusedElement) {
-                return true
-            }
-            if let stateWindowID = state.windowID,
-               let focusedWindowID,
-               stateWindowID == focusedWindowID
-            {
-                return true
-            }
-            if state.bundleID == frontmost.bundleIdentifier,
-               state.title == focusedTitle
-            {
-                return true
-            }
-            return false
+            state.pid == frontmost.processIdentifier
+                && sameWindow(state.element, focusedElement)
         }
     }
 
@@ -122,16 +99,6 @@ extension Miri {
         }
         debugLog("restoring guarded miri workspace=\(workspace + 1) during fullscreen space guard")
         _ = windowManagement.selectWorkspace(workspace)
-    }
-
-    func noteFullscreenSpaceHelperIfNeeded(_ element: AXUIElement) {
-        guard axString(element, kAXRoleAttribute) == kAXWindowRole,
-              axString(element, kAXSubroleAttribute) == "AXUnknown",
-              isLikelyFullscreenFrame(element)
-        else {
-            return
-        }
-        beginFullscreenSpaceChangeGuard()
     }
 
     func beginFullscreenSpaceChangeGuard() {
@@ -194,10 +161,12 @@ extension Miri {
         return false
     }
 
-    func updateManualWidthRatio(for element: AXUIElement) -> Bool {
-        guard !isFullscreenWindow(element),
-              let location = tiledWindowLocation(for: element),
-              let frame = axFrame(element)
+    func updateManualWidthRatio(
+        for element: AXUIElement,
+        observedFrame frame: CGRect?
+    ) -> Bool {
+        guard let location = tiledWindowLocation(for: element),
+              let frame
         else {
             return false
         }
@@ -233,20 +202,19 @@ extension Miri {
         return true
     }
 
-    func beginOrContinueManualResize(for element: AXUIElement) {
-        guard !isFullscreenWindow(element) else {
-            _ = handleFullscreenTransitionIfNeeded(element)
-            return
-        }
+    func beginOrContinueManualResize(
+        for element: AXUIElement,
+        observedFrame: CGRect?
+    ) {
         guard tiledWindow(for: element) != nil else {
             layoutController.restoreFloatingVisibility()
             return
         }
 
-        guard manualResizeController.beginOrContinue(element) else { return }
+        guard manualResizeController.beginOrContinue(element, frame: observedFrame) else { return }
         layoutController.cancel(reason: "manual-resize-interrupt")
 
-        if updateManualWidthRatio(for: element) {
+        if updateManualWidthRatio(for: element, observedFrame: observedFrame) {
             schedulePersistentLayoutSnapshotWrite()
             projectLayout(focusActiveWindow: false, layoutLockDelay: 0)
         }
@@ -256,21 +224,23 @@ extension Miri {
     }
 
     func handleManualResizeEnded(element: AXUIElement) {
-        if manualResizeController.finish(element) {
-            if updateManualWidthRatio(for: element) {
-                schedulePersistentLayoutSnapshotWrite()
-            }
-            projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
+        guard let finalFrame = manualResizeController.finish(element) else { return }
+        if updateManualWidthRatio(for: element, observedFrame: finalFrame) {
+            schedulePersistentLayoutSnapshotWrite()
         }
+        projectLayout(focusActiveWindow: false, layoutLockDelay: 0.02)
     }
 
     func isManualResizeElement(_ element: AXUIElement) -> Bool {
         manualResizeController.isCurrent(element)
     }
 
-    func frameWidthDiffersFromLayout(for element: AXUIElement) -> Bool {
+    func frameWidthDiffersFromLayout(
+        for element: AXUIElement,
+        observedFrame frame: CGRect?
+    ) -> Bool {
         guard let window = tiledWindow(for: element),
-              let frame = axFrame(element)
+              let frame
         else {
             return false
         }

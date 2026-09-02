@@ -36,6 +36,7 @@ extension Miri {
     }
 
     func perform(_ command: Command, animateWorkspace: Bool = false) {
+        focusStateGeneration &+= 1
         let previousState = captureLayoutState()
         var animated = false
         var frameAnimated = false

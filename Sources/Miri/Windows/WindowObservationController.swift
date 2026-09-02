@@ -11,8 +11,16 @@ final class WindowObservationController: NSObject {
     typealias EventSink = (AppEvent) -> Void
 
     private let emit: EventSink
+    private let axOperations: AXOperationController
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var axObservers: [pid_t: AXObserver] = [:]
+    private var pendingAXObserverPIDs = Set<pid_t>()
+    private var observerRegistrationGenerations: [pid_t: UInt64] = [:]
+    private var nextObserverRegistrationGeneration: UInt64 = 0
+    private var stateGenerations: [pid_t: UInt64] = [:]
+    private var nextStateGeneration: UInt64 = 0
+    private(set) var globalStateGeneration: UInt64 = 0
+    private var stopped = false
     private var periodicTimer: Timer?
     private var activeRescanTimer: Timer?
     private var activeRescanPIDs = Set<pid_t>()
@@ -28,7 +36,8 @@ final class WindowObservationController: NSObject {
     private(set) var transientWindowActive = false
     private var transientWindowStateCheckedAt: CFAbsoluteTime = 0
 
-    init(emit: @escaping EventSink) {
+    init(axOperations: AXOperationController, emit: @escaping EventSink) {
+        self.axOperations = axOperations
         self.emit = emit
     }
 
@@ -38,6 +47,7 @@ final class WindowObservationController: NSObject {
 
     func startWorkspaceObservation() {
         guard workspaceObserverTokens.isEmpty else { return }
+        stopped = false
         let center = NSWorkspace.shared.notificationCenter
         workspaceObserverTokens = [
             center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
@@ -58,15 +68,14 @@ final class WindowObservationController: NSObject {
         ]
     }
 
-    func observeApplication(pid: pid_t, log: (String) -> Void) {
-        guard axObservers[pid] == nil else { return }
-        let appElement = AXUIElementCreateApplication(pid)
-        var observer: AXObserver?
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        guard AXObserverCreate(pid, windowObservationAXCallback, &observer) == .success,
-              let observer
+    func observeApplication(pid: pid_t, log: @escaping (String) -> Void) {
+        guard !stopped,
+              axObservers[pid] == nil,
+              pendingAXObserverPIDs.insert(pid).inserted
         else { return }
-
+        nextObserverRegistrationGeneration &+= 1
+        let registrationGeneration = nextObserverRegistrationGeneration
+        observerRegistrationGenerations[pid] = registrationGeneration
         let notifications = [
             kAXCreatedNotification,
             kAXFocusedWindowChangedNotification,
@@ -79,24 +88,42 @@ final class WindowObservationController: NSObject {
             kAXApplicationHiddenNotification,
             kAXApplicationShownNotification,
         ]
-        for notification in notifications {
-            let error = AXObserverAddNotification(observer, appElement, notification as CFString, refcon)
-            if error == .cannotComplete {
-                // A hung application can time out every registration. Abort after
-                // the first failure and let a later reconciliation retry the app.
-                log("ax observer registration timed out pid=\(pid) notification=\(notification)")
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        axOperations.registerObserver(
+            pid: pid,
+            notifications: notifications,
+            callback: windowObservationAXCallback,
+            refcon: refcon
+        ) { [weak self] result in
+            guard let self,
+                  !self.stopped,
+                  self.observerRegistrationGenerations[pid] == registrationGeneration,
+                  NSRunningApplication(processIdentifier: pid) != nil
+            else { return }
+            self.pendingAXObserverPIDs.remove(pid)
+            guard result.disposition == .completed, let registration = result.value else {
+                log("ax observer registration unavailable pid=\(pid) error=\(result.error.rawValue)")
                 return
             }
-            if error != .success, error != .notificationAlreadyRegistered {
-                log("ax observer registration failed pid=\(pid) notification=\(notification) error=\(error.rawValue)")
+            for failure in registration.notificationErrors {
+                log("ax observer registration failed pid=\(pid) notification=\(failure.name) error=\(failure.error.rawValue)")
             }
+            CFRunLoopAddSource(
+                CFRunLoopGetMain(),
+                AXObserverGetRunLoopSource(registration.observer),
+                .commonModes
+            )
+            self.axObservers[pid] = registration.observer
         }
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-        axObservers[pid] = observer
     }
 
     func removeApplication(pid: pid_t) {
+        noteWindowStateChange(pid: pid)
+        nextObserverRegistrationGeneration &+= 1
+        observerRegistrationGenerations[pid] = nextObserverRegistrationGeneration
         axObservers.removeValue(forKey: pid)
+        pendingAXObserverPIDs.remove(pid)
+        axOperations.remove(pid: pid)
         pendingCreationSettleGenerations.removeValue(forKey: pid)
         lastPlaceholderProbeAt.removeValue(forKey: pid)
     }
@@ -228,6 +255,41 @@ final class WindowObservationController: NSObject {
         return true
     }
 
+    func noteWindowStateChange(pid: pid_t) {
+        nextStateGeneration &+= 1
+        stateGenerations[pid] = nextStateGeneration
+        globalStateGeneration &+= 1
+    }
+
+    func stateGeneration(for pid: pid_t) -> UInt64 {
+        stateGenerations[pid] ?? 0
+    }
+
+    func noteGlobalStateChange() {
+        globalStateGeneration &+= 1
+    }
+
+    func completeAXQuiescenceForSessionTransition() {
+        let pendingPIDs = pendingAXObserverPIDs
+        pendingAXObserverPIDs.removeAll()
+        for pid in pendingPIDs {
+            nextObserverRegistrationGeneration &+= 1
+            observerRegistrationGenerations[pid] = nextObserverRegistrationGeneration
+        }
+    }
+
+    func invalidateAsyncStateForSessionTransition() {
+        nextStateGeneration &+= 1
+        let generation = nextStateGeneration
+        let pids = Set(stateGenerations.keys)
+            .union(axObservers.keys)
+            .union(pendingAXObserverPIDs)
+        for pid in pids { stateGenerations[pid] = generation }
+        globalStateGeneration &+= 1
+        focusedWindowProbeGeneration &+= 1
+        pendingCreationSettleGenerations.removeAll()
+    }
+
     func configurePeriodicTimer(enabled: Bool, interval: TimeInterval) {
         periodicTimer?.invalidate()
         periodicTimer = nil
@@ -252,7 +314,7 @@ final class WindowObservationController: NSObject {
                     self.emit(.windows(.reconciliationRequested(ReconciliationIntent(
                         id: nil,
                         scope: .applications(self.activeRescanPIDs),
-                        adoptFocused: true,
+                        adoptFocused: false,
                         source: .activeRescan,
                         reason: "timer"
                     ))))
@@ -311,10 +373,15 @@ final class WindowObservationController: NSObject {
     }
 
     func stop() {
+        stopped = true
         let center = NSWorkspace.shared.notificationCenter
         workspaceObserverTokens.forEach(center.removeObserver)
         workspaceObserverTokens.removeAll()
+        let observedPIDs = Set(axObservers.keys).union(pendingAXObserverPIDs)
         axObservers.removeAll()
+        pendingAXObserverPIDs.removeAll()
+        observerRegistrationGenerations.removeAll()
+        for pid in observedPIDs { axOperations.remove(pid: pid) }
         periodicTimer?.invalidate()
         activeRescanTimer?.invalidate()
         launchSettlingTimer?.invalidate()
@@ -326,7 +393,7 @@ final class WindowObservationController: NSObject {
     }
 }
 
-private func windowObservationAXCallback(
+func windowObservationAXCallback(
     _ observer: AXObserver,
     _ element: AXUIElement,
     _ notification: CFString,

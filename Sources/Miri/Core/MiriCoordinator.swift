@@ -80,10 +80,10 @@ extension Miri {
                 return
             }
         }
-        if appPhase == .sessionUnavailable {
+        if appPhase == .sessionUnavailable || appPhase == .sessionRecovering {
             switch event {
             case .timer:
-                debugLog("coordinator event ignored sequence=\(sequence) reason=session-unavailable event=\(event.logName)")
+                debugLog("coordinator event ignored sequence=\(sequence) reason=\(appPhase.rawValue) event=\(event.logName)")
                 return
             default:
                 break
@@ -126,6 +126,7 @@ extension Miri {
         case .sessionRecoveryRequested(let reason, let command):
             requestSessionRecoveryImplementation(reason: reason, command: command)
         case .userInteraction:
+            refreshTransientSystemWindowState()
             scheduleActiveRescanForUserInputImplementation()
         case .focusedWindowProbeRequested(let reason):
             windowManagement.observation.scheduleFocusedWindowProbe(reason: reason)
@@ -153,11 +154,14 @@ extension Miri {
                 systemSleeping: sleeping,
                 reason: reason
             )
-            appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
+            if !sessionController.isLayoutTrackingAllowed {
+                appPhase = .sessionUnavailable
+            } else if appPhase != .sessionRecovering {
+                appPhase = .running
+            }
         case .recoveryReady(let generation, let reason):
+            appPhase = .sessionRecovering
             completeSessionRecoveryImplementation(generation: generation, reason: reason)
-            appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
-            drainPendingCoordinatorWorkIfPossibleImplementation()
         }
     }
 
@@ -286,7 +290,7 @@ extension Miri {
         if intent.source == .periodicTimer {
             guard !reloadConfigIfNeeded() else { return }
             let wasTransient = windowManagement.observation.transientWindowActive
-            guard !transientSystemWindowIsActive(forceRefresh: true) else { return }
+            guard !windowManagement.observation.transientWindowActive else { return }
             intent.adoptFocused = intent.adoptFocused || wasTransient
         }
         debugLog(
@@ -305,7 +309,11 @@ extension Miri {
                     scheduleCoordinatorReconciliationDrain()
                     return
                 }
-                reconcileWindows(forPID: pid, adoptFocused: intent.adoptFocused)
+                reconcileWindows(
+                    forPID: pid,
+                    adoptFocused: intent.adoptFocused,
+                    priority: intent.source == .activeRescan ? .background : .normal
+                )
             }
         }
     }

@@ -11,6 +11,8 @@ final class ManagedWindow {
     var bundleID: String?
     var appName: String
     var title: String
+    var isMinimized = false
+    var isFullscreen = false
     var manualWidthRatio: CGFloat?
 
     init(element: AXUIElement, pid: pid_t, windowID: UInt32?, bundleID: String?, appName: String, title: String) {

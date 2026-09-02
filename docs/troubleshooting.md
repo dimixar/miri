@@ -40,20 +40,25 @@ rg "window discovered|reconciliation (deferred|admitted)|snapshot|layout request
 ## An Unresponsive App Does Not Move
 
 Accessibility operations are synchronous calls into the application that owns
-a window. miri bounds each call to 250 ms so a loading or beachballing app cannot
-hold its event loop indefinitely. After a frame write times out, miri skips more
-frame writes to that PID for one second; other applications remain manageable.
-The affected app may keep its old frame until it recovers and another layout
-request retries it.
+a window, but miri executes interactive AX IPC on independent per-process lanes
+rather than on its event loop. Each call remains bounded to 250 ms. A timeout
+opens a shared adaptive circuit for that PID, so repeated key presses do not
+accumulate more calls while healthy applications continue to move and focus.
+Frame and focus requests are coalesced; after recovery, only the latest requested
+state is retried. Lifecycle generations also discard reads made stale by a
+concurrent hide, minimize, fullscreen, destruction, termination, or Space
+change.
 
 With debug logging enabled, check:
 
 ```bash
-rg "ax messaging timed out|ax observer registration timed out" ~/.config/miri/debug.log
+rg "ax operation=.*disposition=" ~/.config/miri/debug.log
 ```
 
 A discovery timeout preserves known window state instead of treating the app's
 temporarily unavailable `AXWindows` response as proof that its windows closed.
+Input-triggered active rescans are debounced and run at background priority, so
+they do not preempt focus/layout work.
 
 ## Miri Appears Paused After Unlock Or Wake
 
@@ -66,7 +71,10 @@ lock/login UI does not count.
 `SessionController` owns the lock/sleep/console flags, recovery generation, and
 recovery event tap. Those fields are main-actor isolated and externally
 read-only; the coordinator pauses and resumes other components only after the
-controller reports a typed state or recovery event.
+controller reports a typed state or recovery event. Recovery remains in a
+separate coordinator phase until old AX lanes quiesce and one current full
+reconciliation finishes, so queued commands cannot run against the pre-lock
+model.
 
 Check the recovery sequence:
 
@@ -77,6 +85,7 @@ rg "session state|layout tracking|session recovery|malformed ax-windows" ~/.conf
 Expected lines include:
 
 - `layout tracking paused for unavailable session`
+- `session AX operations quiesced generation=...`
 - `layout tracking awaiting managed-window interaction`
 - `session recovery requested reason=...`
 - `layout tracking resumed reason=...`

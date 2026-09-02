@@ -19,7 +19,7 @@ extension Miri {
             return
         }
 
-        _ = adoptFocusedWindow(
+        requestFocusedWindowAdoption(
             pid: pid,
             animateIfSameWorkspace: true,
             reason: "focused-window-probe:\(reason)"

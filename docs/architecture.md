@@ -40,12 +40,20 @@ the source of truth.
   Miri workspaces, floating windows, active workspace, and visible signature.
 
 AX is used to discover, focus, move, and resize real app windows. Those calls
-are synchronous IPC into each target application, so miri installs a 250 ms
-global AX messaging timeout. A timed-out frame write also opens a one-second
-per-PID layout circuit breaker, preventing every window from the same hung app
-from serially blocking one layout pass. CoreGraphics window IDs are used to make
-reconciliation, persistence, Space-context matching, debugging, and cleanup
-more stable.
+are synchronous IPC into each target application, so interactive AX work runs
+outside the main actor on independent serial per-PID lanes. A loading app can
+consume its 250 ms global AX messaging timeout without blocking input, layout
+state, or healthy applications. Each PID shares an adaptive circuit breaker
+across discovery, focused-window reads, frame writes, focus actions, transient
+checks, and observer registration. Superseded frame/focus work is discarded,
+failed latest state is retried after recovery, and unchanged frame targets are
+not written. Lifecycle and focus generations reject snapshots invalidated while
+AX work was in flight; discovery never adopts focus directly, and only a fresh
+frontmost-PID probe may change logical focus. Snapshot animation waits for the
+first bounded parking/restoration result before exposing or removing overlays.
+CoreGraphics window IDs and bounds provide nonblocking identity and geometry
+data for reconciliation, persistence, Space-context matching, debugging, and
+cleanup.
 
 ## Event Flow
 
@@ -69,8 +77,10 @@ applications:
    short grace period before removal.
 3. AX observers report window creation, destruction, focused/main-window
    changes, movement, resize, minimization, hiding, and showing.
-4. Mouse clicks and Command-based window switching schedule a lightweight AX
-   focused-window probe as a fallback for applications that miss focus events.
+4. Mouse clicks and Command-based window switching schedule a debounced,
+   asynchronous focused-window probe as a fallback for applications that miss
+   focus events. Hot-key admission itself reads only cached transient-window
+   state and never waits for AX IPC.
 5. miri adopts a different managed focused column only from the globally
    frontmost application. App-local focus notifications from background
    processes may inform discovery but cannot change layout focus.
@@ -88,24 +98,32 @@ relaunch receives a new PID and a fresh settling period.
 ## Session Availability Flow
 
 Screen lock, inactive-console-session, and system-sleep signals suspend layout
-tracking. miri invalidates reconciliation timers, clears pending AX/layout work,
-stops active snapshot presentation, and ignores discovery, AX notifications,
-and layout application while the session is unavailable.
+tracking. miri invalidates reconciliation generations and timers, supersedes
+queued AX/layout work, resets per-PID circuit health, and quiesces in-flight AX
+lanes before finalizing the pause. Snapshot presentation is frozen during that
+bounded quiescence; parked real windows are restored with nonblocking compositor
+moves before the overlay is removed. Discovery, AX notifications, and layout
+application remain ignored while the session is unavailable.
 
 An unlock, login activation, or wake signal makes the session eligible but does
 not immediately restart layout work. miri temporarily watches for a mouse press
 or scroll targeting a relevant on-screen window, a key press directed to the
 focused managed window, or a registered Carbon hot key with a managed window in
 focus. Lock/login UI input cannot release this guard because both console state
-and the target window are validated.
+and the target window are validated. Focused and hit-window AX validation runs
+on the target PID lane rather than the main actor.
 
-After a qualifying interaction, miri performs one full rescan, restarts the
-safety timers, and runs the triggering Miri command if one was queued. Regular
-applications launched while waiting are remembered so their first valid window
-interaction can qualify. After recovery, each remembered live application also
-receives its own 30-second launch-settling period. Any settling periods that
-were already running when the session became unavailable are cancelled rather
-than rearmed after unlock or wake.
+After a qualifying interaction, the coordinator enters a distinct recovering
+phase. It refreshes transient-window state against the current active PID set,
+waits for pause quiescence, clears stale frame/visibility/focus caches, obtains
+a fresh frontmost focused-window identity, and completes one current full
+rescan. Only then does it return to running, restart safety timers, and replay a
+queued triggering command. Regular applications launched while waiting are
+remembered so their first valid window interaction can qualify. After recovery,
+each remembered live application also receives its own 30-second
+launch-settling period. Any settling periods that were already running when the
+session became unavailable are cancelled rather than rearmed after unlock or
+wake.
 
 ## Layout Pipeline
 

@@ -2,53 +2,184 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
+@MainActor
+private final class TransientWindowRefreshAccumulator {
+    var remaining: Int
+    var windows: [AXWindowReadSnapshot] = []
+
+    init(remaining: Int) {
+        self.remaining = remaining
+    }
+}
+
 extension Miri {
     func transientSystemWindowIsActive(forceRefresh: Bool = false) -> Bool {
-        let now = CFAbsoluteTimeGetCurrent()
-        if let cached = windowManagement.observation.cachedTransientState(
-            now: now,
-            forceRefresh: forceRefresh
-        ) {
-            return cached
-        }
-
-        let activeTransientWindows = transientSystemWindows()
-        let recovered = recoverTransientSystemWindows(activeTransientWindows)
-        let active = !activeTransientWindows.isEmpty
-        let changed = windowManagement.observation.recordTransientState(active, checkedAt: now)
-        if changed || recovered {
-            enqueue(.windows(.environmentGuardEvaluated(blocked: active, recovered: recovered)))
-        }
-        return active
+        if forceRefresh { refreshTransientSystemWindowState() }
+        return windowManagement.observation.transientWindowActive
     }
 
-    func transientSystemWindows() -> [TransientSystemWindow] {
-        transientCheckApplications.compactMap { app in
-            guard let window = focusedWindow(for: app),
-                  isTransientSystemWindow(window, app: app)
-            else {
-                return nil
+    func refreshTransientSystemWindowState(
+        allowDuringSessionRecovery: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        let refreshAllowed = sessionController.isLayoutTrackingAllowed
+            || (allowDuringSessionRecovery && sessionRecoverySessionIsEligible)
+        guard refreshAllowed else {
+            completion?()
+            return
+        }
+        if transientWindowRefreshInFlight {
+            transientWindowRefreshPending = true
+            transientWindowRefreshPendingAllowsSessionRecovery =
+                transientWindowRefreshPendingAllowsSessionRecovery
+                || allowDuringSessionRecovery
+            if let completion {
+                pendingTransientWindowRefreshCompletions.append(completion)
             }
-            return TransientSystemWindow(element: window)
+            return
+        }
+        if let completion {
+            transientWindowRefreshCompletions.append(completion)
+        }
+        transientWindowRefreshInFlight = true
+        transientWindowRefreshPending = false
+        transientWindowRefreshPendingAllowsSessionRecovery = false
+        transientWindowRefreshGeneration &+= 1
+        let generation = transientWindowRefreshGeneration
+        let apps = transientCheckApplications
+        let expectedPIDs = Set(apps.map(\.processIdentifier))
+        let expectedFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let accumulator = TransientWindowRefreshAccumulator(remaining: apps.count)
+        guard !apps.isEmpty else {
+            _ = windowManagement.observation.recordTransientState(
+                false,
+                checkedAt: CFAbsoluteTimeGetCurrent()
+            )
+            finishTransientSystemWindowRefresh()
+            return
+        }
+
+        for app in apps {
+            let pid = app.processIdentifier
+            axOperations.readFocusedWindow(
+                pid: pid,
+                priority: .background,
+                coalescingKey: "transient-focused-window"
+            ) { [weak self, weak app] result in
+                guard let self, generation == self.transientWindowRefreshGeneration else { return }
+                if result.disposition == .completed,
+                   let snapshot = result.value,
+                   let liveApp = app ?? NSRunningApplication(processIdentifier: pid),
+                   self.isTransientSystemWindow(snapshot, app: liveApp)
+                {
+                    accumulator.windows.append(snapshot)
+                }
+                accumulator.remaining -= 1
+                guard accumulator.remaining == 0 else { return }
+
+                let currentPIDs = Set(self.transientCheckApplications.map(\.processIdentifier))
+                let currentFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                guard currentPIDs == expectedPIDs,
+                      currentFrontmostPID == expectedFrontmostPID else {
+                    self.transientWindowRefreshPending = true
+                    self.transientWindowRefreshPendingAllowsSessionRecovery =
+                        self.transientWindowRefreshPendingAllowsSessionRecovery
+                        || allowDuringSessionRecovery
+                    self.pendingTransientWindowRefreshCompletions.append(
+                        contentsOf: self.transientWindowRefreshCompletions
+                    )
+                    self.transientWindowRefreshCompletions.removeAll()
+                    self.debugLog("transient refresh discarded reason=active-app-set-changed")
+                    self.finishTransientSystemWindowRefresh()
+                    return
+                }
+
+                let viewport = self.currentViewport()
+                var recoveryRequested = false
+                for snapshot in accumulator.windows {
+                    let origin = snapshot.frame.flatMap { frame -> CGPoint? in
+                        guard self.transientFrameNeedsRecovery(frame, viewport: viewport) else { return nil }
+                        recoveryRequested = true
+                        return self.centeredOrigin(for: frame, in: viewport)
+                    }
+                    self.axOperations.recoverTransientWindow(
+                        handle: snapshot.handle,
+                        centeredOrigin: origin
+                    )
+                }
+                let active = !accumulator.windows.isEmpty
+                let changed = self.windowManagement.observation.recordTransientState(
+                    active,
+                    checkedAt: CFAbsoluteTimeGetCurrent()
+                )
+                if changed || recoveryRequested {
+                    self.enqueue(.windows(.environmentGuardEvaluated(
+                        blocked: active,
+                        recovered: recoveryRequested
+                    )))
+                }
+                self.finishTransientSystemWindowRefresh()
+            }
         }
     }
 
-    @discardableResult
-    func recoverTransientSystemWindows(_ windows: [TransientSystemWindow]) -> Bool {
-        guard !windows.isEmpty else {
-            return false
-        }
+    func cancelTransientSystemWindowRefreshForSessionTransition() {
+        transientWindowRefreshGeneration &+= 1
+        transientWindowRefreshInFlight = false
+        transientWindowRefreshPending = false
+        transientWindowRefreshPendingAllowsSessionRecovery = false
+        let completions = transientWindowRefreshCompletions
+            + pendingTransientWindowRefreshCompletions
+        transientWindowRefreshCompletions.removeAll()
+        pendingTransientWindowRefreshCompletions.removeAll()
+        for completion in completions { completion() }
+    }
 
-        let viewport = currentViewport()
-        var moved = false
-        for transient in windows {
-            if let frame = axFrame(transient.element), transientFrameNeedsRecovery(frame, viewport: viewport) {
-                setAXPosition(centeredOrigin(for: frame, in: viewport), for: transient.element)
-                moved = true
-            }
-            AXUIElementPerformAction(transient.element, kAXRaiseAction as CFString)
+    func finishTransientSystemWindowRefresh() {
+        transientWindowRefreshInFlight = false
+        let completions = transientWindowRefreshCompletions
+        transientWindowRefreshCompletions.removeAll()
+        for completion in completions { completion() }
+
+        guard transientWindowRefreshPending else { return }
+        transientWindowRefreshPending = false
+        let allowDuringSessionRecovery = transientWindowRefreshPendingAllowsSessionRecovery
+        transientWindowRefreshPendingAllowsSessionRecovery = false
+        transientWindowRefreshCompletions = pendingTransientWindowRefreshCompletions
+        pendingTransientWindowRefreshCompletions.removeAll()
+        refreshTransientSystemWindowState(
+            allowDuringSessionRecovery: allowDuringSessionRecovery
+        )
+    }
+
+    func isTransientSystemWindow(
+        _ snapshot: AXWindowReadSnapshot,
+        app: NSRunningApplication
+    ) -> Bool {
+        if snapshot.role == kAXSheetRole || snapshot.role == "AXSheet" || snapshot.role == "AXDialog" {
+            return true
         }
-        return moved
+        if snapshot.subrole == "AXSystemDialog" || snapshot.subrole == "AXDialog" {
+            return true
+        }
+        if snapshot.role == kAXWindowRole,
+           snapshot.subrole == "AXUnknown",
+           snapshot.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !isManageableWindow(snapshot)
+        {
+            return true
+        }
+        if isChromiumBrowser(app),
+           snapshot.role == kAXWindowRole,
+           isChromiumTransientSubrole(snapshot.subrole),
+           isChromiumTransientTitle(snapshot.title),
+           let frame = snapshot.frame,
+           frame.width <= 620,
+           frame.height <= 620
+        {
+            return true
+        }
+        return isOpenAndSavePanelService(app)
     }
 
     func transientFrameNeedsRecovery(_ frame: CGRect, viewport: CGRect) -> Bool {
@@ -104,67 +235,18 @@ extension Miri {
         app.bundleIdentifier == "com.apple.appkit.xpc.openAndSavePanelService"
     }
 
-    func focusedWindow(for app: NSRunningApplication) -> AXUIElement? {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
-              let value
-        else {
-            return nil
-        }
-        return (value as! AXUIElement)
-    }
-
-    func isTransientSystemWindow(_ element: AXUIElement, app: NSRunningApplication) -> Bool {
-        let role = axString(element, kAXRoleAttribute)
-        let subrole = axString(element, kAXSubroleAttribute)
-        if role == kAXSheetRole || role == "AXSheet" || role == "AXDialog" {
-            return true
-        }
-        if subrole == "AXSystemDialog" || subrole == "AXDialog" {
-            return true
-        }
-        if isUnknownSubroleTransientOverlay(element) {
-            return true
-        }
-        if isChromiumTransientElement(element, app: app) {
-            return true
-        }
-        return isOpenAndSavePanelService(app)
-    }
-
-    func isUnknownSubroleTransientOverlay(_ element: AXUIElement) -> Bool {
-        guard axString(element, kAXRoleAttribute) == kAXWindowRole,
-              axString(element, kAXSubroleAttribute) == "AXUnknown"
-        else {
-            return false
-        }
-
-        let title = axString(element, kAXTitleAttribute)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return title.isEmpty && !isManageableWindow(element)
-    }
-
-    func isChromiumTransientElement(_ element: AXUIElement, app: NSRunningApplication) -> Bool {
-        guard isChromiumBrowser(app),
-              axString(element, kAXRoleAttribute) == kAXWindowRole,
-              isChromiumTransientSubrole(axString(element, kAXSubroleAttribute)),
-              isChromiumTransientTitle(axString(element, kAXTitleAttribute) ?? ""),
-              let frame = axFrame(element)
-        else {
-            return false
-        }
-        return frame.width <= 620 && frame.height <= 620
-    }
-
-    func isLikelyTransientPopup(_ window: ManagedWindow, app: NSRunningApplication) -> Bool {
+    func isLikelyTransientPopup(
+        _ window: ManagedWindow,
+        app: NSRunningApplication,
+        frame: CGRect?
+    ) -> Bool {
         // Chromium exposes toolbar bubbles (media controls, profiles, permissions,
         // extension popovers, etc.) as small, often untitled AXWindows. PiP is also
         // app-managed/always-on-top, so don't tile it either.
-        guard isChromiumBrowser(app), isChromiumTransientTitle(window.title) else {
-            return false
-        }
-        guard let frame = axFrame(window.element) else {
+        guard isChromiumBrowser(app),
+              isChromiumTransientTitle(window.title),
+              let frame
+        else {
             return false
         }
         return frame.width <= 620 && frame.height <= 620

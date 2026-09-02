@@ -25,21 +25,6 @@ extension Miri {
         return .tile
     }
 
-    func configuredBehavior(for element: AXUIElement, pid: pid_t) -> WindowBehavior? {
-        guard let app = NSRunningApplication(processIdentifier: pid) else {
-            return nil
-        }
-        let candidate = ManagedWindow(
-            element: element,
-            pid: pid,
-            windowID: SkyLight.shared.windowID(for: element),
-            bundleID: app.bundleIdentifier,
-            appName: app.localizedName ?? "pid \(pid)",
-            title: axString(element, kAXTitleAttribute) ?? ""
-        )
-        return behavior(for: candidate)
-    }
-
     func rule(for window: ManagedWindow) -> WindowRule? {
         configStore.effectiveConfig.rules.first { $0.matches(window) }
     }

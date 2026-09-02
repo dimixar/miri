@@ -108,8 +108,11 @@ events from the lock/login UI as evidence that the desktop is ready.
 
 Applications launched during this waiting period are recorded but not scanned
 immediately. A valid interaction with one of their manageable windows can
-release recovery, after which a full rescan establishes the current model and
-restarts periodic and active-rescan timers.
+release recovery. Target validation runs asynchronously on the relevant PID
+lane. The coordinator then remains in a recovering phase until pre-lock AX work
+is quiescent, stale frame/focus caches are reset, a fresh focused identity is
+known, and a current full rescan establishes the model. Only after that barrier
+does it restart periodic and active-rescan timers or replay queued commands.
 
 ## Created Windows
 
@@ -181,9 +184,10 @@ global scans.
 For apps with this class of missing notifications, `active_rescan_enabled` is
 enabled by default with matching `active_rescan_bundle_ids`. While any listed
 bundle is present in the tiled layout, miri runs targeted per-PID rescans once
-per second and on user input. This redundant work has a small CPU/battery cost,
-but it improves UX for apps such as Notion that can otherwise leave stale
-windows behind until another event happens.
+per second and after debounced user input. These scans use background-priority
+per-PID AX lanes and cannot preempt physical focus/layout work. This redundant
+work has a small CPU/battery cost, but it improves UX for apps such as Notion
+that can otherwise leave stale windows behind until another event happens.
 
 Active rescans are a mitigation, not a guarantee that a broken Accessibility
 implementation becomes well behaved. If an app lies about AX frames, misses
@@ -199,16 +203,23 @@ Full rescans are still used for startup, native Space changes, config reloads,
 explicit menu-bar rescans, and the long reconciliation timer. They are also
 used when a queued event explicitly requires global reconciliation and once
 after a valid session-recovery interaction. Rescans are ignored while session
-tracking is unavailable or still awaiting that interaction.
+tracking is unavailable or still awaiting that interaction. During recovery,
+one full rescan is admitted directly as a completion barrier; normal
+reconciliation remains deferred until the coordinator returns to running.
 
 Routine AX movement, resize, and creation events should prefer targeted per-PID
-reconciliation.
+reconciliation. Every asynchronous snapshot carries the PID/global lifecycle
+generation observed at submission; hide, minimize, fullscreen, destruction,
+launch, termination, and Space changes invalidate older results rather than
+allowing them to resurrect stale windows. Focus adoption is a separate fresh
+probe validated against the current frontmost PID.
 
 ## Debug Signals
 
 Useful log lines in `~/.config/miri/debug.log`:
 
-- `raw ax window source=...`: raw AX window details before filtering.
+- `raw ax window source=...`: AX snapshot details captured off the main actor
+  before filtering.
 - `window discovered`: a window accepted into the managed model.
 - `app launch settling started`: an observed regular-app launch opened its
   30-second targeted reconciliation period.
@@ -226,13 +237,16 @@ Useful log lines in `~/.config/miri/debug.log`:
   busy.
 - `reconciliation admitted`: reconciliation begins, including work admitted
   after a deferred request drains.
+- `reconcile result discarded reason=stale-state`: a lifecycle event invalidated
+  an in-flight app snapshot; a current replacement reconciliation was queued.
 - `focus adopted reason=focused-window-probe:...`: the input fallback found a
   different managed focused window and adopted its column.
 - `ax observer registration failed`: registering an AX notification for an app
   failed; the line includes the PID, notification name, and AX error code.
-- `ax messaging timed out` / `ax observer registration timed out`: an app did
-  not answer within the bounded AX IPC timeout; known state is preserved and
-  frame writes to that PID are briefly quarantined.
+- `ax operation=... pid=... disposition=...`: a slow, failed, circuit-open, or
+  superseded per-PID operation. The line includes AX error, elapsed time, and
+  adaptive `retryAfter`; known discovery state remains preserved when the
+  operation is unavailable.
 - `snapshot missing image`: snapshot capture failed for a tracked window and
   queued targeted PID reconciliation.
 - `active rescan reason=...`: optional active rescan ran for a configured

@@ -7,6 +7,7 @@ import QuartzCore
 final class SnapshotAnimationSession {
     let overlay: SnapshotOverlayWindow
     var cancelled = false
+    var finalizing = false
     var layersByWindowID: [ObjectIdentifier: CALayer] = [:]
     var targetFramesByWindowID: [ObjectIdentifier: CGRect] = [:]
     var timer: AnimationTimer?
@@ -184,21 +185,32 @@ final class SnapshotOverlayWindow {
 }
 
 extension LayoutController {
-    func hideSnapshotWindows(_ windows: [ManagedWindow]) {
+    func hideSnapshotWindows(
+        _ windows: [ManagedWindow],
+        completion: @escaping () -> Void = {}
+    ) {
+        guard !windows.isEmpty else {
+            completion()
+            return
+        }
         let viewport = currentViewport()
         var hiddenIDs = Set(snapshotHiddenWindows.map(ObjectIdentifier.init))
+        var remaining = windows.count
         for window in windows {
             let id = ObjectIdentifier(window)
             if hiddenIDs.insert(id).inserted {
                 snapshotHiddenWindows.append(window)
             }
             appliedVisibility[id] = false
-            let frame = axFrame(window.element) ?? CGRect(
-                x: viewport.maxX,
-                y: viewport.minY,
-                width: 320,
-                height: viewport.height
-            )
+            let frame = requestedFrames[id]
+                ?? appliedFrames[id]
+                ?? window.windowID.flatMap(windowServerFrame)
+                ?? CGRect(
+                    x: viewport.maxX,
+                    y: viewport.minY,
+                    width: 320,
+                    height: viewport.height
+                )
             let sliver = parkedSliverPoints(for: viewport)
             let visualOutsets = renderedOutsets(for: window)
             let parked = CGRect(
@@ -208,9 +220,9 @@ extension LayoutController {
                 height: frame.height
             )
             resetCompositorTransform(for: window)
-            if setWindowFrame(parked, for: window) {
-                applyCompositorParkingCorrection(to: parked, for: window)
-                appliedFrames[id] = parked
+            setWindowFrame(parked, for: window, correctParking: true) { _ in
+                remaining -= 1
+                if remaining == 0 { completion() }
             }
         }
     }
@@ -247,9 +259,7 @@ extension LayoutController {
                 continue
             }
             resetCompositorTransform(for: window)
-            if setWindowFrame(frame, for: window) {
-                appliedFrames[id] = frame
-            }
+            setWindowFrame(frame, for: window)
             appliedVisibility[id] = true
             presentationFrames[id] = frame
         }
@@ -273,13 +283,19 @@ extension LayoutController {
         snapshotAnimationPreparing = false
         snapshotAnimationPreparingRequestGeneration = nil
         snapshotHiddenWindows.removeAll()
-        applyLayout(session.finalLayout, focusActiveWindow: false)
-        restoreFloatingVisibility(raise: true, deferred: session.deferredFloatingRaise)
-        presentationFrames.removeAll()
-        session.cancel()
-        snapshotAnimationSession = nil
-        snapshotOverlayWindow = nil
-        releaseLayoutLock(for: session.requestToken)
+        session.finalizing = true
+        apply(session.finalLayout, focusActiveWindow: false) { [weak self, weak session] in
+            guard let self, let session,
+                  snapshotAnimationSession === session,
+                  !session.cancelled
+            else { return }
+            restoreFloatingVisibility(raise: true, deferred: session.deferredFloatingRaise)
+            presentationFrames.removeAll()
+            session.cancel()
+            snapshotAnimationSession = nil
+            snapshotOverlayWindow = nil
+            releaseLayoutLock(for: session.requestToken)
+        }
     }
 
     func median(_ values: [CGFloat]) -> CGFloat? {
@@ -781,9 +797,14 @@ extension LayoutController {
                 guard let self, snapshotAnimationSession === session, !session.cancelled else {
                     return
                 }
-                hideSnapshotWindows(snapshotMotions.map { $0.0.window })
-                updateSnapshotAnimationTargets(snapshotLayers.map(\.motion), in: session)
-                ensureSnapshotFrameRunner(for: session, viewport: viewport)
+                hideSnapshotWindows(snapshotMotions.map { $0.0.window }) { [weak self, weak session] in
+                    guard let self, let session,
+                          snapshotAnimationSession === session,
+                          !session.cancelled
+                    else { return }
+                    updateSnapshotAnimationTargets(snapshotLayers.map(\.motion), in: session)
+                    ensureSnapshotFrameRunner(for: session, viewport: viewport)
+                }
             }
         }
     }

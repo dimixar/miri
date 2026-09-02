@@ -4,29 +4,6 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
-    func requestSessionRecoveryForFullscreenTransitionIfNeeded(
-        notification: String,
-        element: AXUIElement
-    ) {
-        guard notification == kAXWindowMovedNotification
-                || notification == kAXWindowResizedNotification
-                || notification == kAXFocusedWindowChangedNotification,
-              sessionRecoverySessionIsEligible,
-              let isFullscreen = axBool(element, "AXFullScreen")
-        else {
-            return
-        }
-
-        let enteredFullscreen = isFullscreen && isKnownWindow(element)
-        let exitedFullscreen = !isFullscreen && isRememberedFullscreenWindow(element)
-        guard enteredFullscreen || exitedFullscreen else {
-            return
-        }
-
-        let direction = enteredFullscreen ? "entered" : "exited"
-        requestSessionRecovery(reason: "tracked-window-fullscreen-\(direction):\(notification)")
-    }
-
     var sessionRecoveryInputEventMask: CGEventMask {
         var eventTypes: [CGEventType] = [
             .leftMouseDown,
@@ -70,83 +47,81 @@ extension Miri {
     }
 
     func handleSessionRecoveryInput(_ event: CGEvent, type: CGEventType) {
-        guard sessionController.isAwaitingRecoveryInteraction else {
-            return
-        }
-        if type == .keyDown {
-            guard sessionRecoveryInputTargetsManagedWindow(event, type: type) else {
-                return
-            }
-            requestSessionRecovery(reason: "managed-key-down")
-        } else {
-            guard sessionRecoveryInputTargetsManagedWindow(event, type: type) else {
-                return
-            }
-            requestSessionRecovery(reason: "managed-pointer-event-\(type.rawValue)")
+        guard sessionController.isAwaitingRecoveryInteraction else { return }
+        validateSessionRecoveryInput(event, type: type) { [weak self] valid in
+            guard let self, valid else { return }
+            let reason = type == .keyDown
+                ? "managed-key-down"
+                : "managed-pointer-event-\(type.rawValue)"
+            self.requestSessionRecovery(reason: reason)
         }
     }
 
     func handleSessionRecoveryKeyEvent(_ event: CGEvent?, command: Command?) -> Bool {
-        guard sessionController.isAwaitingRecoveryInteraction else {
-            return false
+        guard sessionController.isAwaitingRecoveryInteraction else { return false }
+        let finish: (Bool) -> Void = { [weak self] valid in
+            guard let self, valid else { return }
+            self.requestSessionRecovery(reason: "managed-key-down", command: command)
         }
         if let event {
-            guard sessionRecoveryInputTargetsManagedWindow(event, type: .keyDown) else {
-                return false
-            }
+            validateSessionRecoveryInput(event, type: .keyDown, completion: finish)
         } else {
-            guard sessionRecoveryFocusedLayoutTarget() != nil else {
-                return false
-            }
+            validateSessionRecoveryFocusedLayoutTarget { finish($0 != nil) }
         }
-        requestSessionRecovery(reason: "managed-key-down", command: command)
+        // A registered Miri command is consumed while its AX validation runs;
+        // ordinary recovery-tap keys remain listen-only and continue to AppKit.
         return command != nil
     }
 
-    func sessionRecoveryInputTargetsManagedWindow(
+    func validateSessionRecoveryInput(
         _ event: CGEvent,
-        type: CGEventType
-    ) -> Bool {
+        type: CGEventType,
+        completion: @escaping (Bool) -> Void
+    ) {
         guard sessionRecoverySessionIsEligible else {
-            return false
+            completion(false)
+            return
         }
 
         if type == .keyDown {
             let targetPID = pid_t(event.getIntegerValueField(.eventTargetUnixProcessID))
-            guard let target = sessionRecoveryFocusedLayoutTarget() else {
-                return false
+            validateSessionRecoveryFocusedLayoutTarget { target in
+                guard let target else {
+                    completion(false)
+                    return
+                }
+                completion(targetPID <= 0 || targetPID == target.pid)
             }
-            return targetPID <= 0 || targetPID == target.pid
+            return
         }
 
         let handlingWindowID = event.getIntegerValueField(
             .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
         )
         let pointedWindowID = event.getIntegerValueField(.mouseEventWindowUnderMousePointer)
-        let candidateIDs = [handlingWindowID, pointedWindowID]
+        var candidateIDs = Array(Set([handlingWindowID, pointedWindowID]
             .filter { $0 > 0 && $0 <= Int64(UInt32.max) }
-            .map(UInt32.init)
-
-        if candidateIDs.isEmpty {
-            guard let hitWindowID = sessionRecoveryFrontmostWindowID(at: event.location) else {
-                return false
-            }
-            return allWindows().contains { $0.windowID == hitWindowID }
-                || sessionRecoveryLayoutTarget(windowID: hitWindowID)
+            .map(UInt32.init)))
+        if candidateIDs.isEmpty,
+           let hitWindowID = sessionRecoveryFrontmostWindowID(at: event.location)
+        {
+            candidateIDs = [hitWindowID]
+        }
+        guard !candidateIDs.isEmpty else {
+            completion(false)
+            return
         }
 
         if allWindows().contains(where: { window in
             guard let windowID = window.windowID,
                   candidateIDs.contains(windowID)
-            else {
-                return false
-            }
+            else { return false }
             return cgWindowIsOnScreen(windowID)
         }) {
-            return true
+            completion(true)
+            return
         }
-
-        return candidateIDs.contains { sessionRecoveryLayoutTarget(windowID: $0) }
+        validateSessionRecoveryLayoutTargets(candidateIDs, completion: completion)
     }
 
     func sessionRecoveryFrontmostWindowID(at point: CGPoint) -> UInt32? {
@@ -195,77 +170,127 @@ extension Miri {
         return true
     }
 
-    func sessionRecoveryFocusedLayoutTarget() -> (pid: pid_t, windowID: UInt32?)? {
+    func validateSessionRecoveryFocusedLayoutTarget(
+        completion: @escaping ((pid: pid_t, windowID: UInt32?)?) -> Void
+    ) {
         guard sessionRecoverySessionIsEligible,
               let app = NSWorkspace.shared.frontmostApplication,
               app.activationPolicy == .regular
         else {
-            return nil
+            completion(nil)
+            return
         }
+        let generation = sessionController.resumeGeneration
+        let pid = app.processIdentifier
+        if sessionRecoveryFocusedValidationPID == pid,
+           sessionRecoveryFocusedValidationGeneration == generation
+        {
+            sessionRecoveryFocusedValidationWaiters.append(completion)
+            return
+        }
+        let staleWaiters = sessionRecoveryFocusedValidationWaiters
+        sessionRecoveryFocusedValidationWaiters.removeAll()
+        sessionRecoveryFocusedValidationPID = pid
+        sessionRecoveryFocusedValidationGeneration = generation
+        sessionRecoveryFocusedValidationWaiters.append(completion)
+        for waiter in staleWaiters { waiter(nil) }
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedWindowAttribute as CFString,
-            &value
-        ) == .success,
-            let value
-        else {
-            return nil
-        }
-
-        let focusedElement = value as! AXUIElement
-        let focusedWindowID = SkyLight.shared.windowID(for: focusedElement)
-        if let known = allWindows().first(where: { window in
-            guard window.pid == app.processIdentifier else {
-                return false
+        axOperations.readFocusedWindow(
+            pid: pid,
+            priority: .interactive,
+            coalescingKey: "session-recovery-focused-window"
+        ) { [weak self] result in
+            guard let self,
+                  self.sessionRecoveryFocusedValidationPID == pid,
+                  self.sessionRecoveryFocusedValidationGeneration == generation
+            else { return }
+            var target: (pid: pid_t, windowID: UInt32?)?
+            if generation == self.sessionController.resumeGeneration,
+               self.sessionRecoverySessionIsEligible,
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+               result.disposition == .completed,
+               let snapshot = result.value
+            {
+                self.lastKnownFocusedElements[pid] = snapshot.handle.element
+                let focusedWindowID = snapshot.handle.windowID
+                if let known = self.allWindows().first(where: { window in
+                    guard window.pid == pid else { return false }
+                    if self.sameWindow(window.element, snapshot.handle.element) {
+                        return window.windowID.map(self.cgWindowIsOnScreen) ?? true
+                    }
+                    guard let focusedWindowID, window.windowID == focusedWindowID else {
+                        return false
+                    }
+                    return self.cgWindowIsOnScreen(focusedWindowID)
+                }) {
+                    target = (known.pid, known.windowID)
+                } else if self.sessionRecoveryPIDIsLayoutRelevant(pid),
+                          self.isManageableWindow(snapshot),
+                          focusedWindowID.map(self.cgWindowIsOnScreen) ?? true
+                {
+                    target = (pid, focusedWindowID)
+                }
             }
-            if sameWindow(window.element, focusedElement) {
-                return window.windowID.map(cgWindowIsOnScreen) ?? true
-            }
-            guard let focusedWindowID, window.windowID == focusedWindowID else {
-                return false
-            }
-            return cgWindowIsOnScreen(focusedWindowID)
-        }) {
-            return (known.pid, known.windowID)
+            let waiters = self.sessionRecoveryFocusedValidationWaiters
+            self.sessionRecoveryFocusedValidationWaiters.removeAll()
+            self.sessionRecoveryFocusedValidationPID = nil
+            self.sessionRecoveryFocusedValidationGeneration = nil
+            for waiter in waiters { waiter(target) }
         }
-
-        guard sessionRecoveryPIDIsLayoutRelevant(app.processIdentifier),
-              isManageableWindow(focusedElement)
-        else {
-            return nil
-        }
-        if let focusedWindowID, !cgWindowIsOnScreen(focusedWindowID) {
-            return nil
-        }
-        return (app.processIdentifier, focusedWindowID)
     }
 
-    func sessionRecoveryLayoutTarget(windowID: UInt32) -> Bool {
-        guard cgWindowIsOnScreen(windowID),
+    func validateSessionRecoveryLayoutTargets(
+        _ windowIDs: [UInt32],
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let windowID = windowIDs.first else {
+            completion(false)
+            return
+        }
+        validateSessionRecoveryLayoutTarget(windowID: windowID) { [weak self] valid in
+            guard let self, !valid else {
+                completion(valid)
+                return
+            }
+            self.validateSessionRecoveryLayoutTargets(
+                Array(windowIDs.dropFirst()),
+                completion: completion
+            )
+        }
+    }
+
+    func validateSessionRecoveryLayoutTarget(
+        windowID: UInt32,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard sessionRecoverySessionIsEligible,
+              cgWindowIsOnScreen(windowID),
               let ownerPID = cgWindowOwnerPID(windowID: windowID),
               sessionRecoveryPIDIsLayoutRelevant(ownerPID),
               let app = NSRunningApplication(processIdentifier: ownerPID),
               app.activationPolicy == .regular
         else {
-            return false
+            completion(false)
+            return
         }
-
-        let appElement = AXUIElementCreateApplication(ownerPID)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            appElement,
-            kAXWindowsAttribute as CFString,
-            &value
-        ) == .success,
-            let windows = value as? [AXUIElement]
-        else {
-            return false
-        }
-        return windows.contains { element in
-            SkyLight.shared.windowID(for: element) == windowID && isManageableWindow(element)
+        let generation = sessionController.resumeGeneration
+        axOperations.readApplication(
+            pid: ownerPID,
+            priority: .interactive,
+            coalescingKey: "session-recovery-window-target"
+        ) { [weak self] result in
+            guard let self,
+                  generation == self.sessionController.resumeGeneration,
+                  self.sessionRecoverySessionIsEligible,
+                  result.disposition == .completed,
+                  let snapshot = result.value
+            else {
+                completion(false)
+                return
+            }
+            completion(snapshot.windows.contains {
+                $0.handle.windowID == windowID && self.isManageableWindow($0)
+            })
         }
     }
 
@@ -314,36 +339,137 @@ extension Miri {
               sessionRecoverySessionIsEligible
         else {
             sessionController.cancelScheduledRecovery()
+            appPhase = .sessionUnavailable
             return
         }
-        guard !transientSystemWindowIsActive(forceRefresh: true) else {
+        refreshTransientSystemWindowState(allowDuringSessionRecovery: true) { [weak self] in
+            self?.finishSessionRecoveryAfterTransientRefresh(
+                generation: generation,
+                reason: reason
+            )
+        }
+    }
+
+    func finishSessionRecoveryAfterTransientRefresh(generation: UInt64, reason: String) {
+        guard sessionController.resumeGeneration == generation,
+              sessionRecoverySessionIsEligible
+        else {
             sessionController.cancelScheduledRecovery()
+            appPhase = .sessionUnavailable
+            return
+        }
+        guard !windowManagement.observation.transientWindowActive else {
+            sessionController.cancelScheduledRecovery()
+            appPhase = .sessionUnavailable
             debugLog("session recovery deferred reason=transient-system-window")
             return
         }
+
+        afterSessionAXQuiescence { [weak self] in
+            guard let self,
+                  self.sessionController.resumeGeneration == generation,
+                  self.sessionRecoverySessionIsEligible
+            else {
+                self?.sessionController.cancelScheduledRecovery()
+                self?.appPhase = .sessionUnavailable
+                return
+            }
+            guard self.sessionController.completeRecovery(generation: generation) else {
+                self.appPhase = .sessionUnavailable
+                return
+            }
+            self.appPhase = .sessionRecovering
+            self.uninstallSessionRecoveryEventTap()
+            self.axOperations.resetHealthForSessionRecovery()
+            self.layoutController.resetForSessionRecovery()
+            self.fullWindowScanGeneration &+= 1
+            self.focusStateGeneration &+= 1
+            self.lastKnownFocusedElements.removeAll()
+            self.windowManagement.observation.invalidateAsyncStateForSessionTransition()
+            self.refreshFocusedIdentityForSessionRecovery(
+                generation: generation,
+                reason: reason
+            )
+        }
+    }
+
+    func refreshFocusedIdentityForSessionRecovery(generation: UInt64, reason: String) {
+        guard appPhase == .sessionRecovering,
+              sessionController.resumeGeneration == generation,
+              sessionController.isLayoutTrackingAllowed
+        else { return }
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            runSessionRecoveryReconciliation(generation: generation, reason: reason)
+            return
+        }
+        axOperations.readFocusedWindow(
+            pid: pid,
+            priority: .interactive,
+            coalescingKey: "session-recovery-fresh-focus"
+        ) { [weak self] result in
+            guard let self,
+                  self.appPhase == .sessionRecovering,
+                  self.sessionController.resumeGeneration == generation,
+                  self.sessionController.isLayoutTrackingAllowed
+            else { return }
+            if result.disposition == .completed,
+               let snapshot = result.value,
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+            {
+                self.lastKnownFocusedElements[pid] = snapshot.handle.element
+            }
+            self.runSessionRecoveryReconciliation(generation: generation, reason: reason)
+        }
+    }
+
+    func runSessionRecoveryReconciliation(generation: UInt64, reason: String) {
+        guard appPhase == .sessionRecovering,
+              sessionController.resumeGeneration == generation,
+              sessionController.isLayoutTrackingAllowed
+        else { return }
+        rescanWindows(adoptFocused: true) { [weak self] completed in
+            guard let self,
+                  self.appPhase == .sessionRecovering,
+                  self.sessionController.resumeGeneration == generation,
+                  self.sessionController.isLayoutTrackingAllowed
+            else { return }
+            guard completed else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+                    self?.refreshFocusedIdentityForSessionRecovery(
+                        generation: generation,
+                        reason: reason
+                    )
+                }
+                return
+            }
+            self.finalizeSessionRecovery(generation: generation, reason: reason)
+        }
+    }
+
+    func finalizeSessionRecovery(generation: UInt64, reason: String) {
+        guard appPhase == .sessionRecovering,
+              sessionController.resumeGeneration == generation,
+              sessionController.isLayoutTrackingAllowed
+        else { return }
 
         let commands = pendingSessionRecoveryCommands
         pendingSessionRecoveryCommands.removeAll()
         let launchedWhileUnavailable = pendingSessionRecoveryLaunchedPIDs
         pendingSessionRecoveryLaunchedPIDs.removeAll()
-        guard sessionController.completeRecovery(generation: generation) else { return }
-        uninstallSessionRecoveryEventTap()
-
+        pendingCoordinatorReconciliation = nil
+        reconciliationDrainGeneration &+= 1
+        reconciliationDrainScheduled = false
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        requestReconciliation(
-            .all(adoptFocused: true, source: .sessionRecovery, reason: "session-recovery-complete")
-        )
+        appPhase = .running
+
         for pid in launchedWhileUnavailable {
-            guard let app = NSRunningApplication(processIdentifier: pid) else {
-                continue
-            }
+            guard let app = NSRunningApplication(processIdentifier: pid) else { continue }
             beginAppLaunchSettling(for: app, reason: "session-recovery")
         }
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
-        for command in commands {
-            submit(command)
-        }
+        for command in commands { submit(command) }
+        drainPendingCoordinatorWorkIfPossible()
         debugLog("layout tracking resumed reason=\(reason) generation=\(generation)")
     }
 }

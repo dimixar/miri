@@ -8,6 +8,7 @@ import Foundation
 final class ManualResizeController {
     private var endTimer: DispatchSourceTimer?
     private var element: AXUIElement?
+    private var latestFrame: CGRect?
     private var suppressedUntil: CFAbsoluteTime = 0
     private let sameWindow: (AXUIElement, AXUIElement) -> Bool
     private let emitEnded: (AXUIElement) -> Void
@@ -23,9 +24,10 @@ final class ManualResizeController {
     var isTracking: Bool { element != nil }
     var notificationsSuppressed: Bool { CFAbsoluteTimeGetCurrent() < suppressedUntil }
 
-    func beginOrContinue(_ candidate: AXUIElement) -> Bool {
+    func beginOrContinue(_ candidate: AXUIElement, frame: CGRect?) -> Bool {
         if let element, !sameWindow(element, candidate) { return false }
         element = candidate
+        if let frame { latestFrame = frame }
         endTimer?.cancel()
         endTimer = nil
         return true
@@ -39,12 +41,13 @@ final class ManualResizeController {
         timer.resume()
     }
 
-    func finish(_ candidate: AXUIElement) -> Bool {
+    func finish(_ candidate: AXUIElement) -> CGRect? {
         endTimer?.cancel()
         endTimer = nil
-        guard element.map({ sameWindow($0, candidate) }) == true else { return false }
+        guard element.map({ sameWindow($0, candidate) }) == true else { return nil }
         element = nil
-        return true
+        defer { latestFrame = nil }
+        return latestFrame
     }
 
     func isCurrent(_ candidate: AXUIElement) -> Bool {
@@ -60,5 +63,6 @@ final class ManualResizeController {
         endTimer?.cancel()
         endTimer = nil
         element = nil
+        latestFrame = nil
     }
 }

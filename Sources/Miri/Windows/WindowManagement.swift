@@ -99,8 +99,11 @@ final class WindowManagement {
     private let model = WorkspaceModel()
     let observation: WindowObservationController
 
-    init(emit: @escaping WindowObservationController.EventSink) {
-        observation = WindowObservationController(emit: emit)
+    init(
+        axOperations: AXOperationController,
+        emit: @escaping WindowObservationController.EventSink
+    ) {
+        observation = WindowObservationController(axOperations: axOperations, emit: emit)
     }
 
     var workspaces: [Workspace] { model.activeContext.workspaces }

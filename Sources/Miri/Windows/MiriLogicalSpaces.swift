@@ -112,7 +112,7 @@ extension Miri {
                 return false
             }
             return !runningApp.isHidden
-                && !isHiddenOrMinimizedWindow(window.element)
+                && !window.isMinimized
                 && cgWindowExists(windowID)
                 && !cgWindowIsOnScreen(windowID)
         }
@@ -138,7 +138,7 @@ extension Miri {
               let runningApp = NSRunningApplication(processIdentifier: window.pid)
         else { return false }
         return !runningApp.isHidden
-            && !isHiddenOrMinimizedWindow(window.element)
+            && !window.isMinimized
             && cgWindowExists(windowID)
             && !cgWindowIsOnScreen(windowID)
     }

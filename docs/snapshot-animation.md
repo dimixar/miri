@@ -40,11 +40,13 @@ deferred until completion.
 ## Session Interruption
 
 If the screen locks, the console session becomes inactive, or the system sleeps
-during an animation, miri stops the animation and clears its snapshot
-presentation. No further snapshot, layout, or final AX-frame work is performed
-while the session is unavailable. After the desktop is available and a relevant
-managed-window interaction releases the recovery guard, a full rescan projects
-the current layout from preserved logical state.
+during an animation, miri freezes presentation and supersedes queued AX work.
+After in-flight per-PID AX calls reach their bounded completion, parked real
+windows are restored with nonblocking compositor moves and only then is the
+overlay removed. No further snapshot, layout, or final AX-frame work is admitted
+while the session is unavailable. After a relevant managed-window interaction,
+recovery clears stale presentation/frame caches and completes a fresh full
+rescan before normal commands or reconciliation resume.
 
 ## Layout Copies
 

@@ -12,7 +12,17 @@ extension Miri {
             return
         }
 
-        performActiveRescan(reason: "user-input")
+        // Navigation is interactive; stale-window recovery is not. Coalesce an
+        // input burst and let focus/layout requests reach their AX lanes first.
+        activeRescanInputGeneration &+= 1
+        let generation = activeRescanInputGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            guard let self,
+                  generation == self.activeRescanInputGeneration,
+                  self.sessionController.isLayoutTrackingAllowed
+            else { return }
+            self.performActiveRescan(reason: "user-input-settled")
+        }
     }
 
     private func performActiveRescan(reason: String) {
@@ -27,7 +37,7 @@ extension Miri {
             ReconciliationIntent(
                 id: nil,
                 scope: .applications(pids),
-                adoptFocused: true,
+                adoptFocused: false,
                 source: .activeRescan,
                 reason: reason
             )

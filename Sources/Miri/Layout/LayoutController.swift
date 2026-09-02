@@ -5,7 +5,6 @@ import Foundation
 
 @MainActor
 protocol LayoutWindowSystemAdapting: AnyObject {
-    func frame(of window: ManagedWindow) -> CGRect?
     @discardableResult func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError
     func setLevel(_ level: Int32, for windowID: UInt32?)
     func transform(for windowID: UInt32) -> CGAffineTransform?
@@ -13,25 +12,9 @@ protocol LayoutWindowSystemAdapting: AnyObject {
     func moveWithTransaction(_ windowID: UInt32, to origin: CGPoint) -> Bool
     func move(_ windowID: UInt32, to origin: CGPoint) -> Bool
     func translate(_ windowID: UInt32, from transform: CGAffineTransform, by offset: CGPoint) -> Bool
-    func focus(_ window: ManagedWindow)
 }
 
 final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
-    func frame(of window: ManagedWindow) -> CGRect? {
-        var positionValue: CFTypeRef?
-        var sizeValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(window.element, kAXPositionAttribute as CFString, &positionValue) == .success,
-              AXUIElementCopyAttributeValue(window.element, kAXSizeAttribute as CFString, &sizeValue) == .success,
-              let positionValue,
-              let sizeValue,
-              CFGetTypeID(positionValue) == AXValueGetTypeID(),
-              CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
-        return CGRect(origin: position, size: size)
-    }
     @discardableResult
     func setFrame(_ frame: CGRect, for window: ManagedWindow) -> AXError {
         setAXFrame(frame, for: window)
@@ -47,12 +30,6 @@ final class LayoutWindowSystemAdapter: LayoutWindowSystemAdapting {
     func move(_ windowID: UInt32, to origin: CGPoint) -> Bool { SkyLight.shared.move(windowID, to: origin) }
     func translate(_ windowID: UInt32, from transform: CGAffineTransform, by offset: CGPoint) -> Bool {
         SkyLight.shared.translate(windowID, from: transform, by: offset)
-    }
-    func focus(_ window: ManagedWindow) {
-        NSRunningApplication(processIdentifier: window.pid)?.activate(options: [.activateIgnoringOtherApps])
-        let raiseError = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
-        guard raiseError != .cannotComplete else { return }
-        AXUIElementSetAttributeValue(window.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
     }
 }
 
@@ -93,7 +70,6 @@ struct LayoutControllerDependencies {
     let suppressManualResize: (TimeInterval) -> Void
     let isLayoutTrackingAllowed: () -> Bool
     let currentViewport: () -> CGRect
-    let axFrame: (AXUIElement) -> CGRect?
     let parkedSliverPoints: (CGRect) -> CGFloat
     let location: (AXUIElement) -> (workspace: Int, column: Int)?
     let tiledWindows: () -> [ManagedWindow]
@@ -103,6 +79,7 @@ struct LayoutControllerDependencies {
     let visualFrame: (CGRect, CGRect) -> CGRect
     let deferReconciliation: (pid_t, Bool, String) -> Void
     let setFocusedNotificationSuppressionUntil: (CFAbsoluteTime) -> Void
+    let notePhysicalFocusTarget: (ManagedWindow) -> Void
     let workspaceProjection: (Int) -> Workspace?
 }
 
@@ -112,10 +89,16 @@ struct LayoutControllerDependencies {
 @MainActor
 final class LayoutController {
     private let dependencies: LayoutControllerDependencies
+    private let axOperations: AXOperationController
     let emit: (LayoutEvent) -> Void
     let windowSystem: LayoutWindowSystemAdapting
 
     var appliedFrames: [ObjectIdentifier: CGRect] = [:]
+    var requestedFrames: [ObjectIdentifier: CGRect] = [:]
+    var frameRetryGenerations: [ObjectIdentifier: UInt64] = [:]
+    var frameWriteEpoch: UInt64 = 0
+    var authoredFrameWriteGenerations: [ObjectIdentifier: UInt64] = [:]
+    var authoredFrameNotificationUntil: [ObjectIdentifier: CFAbsoluteTime] = [:]
     var appliedVisibility: [ObjectIdentifier: Bool] = [:]
     var hiddenWorkspaceWindowIDs = Set<ObjectIdentifier>()
     var presentationFrames: [ObjectIdentifier: CGRect] = [:]
@@ -129,7 +112,7 @@ final class LayoutController {
 
     private var pendingSubmission: LayoutSubmission?
     private var deferredSubmissionGeneration: UInt64 = 0
-    private var axUnavailableUntil: [pid_t: CFAbsoluteTime] = [:]
+    private var sessionPauseGeneration: UInt64 = 0
 
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0
@@ -138,10 +121,12 @@ final class LayoutController {
 
     init(
         dependencies: LayoutControllerDependencies,
+        axOperations: AXOperationController,
         windowSystem: LayoutWindowSystemAdapting = LayoutWindowSystemAdapter(),
         emit: @escaping (LayoutEvent) -> Void
     ) {
         self.dependencies = dependencies
+        self.axOperations = axOperations
         self.windowSystem = windowSystem
         self.emit = emit
     }
@@ -234,7 +219,10 @@ final class LayoutController {
             lockDelay: lockDelay
         )
         cancelPendingSubmission(reason: "replaced-by-newer-submission")
-        if !animated, snapshotAnimationSession != nil || snapshotAnimationPreparing {
+        let snapshotIsFinalizing = snapshotAnimationSession?.finalizing == true
+        if snapshotIsFinalizing
+            || (!animated && (snapshotAnimationSession != nil || snapshotAnimationPreparing))
+        {
             deferSubmission(submission)
         } else {
             execute(submission)
@@ -305,13 +293,22 @@ final class LayoutController {
             originalWindowTransforms.removeValue(forKey: windowID)
         }
         appliedFrames.removeValue(forKey: id)
+        requestedFrames.removeValue(forKey: id)
+        frameRetryGenerations.removeValue(forKey: id)
+        authoredFrameWriteGenerations.removeValue(forKey: id)
+        authoredFrameNotificationUntil.removeValue(forKey: id)
         appliedVisibility.removeValue(forKey: id)
         hiddenWorkspaceWindowIDs.remove(id)
         presentationFrames.removeValue(forKey: id)
     }
 
     func resetTracking() {
+        frameWriteEpoch &+= 1
         appliedFrames.removeAll()
+        requestedFrames.removeAll()
+        frameRetryGenerations.removeAll()
+        authoredFrameWriteGenerations.removeAll()
+        authoredFrameNotificationUntil.removeAll()
         appliedVisibility.removeAll()
         hiddenWorkspaceWindowIDs.removeAll()
         presentationFrames.removeAll()
@@ -334,6 +331,59 @@ final class LayoutController {
         cancelPendingSubmission(reason: reason)
         stopAnimation(clearPresentation: true)
         cancelActiveRequest(reason: reason)
+    }
+
+    func beginUnavailableSessionPause() -> UInt64 {
+        sessionPauseGeneration &+= 1
+        let generation = sessionPauseGeneration
+        cancelPendingSubmission(reason: "session-unavailable")
+        snapshotAnimationPreparing = false
+        snapshotAnimationPreparingRequestGeneration = nil
+        if let session = snapshotAnimationSession {
+            session.cancelled = true
+            session.timer?.cancel()
+            session.timer = nil
+        }
+        focusRequestGeneration &+= 1
+        floatingRaiseGeneration &+= 1
+        frameWriteEpoch &+= 1
+        frameRetryGenerations.removeAll()
+        authoredFrameWriteGenerations.removeAll()
+        authoredFrameNotificationUntil.removeAll()
+        cancelActiveRequest(reason: "session-unavailable")
+        return generation
+    }
+
+    func completeUnavailableSessionPause(generation: UInt64) {
+        guard generation == sessionPauseGeneration else { return }
+        if let session = snapshotAnimationSession {
+            let frames = session.presentationFrames()
+            for window in tiledWindows() {
+                guard let windowID = window.windowID,
+                      let frame = frames[ObjectIdentifier(window)]
+                else { continue }
+                resetCompositorTransform(for: window)
+                if !windowSystem.moveWithTransaction(windowID, to: frame.origin) {
+                    _ = windowSystem.move(windowID, to: frame.origin)
+                }
+            }
+            session.overlay.hideAndReset()
+        } else {
+            restoreSnapshotHiddenWindows()
+            snapshotOverlayWindow?.hideAndReset()
+        }
+        snapshotAnimationSession = nil
+        snapshotOverlayWindow = nil
+        snapshotHiddenWindows.removeAll()
+        resetTracking()
+    }
+
+    func resetForSessionRecovery() {
+        sessionPauseGeneration &+= 1
+        focusRequestGeneration &+= 1
+        floatingRaiseGeneration &+= 1
+        frameWriteEpoch &+= 1
+        resetTracking()
     }
 
     func stopAnimation(clearPresentation: Bool) {
@@ -411,55 +461,79 @@ final class LayoutController {
         }
         originalWindowTransforms.removeAll()
         guard restoreFrames else { return }
-        // Give every app one final bounded attempt even if it timed out during
-        // the layout operation that initiated termination.
-        axUnavailableUntil.removeAll()
         for window in tiledWindows {
-            _ = setWindowFrame(viewport, for: window)
+            _ = windowSystem.setFrame(viewport, for: window)
         }
         for window in floatingWindows {
             windowSystem.setLevel(dependencies.settings().floatingWindowLevel, for: window.windowID)
         }
     }
 
-    func apply(_ layout: [LayoutItem], focusActiveWindow: Bool) {
+    func apply(
+        _ layout: [LayoutItem],
+        focusActiveWindow: Bool,
+        completion: @escaping () -> Void = {}
+    ) {
         let activeWindow = focusActiveWindow ? dependencies.activeWindow() : nil
+        var orderedItems: [(item: LayoutItem, forceFrame: Bool)] = []
         if let activeWindow {
-            for item in layout where item.visible && item.window !== activeWindow {
-                apply(item)
-            }
             if let activeItem = layout.first(where: { $0.window === activeWindow }) {
-                apply(activeItem, forceFrame: true)
+                orderedItems.append((activeItem, true))
             }
+            orderedItems.append(contentsOf: layout
+                .filter { $0.visible && $0.window !== activeWindow }
+                .map { ($0, false) })
         } else {
-            for item in layout where item.visible {
-                apply(item)
+            orderedItems.append(contentsOf: layout.filter(\.visible).map { ($0, false) })
+        }
+        orderedItems.append(contentsOf: layout.filter { !$0.visible }.map { ($0, false) })
+
+        guard !orderedItems.isEmpty else {
+            if let activeWindow { focus(activeWindow) }
+            completion()
+            return
+        }
+        var remaining = orderedItems.count
+        var submittedActiveFocus = false
+        for entry in orderedItems {
+            apply(entry.item, forceFrame: entry.forceFrame) {
+                remaining -= 1
+                if remaining == 0 { completion() }
+            }
+            if let activeWindow,
+               entry.item.window === activeWindow,
+               !submittedActiveFocus
+            {
+                submittedActiveFocus = true
+                focus(activeWindow)
             }
         }
-        for item in layout where !item.visible {
-            apply(item)
-        }
-        if let activeWindow {
-            focus(activeWindow)
-        }
+        if let activeWindow, !submittedActiveFocus { focus(activeWindow) }
     }
 
-    func apply(_ item: LayoutItem, forceFrame: Bool = false) {
+    func apply(
+        _ item: LayoutItem,
+        forceFrame: Bool = false,
+        completion: @escaping () -> Void = {}
+    ) {
         let id = ObjectIdentifier(item.window)
         let wasVisible = appliedVisibility[id]
-        let previousFrame = appliedFrames[id]
-        let shouldApplyFrame = forceFrame
-            || item.visible
-            || wasVisible != false
-            || previousFrame.map { frameDelta(from: $0, to: item.frame) >= dependencies.settings().animationPixelThreshold } ?? true
+        let requestedFrame = requestedFrames[id]
+        let frameChanged = requestedFrame.map {
+            frameDelta(from: $0, to: item.frame) >= dependencies.settings().animationPixelThreshold
+        } ?? true
         let visibilityChanged = wasVisible != item.visible
+        let shouldApplyFrame = frameChanged || (forceFrame && requestedFrame == nil) || visibilityChanged
         if visibilityChanged && !item.visible { appliedVisibility[id] = false }
         if shouldApplyFrame {
             resetCompositorTransform(for: item.window)
-            if setWindowFrame(item.frame, for: item.window) {
-                if !item.visible { applyCompositorParkingCorrection(to: item.frame, for: item.window) }
-                appliedFrames[id] = item.frame
-            }
+            setWindowFrame(
+                item.frame,
+                for: item.window,
+                correctParking: !item.visible
+            ) { _ in completion() }
+        } else {
+            completion()
         }
         if visibilityChanged && item.visible { appliedVisibility[id] = true }
     }
@@ -481,8 +555,21 @@ final class LayoutController {
         }
     }
 
+    func windowServerFrame(for windowID: UInt32) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionIncludingWindow],
+            CGWindowID(windowID)
+        ) as? [[String: Any]],
+              let bounds = list.first?[kCGWindowBounds as String] as? NSDictionary
+        else { return nil }
+        var frame = CGRect.zero
+        return CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &frame) ? frame : nil
+    }
+
     func applyCompositorParkingCorrection(to targetFrame: CGRect, for window: ManagedWindow) {
-        guard let windowID = window.windowID, let observedFrame = windowSystem.frame(of: window) else { return }
+        guard let windowID = window.windowID,
+              let observedFrame = windowServerFrame(for: windowID)
+        else { return }
         let viewport = dependencies.currentViewport()
         let parksBeforeViewport = targetFrame.midX < viewport.midX
         let correctedOrigin = CGPoint(
@@ -520,33 +607,77 @@ final class LayoutController {
         }
     }
 
-    @discardableResult
-    func setWindowFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
-        guard axMessagingIsAvailable(for: window.pid) else { return false }
-        let error = windowSystem.setFrame(frame, for: window)
-        guard error == .success else {
-            if error == .cannotComplete {
-                axUnavailableUntil[window.pid] = CFAbsoluteTimeGetCurrent() + miriAXFailureRetryDelay
-                dependencies.debugLog(
-                    "ax messaging timed out operation=set-frame pid=\(window.pid) app='\(window.appName)' retryIn=\(String(format: "%.2f", miriAXFailureRetryDelay))s"
-                )
+    func setWindowFrame(
+        _ frame: CGRect,
+        for window: ManagedWindow,
+        correctParking: Bool = false,
+        completion: @escaping (AXOperationResult<CGRect>) -> Void = { _ in }
+    ) {
+        let id = ObjectIdentifier(window)
+        requestedFrames[id] = frame
+        frameRetryGenerations[id, default: 0] &+= 1
+        let retryGeneration = frameRetryGenerations[id, default: 0]
+        let writeEpoch = frameWriteEpoch
+        authoredFrameWriteGenerations[id] = retryGeneration
+        let handle = AXElementHandle(
+            element: window.element,
+            pid: window.pid,
+            windowID: window.windowID
+        )
+        axOperations.setFrame(
+            frame,
+            handle: handle,
+            disableEnhancedUserInterface: true
+        ) { [weak self, weak window] result in
+            completion(result)
+            guard let self, let window,
+                  self.frameWriteEpoch == writeEpoch else { return }
+            if self.authoredFrameWriteGenerations[id] == retryGeneration {
+                self.authoredFrameWriteGenerations.removeValue(forKey: id)
+                self.authoredFrameNotificationUntil[id] = CFAbsoluteTimeGetCurrent() + 0.3
             }
-            return false
+            guard self.requestedFrames[id] == frame else { return }
+            guard result.disposition == .completed else {
+                if result.disposition == .superseded { return }
+                guard result.disposition == .circuitOpen || result.error == .cannotComplete else {
+                    self.requestedFrames.removeValue(forKey: id)
+                    return
+                }
+                let delay = max(result.retryAfter ?? miriAXFailureRetryDelay, 0.1)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak window] in
+                    guard let self, let window,
+                          self.frameWriteEpoch == writeEpoch,
+                          self.frameRetryGenerations[id] == retryGeneration,
+                          self.requestedFrames[id] == frame,
+                          self.dependencies.isLayoutTrackingAllowed()
+                    else { return }
+                    self.setWindowFrame(frame, for: window, correctParking: correctParking)
+                }
+                return
+            }
+            self.appliedFrames[id] = frame
+            if correctParking {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak window] in
+                    guard let self, let window,
+                          self.frameWriteEpoch == writeEpoch,
+                          self.requestedFrames[id] == frame else { return }
+                    self.applyCompositorParkingCorrection(to: frame, for: window)
+                }
+            }
         }
-        return true
     }
 
-    private func axMessagingIsAvailable(for pid: pid_t) -> Bool {
-        guard let unavailableUntil = axUnavailableUntil[pid] else { return true }
-        if CFAbsoluteTimeGetCurrent() >= unavailableUntil {
-            axUnavailableUntil.removeValue(forKey: pid)
-            return true
-        }
+    func shouldIgnoreAuthoredFrameNotification(for window: ManagedWindow) -> Bool {
+        let id = ObjectIdentifier(window)
+        if authoredFrameWriteGenerations[id] != nil { return true }
+        guard let deadline = authoredFrameNotificationUntil[id] else { return false }
+        if CFAbsoluteTimeGetCurrent() <= deadline { return true }
+        authoredFrameNotificationUntil.removeValue(forKey: id)
         return false
     }
 
     func focus(_ window: ManagedWindow) {
-        guard axMessagingIsAvailable(for: window.pid) else { return }
+        dependencies.notePhysicalFocusTarget(window)
         focusRequestGeneration &+= 1
         let generation = focusRequestGeneration
         dependencies.setFocusedNotificationSuppressionUntil(CFAbsoluteTimeGetCurrent() + 1.0)
@@ -555,7 +686,33 @@ final class LayoutController {
                   generation == self.focusRequestGeneration,
                   self.dependencies.activeWindow() === window else { return }
             self.dependencies.setFocusedNotificationSuppressionUntil(CFAbsoluteTimeGetCurrent() + 1.0)
-            self.windowSystem.focus(window)
+            NSRunningApplication(processIdentifier: window.pid)?.activate(options: [.activateIgnoringOtherApps])
+            self.submitPhysicalFocus(window, generation: generation)
+        }
+    }
+
+    private func submitPhysicalFocus(_ window: ManagedWindow, generation: UInt64) {
+        let handle = AXElementHandle(
+            element: window.element,
+            pid: window.pid,
+            windowID: window.windowID
+        )
+        axOperations.focus(handle: handle) { [weak self, weak window] result in
+            guard let self, let window,
+                  generation == self.focusRequestGeneration,
+                  self.dependencies.activeWindow() === window
+            else { return }
+            guard result.disposition != .completed else { return }
+            guard result.disposition == .circuitOpen || result.error == .cannotComplete else { return }
+            let delay = max(result.retryAfter ?? miriAXFailureRetryDelay, 0.1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak window] in
+                guard let self, let window,
+                      generation == self.focusRequestGeneration,
+                      self.dependencies.activeWindow() === window,
+                      self.dependencies.isLayoutTrackingAllowed()
+                else { return }
+                self.submitPhysicalFocus(window, generation: generation)
+            }
         }
     }
 
@@ -572,7 +729,6 @@ extension LayoutController {
     var animationPixelThreshold: CGFloat { dependencies.settings().animationPixelThreshold }
 
     func currentViewport() -> CGRect { dependencies.currentViewport() }
-    func axFrame(_ element: AXUIElement) -> CGRect? { dependencies.axFrame(element) }
     func parkedSliverPoints(for viewport: CGRect) -> CGFloat { dependencies.parkedSliverPoints(viewport) }
     func renderedOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) {
         dependencies.renderedOutsets(window)

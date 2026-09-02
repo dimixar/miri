@@ -51,9 +51,9 @@ current scope and have not been tested.
 - **Reliable same-app focus tracking.** Focus and main-window AX notifications
   are backed by lightweight probes after mouse clicks and macOS Command-based
   window switching, covering apps that miss useful focus notifications.
-- **Hung-app isolation.** Accessibility IPC has a short process-wide timeout,
-  and timed-out frame writes are briefly quarantined per app so one beachballing
-  window cannot stall miri's event loop indefinitely.
+- **Hung-app isolation.** Accessibility IPC runs on independent per-process
+  lanes with a short process-wide timeout and shared adaptive PID circuits, so
+  one beachballing app cannot block focus, layout, or discovery for healthy apps.
 - **Active stale-window recovery.** Known problematic apps can be targeted for
   extra rescans while tiled, improving UX when they miss Accessibility events.
   This is a mitigation for broken app behavior, not a guarantee that those apps
@@ -186,10 +186,13 @@ Once the desktop session is available, miri waits for a layout-relevant action:
 - a key press delivered to the focused managed window; or
 - a registered Miri Carbon hot key while a managed window is focused.
 
-Input aimed at the lock/login UI does not release the guard. Regular apps
-launched while miri is waiting are remembered so their first valid managed-window
-interaction can also resume tracking. Recovery then performs one rescan,
-restarts the safety timers, and runs a triggering Miri command if one was queued.
+Input aimed at the lock/login UI does not release the guard. Target AX checks
+run on isolated per-app lanes rather than the main event loop. Regular apps
+launched while miri is waiting are remembered so their first valid
+managed-window interaction can also resume tracking. Recovery first quiesces
+pre-lock AX work, clears stale frame/focus caches, refreshes current focus, and
+completes one full rescan. Only then does miri return to running, restart safety
+timers, and run a triggering command if one was queued.
 
 Some applications expose transiently malformed Accessibility state during a
 session transition. In particular, an `AXWindows` query may return an
@@ -304,6 +307,9 @@ of the private list above.
   window images.
 - Mission Control-style transitions, fullscreen enter/exit, and unusual
   app-specific AX behavior may still need a later reconciliation pass.
+- AX IPC runs on isolated per-process lanes. A beachballing application opens
+  an adaptive circuit for only its PID; focus/layout for healthy apps remains
+  responsive, and superseded frame/focus requests are coalesced.
 - Active rescans are enabled by default for known problematic apps such as
   Notion. They help recover stale windows when apps miss Accessibility events,
   but apps that report stale/contradictory AX frames can still behave

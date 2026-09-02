@@ -4,12 +4,6 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-enum AXCreatedReconciliationAction {
-    case ignore
-    case normal
-    case shortProbe
-}
-
 /// Immutable result of an AX enumeration. Reconciliation converts this into a
 /// canonical `ManagedWindow` only when the logical model adopts the window.
 struct DiscoveredWindowObservation {
@@ -38,14 +32,39 @@ private struct MissingWindowResult {
     let canSaveLogicalSpace: Bool
 }
 
+@MainActor
+private final class FullWindowDiscoveryAccumulator {
+    let generation: UInt64
+    let completion: (Bool) -> Void
+    var remaining: Int
+    var observations: [DiscoveredWindowObservation] = []
+    var unavailablePIDs = Set<pid_t>()
+    var staleRescanRequested = false
+
+    init(generation: UInt64, remaining: Int, completion: @escaping (Bool) -> Void) {
+        self.generation = generation
+        self.remaining = remaining
+        self.completion = completion
+    }
+}
+
 extension Miri {
     func applicationActivatedImplementation(_ app: NSRunningApplication) {
-        guard sessionController.isLayoutTrackingAllowed else {
-            return
+        guard appPhase == .running,
+              sessionController.isLayoutTrackingAllowed else { return }
+        refreshTransientSystemWindowState { [weak self, weak app] in
+            guard let self,
+                  let app,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+            else { return }
+            self.finishApplicationActivationAfterTransientRefresh(app)
         }
-        guard !transientSystemWindowIsActive(forceRefresh: true) else {
-            return
-        }
+    }
+
+    func finishApplicationActivationAfterTransientRefresh(_ app: NSRunningApplication) {
+        guard sessionController.isLayoutTrackingAllowed,
+              !windowManagement.observation.transientWindowActive
+        else { return }
         let previousPID = lastActivatedApplicationPID
         lastActivatedApplicationPID = app.processIdentifier
 
@@ -65,7 +84,7 @@ extension Miri {
         guard CFAbsoluteTimeGetCurrent() >= suppressFocusedWindowNotificationsUntil else {
             return
         }
-        adoptFocusedWindow(
+        requestFocusedWindowAdoption(
             pid: app.processIdentifier,
             animateIfSameWorkspace: true,
             reason: "NSWorkspaceDidActivate"
@@ -73,6 +92,8 @@ extension Miri {
     }
 
     func applicationActivationSettledImplementation(_ app: NSRunningApplication) {
+        guard appPhase == .running,
+              sessionController.isLayoutTrackingAllowed else { return }
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         guard frontmostPID == app.processIdentifier else {
             let frontmostDescription = frontmostPID.map(String.init) ?? "nil"
@@ -92,8 +113,11 @@ extension Miri {
     }
 
     func applicationLaunchedImplementation(_ app: NSRunningApplication) {
-        guard sessionController.isLayoutTrackingAllowed else {
-            if sessionController.isAwaitingRecoveryInteraction, app.activationPolicy == .regular {
+        windowManagement.observation.noteWindowStateChange(pid: app.processIdentifier)
+        guard appPhase == .running,
+              sessionController.isLayoutTrackingAllowed else {
+            if (sessionController.isAwaitingRecoveryInteraction || appPhase == .sessionRecovering),
+               app.activationPolicy == .regular {
                 pendingSessionRecoveryLaunchedPIDs.insert(app.processIdentifier)
                 debugLog("session recovery noted launched app pid=\(app.processIdentifier) bundle='\(app.bundleIdentifier ?? "nil")'")
             }
@@ -111,9 +135,13 @@ extension Miri {
         )
         removeWindows(
             forPID: app.processIdentifier,
-            applyLayout: sessionController.isLayoutTrackingAllowed && !axReconciliationShouldDefer
+            applyLayout: appPhase == .running
+                && sessionController.isLayoutTrackingAllowed
+                && !axReconciliationShouldDefer
         )
-        if sessionController.isLayoutTrackingAllowed, axReconciliationShouldDefer {
+        if appPhase == .running,
+           sessionController.isLayoutTrackingAllowed,
+           axReconciliationShouldDefer {
             requestReconciliation(
                 .all(adoptFocused: true, source: .workspace, reason: "application-terminated")
             )
@@ -121,7 +149,9 @@ extension Miri {
     }
 
     func activeSpaceChangedImplementation() {
-        guard sessionController.isLayoutTrackingAllowed else {
+        windowManagement.observation.noteGlobalStateChange()
+        guard appPhase == .running,
+              sessionController.isLayoutTrackingAllowed else {
             return
         }
         if activeContextHasBufferedSourceWindows() {
@@ -138,15 +168,23 @@ extension Miri {
         )
     }
 
-    func reconcileWindows(forPID pid: pid_t, adoptFocused: Bool) {
+    func reconcileWindows(
+        forPID pid: pid_t,
+        adoptFocused: Bool,
+        priority: AXOperationPriority = .normal
+    ) {
         guard let app = NSRunningApplication(processIdentifier: pid) else {
             debugLog("reconcile skipped reason=no-running-app pid=\(pid)")
             return
         }
-        reconcileWindows(for: app, adoptFocused: adoptFocused)
+        reconcileWindows(for: app, adoptFocused: adoptFocused, priority: priority)
     }
 
-    func reconcileWindows(for app: NSRunningApplication, adoptFocused: Bool) {
+    func reconcileWindows(
+        for app: NSRunningApplication,
+        adoptFocused: Bool,
+        priority: AXOperationPriority = .normal
+    ) {
         guard sessionController.isLayoutTrackingAllowed else {
             return
         }
@@ -169,28 +207,92 @@ extension Miri {
             debugLog("reconcile skipped reason=self pid=\(app.processIdentifier)")
             return
         }
-        guard !transientSystemWindowIsActive() else {
+        if app.isHidden {
+            windowManagement.observation.noteWindowStateChange(pid: app.processIdentifier)
+            reconcileDiscoveredWindows(
+                [],
+                replacingPID: app.processIdentifier,
+                layoutLockDelay: 0.02
+            )
+            return
+        }
+        guard !windowManagement.observation.transientWindowActive else {
             debugLog("reconcile skipped reason=transient-system-window-active app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
             return
         }
 
         startObservingApp(pid: app.processIdentifier)
-        guard let observations = discoverWindows(for: app) else {
-            debugLog("reconcile ax-windows unavailable app='\(app.localizedName ?? "pid \(app.processIdentifier)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(app.processIdentifier)")
-            removeVanishedWindows(
-                forPID: app.processIdentifier,
-                adoptFocused: adoptFocused,
-                reason: "reconcile AXWindows unavailable"
-            )
-            return
+        let pid = app.processIdentifier
+        let stateGeneration = windowManagement.observation.stateGeneration(for: pid)
+        let supplementalHandles = allWindows().filter { $0.pid == pid }.map {
+            AXElementHandle(element: $0.element, pid: $0.pid, windowID: $0.windowID)
         }
-        let discovered = canonicalWindows(from: observations)
-        reconcileDiscoveredWindows(
-            discovered,
-            replacingPID: app.processIdentifier,
-            adoptFocused: adoptFocused,
-            layoutLockDelay: 0.08
-        )
+        axOperations.readApplication(
+            pid: pid,
+            priority: priority,
+            supplementalHandles: supplementalHandles,
+            coalescingKey: "targeted-reconciliation"
+        ) { [weak self] result in
+            guard let self,
+                  self.sessionController.isLayoutTrackingAllowed,
+                  NSRunningApplication(processIdentifier: pid) != nil
+            else { return }
+            guard stateGeneration == self.windowManagement.observation.stateGeneration(for: pid) else {
+                self.debugLog("reconcile result discarded reason=stale-state pid=\(pid)")
+                self.requestReconciliation(.application(
+                    pid: pid,
+                    adoptFocused: false,
+                    source: .delayedProbe,
+                    reason: "stale-async-reconcile"
+                ))
+                return
+            }
+            let mayAdoptFocused = adoptFocused
+                && NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+            guard !self.layoutController.isActive else {
+                self.requestReconciliation(.application(
+                    pid: pid,
+                    adoptFocused: mayAdoptFocused,
+                    source: .accessibility,
+                    reason: "async-reconcile-layout-active"
+                ))
+                return
+            }
+            guard result.disposition == .completed, let snapshot = result.value,
+                  let liveApp = NSRunningApplication(processIdentifier: pid)
+            else {
+                self.debugLog("reconcile ax-windows unavailable app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
+                self.removeVanishedWindows(
+                    forPID: pid,
+                    adoptFocused: mayAdoptFocused,
+                    reason: "reconcile AXWindows unavailable"
+                )
+                return
+            }
+            guard !liveApp.isHidden else {
+                self.windowManagement.observation.noteWindowStateChange(pid: pid)
+                self.reconcileDiscoveredWindows(
+                    [],
+                    replacingPID: pid,
+                    layoutLockDelay: 0.02
+                )
+                return
+            }
+            let observations = self.discoveredWindows(from: snapshot, app: liveApp)
+            let discovered = self.canonicalWindows(from: observations)
+            self.reconcileDiscoveredWindows(
+                discovered,
+                replacingPID: pid,
+                layoutLockDelay: 0.08
+            )
+            if mayAdoptFocused {
+                self.requestFocusedWindowAdoption(
+                    pid: pid,
+                    animateIfSameWorkspace: true,
+                    reason: "targeted-reconciliation"
+                )
+            }
+        }
     }
 
     func removeVanishedWindows(forPID pid: pid_t, adoptFocused: Bool, reason: String) {
@@ -219,7 +321,6 @@ extension Miri {
     func reconcileDiscoveredWindows(
         _ discovered: [ManagedWindow],
         replacingPID pid: pid_t,
-        adoptFocused: Bool,
         layoutLockDelay: TimeInterval
     ) {
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
@@ -259,20 +360,7 @@ extension Miri {
         }
 
         reconcileWorkspaceCapacity()
-        if adoptFocused {
-            let previousWorkspace = windowManagement.activeWorkspace
-            let previousActiveColumn = windowManagement.workspaces[previousWorkspace].activeColumn
-            let adoptedFocusedWindow = adoptFocusedWindow(
-                pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
-                applyLayout: false
-            )
-            let focusChanged = adoptedFocusedWindow
-                && (windowManagement.activeWorkspace != previousWorkspace
-                    || windowManagement.workspaces[windowManagement.activeWorkspace].activeColumn != previousActiveColumn)
-            if changed || focusChanged {
-                projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
-            }
-        } else if changed {
+        if changed {
             projectLayout(focusActiveWindow: false, layoutLockDelay: layoutLockDelay)
         }
         if changed && shouldSaveLogicalSpaceContext {
@@ -317,11 +405,12 @@ extension Miri {
             insertFloatingWindow(found, applyLayout: false)
         } else {
             restoreMinimizedWindowStateIfAvailable(for: found)
-            let isFrontmostApp = found.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
+            // Discovery mutates lifecycle state only. A separate current,
+            // frontmost-validated focused-window read decides focus afterward.
             insertRestoredWindowNearFocused(
                 found,
                 applyLayout: false,
-                focusNewWindow: isFrontmostApp
+                focusNewWindow: false
             )
         }
         return true
@@ -342,21 +431,140 @@ extension Miri {
         }
     }
 
-    func rescanWindows(adoptFocused: Bool) {
+    func rescanWindows(
+        adoptFocused: Bool,
+        completion: @escaping (Bool) -> Void = { _ in }
+    ) {
         guard sessionController.isLayoutTrackingAllowed else {
+            completion(false)
             return
         }
         guard !layoutController.isActive else {
             requestReconciliation(
                 .all(adoptFocused: adoptFocused, source: .periodicTimer, reason: "rescan-gate")
             )
+            completion(false)
             return
         }
-        guard !transientSystemWindowIsActive() else {
+        guard !windowManagement.observation.transientWindowActive else {
+            completion(false)
             return
         }
 
-        let discovery = discoverWindows()
+        fullWindowScanGeneration &+= 1
+        let generation = fullWindowScanGeneration
+        let stateGeneration = windowManagement.observation.globalStateGeneration
+        let apps = NSWorkspace.shared.runningApplications
+            .filter {
+                $0.activationPolicy == .regular
+                    && !$0.isHidden
+                    && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+            }
+            .sorted { $0.processIdentifier < $1.processIdentifier }
+        let accumulator = FullWindowDiscoveryAccumulator(
+            generation: generation,
+            remaining: apps.count,
+            completion: completion
+        )
+        guard !apps.isEmpty else {
+            completeRescanWindows(
+                WindowDiscoverySnapshot(observations: [], unavailablePIDs: []),
+                adoptFocused: adoptFocused,
+                completion: completion
+            )
+            return
+        }
+
+        for app in apps {
+            startObservingApp(pid: app.processIdentifier)
+            let pid = app.processIdentifier
+            let supplementalHandles = allWindows().filter { $0.pid == pid }.map {
+                AXElementHandle(element: $0.element, pid: $0.pid, windowID: $0.windowID)
+            }
+            axOperations.readApplication(
+                pid: pid,
+                priority: .normal,
+                supplementalHandles: supplementalHandles,
+                coalescingKey: "full-reconciliation"
+            ) { [weak self, weak app] result in
+                guard let self,
+                      generation == self.fullWindowScanGeneration,
+                      accumulator.generation == generation
+                else { return }
+                guard stateGeneration == self.windowManagement.observation.globalStateGeneration else {
+                    if !accumulator.staleRescanRequested {
+                        accumulator.staleRescanRequested = true
+                        self.fullWindowScanGeneration &+= 1
+                        accumulator.completion(false)
+                        self.requestReconciliation(.all(
+                            adoptFocused: false,
+                            source: .delayedProbe,
+                            reason: "stale-async-full-rescan"
+                        ))
+                    }
+                    return
+                }
+                if result.disposition == .completed,
+                   let snapshot = result.value,
+                   let liveApp = app ?? NSRunningApplication(processIdentifier: pid)
+                {
+                    if liveApp.isHidden {
+                        self.windowManagement.observation.noteWindowStateChange(pid: pid)
+                        if !accumulator.staleRescanRequested {
+                            accumulator.staleRescanRequested = true
+                            self.fullWindowScanGeneration &+= 1
+                            accumulator.completion(false)
+                            self.requestReconciliation(.all(
+                                adoptFocused: false,
+                                source: .delayedProbe,
+                                reason: "app-hidden-during-full-rescan"
+                            ))
+                        }
+                        return
+                    }
+                    accumulator.observations.append(contentsOf: self.discoveredWindows(
+                        from: snapshot,
+                        app: liveApp
+                    ))
+                } else {
+                    accumulator.unavailablePIDs.insert(pid)
+                    accumulator.observations.append(contentsOf: self.allWindows()
+                        .filter { $0.pid == pid }
+                        .map(self.observationDescriptor))
+                }
+                accumulator.remaining -= 1
+                guard accumulator.remaining == 0 else { return }
+                self.completeRescanWindows(
+                    WindowDiscoverySnapshot(
+                        observations: accumulator.observations,
+                        unavailablePIDs: accumulator.unavailablePIDs
+                    ),
+                    adoptFocused: adoptFocused,
+                    completion: accumulator.completion
+                )
+            }
+        }
+    }
+
+    private func completeRescanWindows(
+        _ discovery: WindowDiscoverySnapshot,
+        adoptFocused: Bool,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard sessionController.isLayoutTrackingAllowed else {
+            completion(false)
+            return
+        }
+        guard !layoutController.isActive else {
+            requestReconciliation(.all(
+                adoptFocused: adoptFocused,
+                source: .accessibility,
+                reason: "async-full-rescan-layout-active"
+            ))
+            completion(false)
+            return
+        }
+
         let discovered = canonicalWindows(from: discovery.observations)
         for found in discovered {
             noteAppLaunchSettlingWindowObserved(found)
@@ -365,6 +573,7 @@ extension Miri {
         if let fullscreenState = focusedRememberedFullscreenWindowState() {
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
+            completion(true)
             return
         }
         if likelyFullscreenExitSettle(discovered: discovered) {
@@ -373,6 +582,7 @@ extension Miri {
                 .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-exit-settle"),
                 delay: 0.25
             )
+            completion(false)
             return
         }
 
@@ -386,6 +596,7 @@ extension Miri {
                 .all(adoptFocused: true, source: .delayedProbe, reason: "bulk-disappearance-settle"),
                 delay: 0.25
             )
+            completion(false)
             return
         }
 
@@ -414,27 +625,42 @@ extension Miri {
         reconcileWorkspaceCapacity()
 
         if adoptFocused {
-            let restoredPersistentFocus: Bool
+            let layoutDelay = restoredPersistentLayout ? 0.4 : 0.08
             if fullscreenSpaceChangeGuardIsActive() {
                 enforceFullscreenSpaceGuardWorkspace()
-                restoredPersistentFocus = false
+                projectLayout(focusActiveWindow: false, layoutLockDelay: layoutDelay)
             } else {
-                let adoptedFocusedWindow = adoptFocusedWindow(
+                projectLayout(focusActiveWindow: false, layoutLockDelay: layoutDelay)
+                let focusRequestGeneration = focusStateGeneration
+                requestFocusedWindowAdoption(
                     pid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
-                    applyLayout: false
-                )
-                restoredPersistentFocus = adoptedFocusedWindow ? false : restorePersistentFocusedWindow()
+                    animateIfSameWorkspace: false,
+                    reason: "full-reconciliation"
+                ) { [weak self] adopted in
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    if !adopted,
+                       self.focusStateGeneration == focusRequestGeneration,
+                       self.restorePersistentFocusedWindow()
+                    {
+                        self.projectLayout(focusActiveWindow: true, layoutLockDelay: layoutDelay)
+                    }
+                    completion(true)
+                }
+                if shouldSaveLogicalSpaceContext {
+                    saveActiveLogicalSpaceContext()
+                }
+                return
             }
-            projectLayout(
-                focusActiveWindow: restoredPersistentFocus,
-                layoutLockDelay: restoredPersistentLayout ? 0.4 : 0.08
-            )
         } else if changed || restoredPersistentLayout {
             projectLayout(focusActiveWindow: false, layoutLockDelay: restoredPersistentLayout ? 0.4 : 0.08)
         }
         if shouldSaveLogicalSpaceContext {
             saveActiveLogicalSpaceContext()
         }
+        completion(true)
     }
 
     private func missingWindowDisposition(
@@ -444,15 +670,12 @@ extension Miri {
         let now = CFAbsoluteTimeGetCurrent()
         let identity = ObjectIdentifier(window)
         let runningApp = NSRunningApplication(processIdentifier: window.pid)
-        // Once the app-level AXWindows query has timed out, do not issue more
-        // synchronous AX calls for each of that app's known windows.
-        let temporarilyHidden = runningApp?.isHidden == true
-            || (!context.axEnumerationUnavailable && isHiddenOrMinimizedWindow(window.element))
+        let temporarilyHidden = runningApp?.isHidden == true || window.isMinimized
         let pendingFullscreenWithinGrace = windowManagement
             .pendingFullscreenTransition(for: identity)
             .map { now - $0 < fullscreenTransitionGrace } == true
         let hasCGInfo = windowHasCGInfo(window)
-        let fullscreen = !context.axEnumerationUnavailable && isFullscreenWindow(window.element)
+        let fullscreen = window.isFullscreen
         let behaviorIsIgnored = behavior(for: window) == .ignore
         let fullscreenGuardActive = now < fullscreenTransitionGuardUntil
         let appearsInUnknownSpace = windowAppearsInUnknownSpace(window)
@@ -525,129 +748,96 @@ extension Miri {
         }
     }
 
-    private func discoverWindows() -> WindowDiscoverySnapshot {
-        var windows: [DiscoveredWindowObservation] = []
-        var unavailablePIDs = Set<pid_t>()
-
-        for app in NSWorkspace.shared.runningApplications.sorted(by: {
-            $0.processIdentifier < $1.processIdentifier
-        }) {
-            if let appWindows = discoverWindows(for: app) {
-                windows.append(contentsOf: appWindows)
-            } else {
-                unavailablePIDs.insert(app.processIdentifier)
-                windows.append(contentsOf: allWindows()
-                    .filter { $0.pid == app.processIdentifier }
-                    .map(observationDescriptor))
-            }
-        }
-
-        return WindowDiscoverySnapshot(
-            observations: windows,
-            unavailablePIDs: unavailablePIDs
-        )
-    }
-
-    func discoverWindows(for app: NSRunningApplication) -> [DiscoveredWindowObservation]? {
-        guard app.activationPolicy == .regular, !app.isHidden else {
-            return []
-        }
-        let pid = app.processIdentifier
-        guard pid != ProcessInfo.processInfo.processIdentifier else {
-            return []
-        }
-
-        startObservingApp(pid: pid)
-
-        let appElement = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
-        guard error == .success, let axWindows = value as? [AXUIElement] else {
-            if error == .cannotComplete {
-                debugLog(
-                    "ax messaging timed out operation=discover-windows app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) timeout=\(String(format: "%.2f", miriAXMessagingTimeout))s"
-                )
-            }
-            return nil
-        }
-
-        let containsApplicationRoot = axWindows.contains {
-            axString($0, kAXRoleAttribute) == kAXApplicationRole
-        }
-        let windowElements = axWindows.filter {
-            axString($0, kAXRoleAttribute) == kAXWindowRole
-        }
+    func discoveredWindows(
+        from snapshot: AXApplicationReadSnapshot,
+        app: NSRunningApplication
+    ) -> [DiscoveredWindowObservation] {
+        let pid = snapshot.pid
+        let windowSnapshots = snapshot.windows.filter { $0.role == kAXWindowRole }
         let knownWindows = allWindows().filter { $0.pid == pid }
+        for windowSnapshot in windowSnapshots + snapshot.supplementalWindows {
+            if let known = knownWindows.first(where: {
+                sameWindow($0.element, windowSnapshot.handle.element)
+            }) {
+                known.isMinimized = windowSnapshot.minimized == true
+                known.isFullscreen = windowSnapshot.fullscreen == true
+            }
+        }
 
-        if containsApplicationRoot, windowElements.isEmpty {
-            // Telegram can transiently return only its AXApplication root from AXWindows
-            // while the session is locking. Preserve known windows until AX returns a
-            // usable enumeration again.
+        if snapshot.containsApplicationRoot, windowSnapshots.isEmpty {
             debugLog("ignoring malformed root-only ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid)")
             return knownWindows.map(observationDescriptor)
         }
 
-        var windows: [DiscoveredWindowObservation] = []
-        for element in windowElements {
-            if let window = discoveredWindow(from: element, app: app, source: "scan") {
-                windows.append(window)
-            }
+        var windows = windowSnapshots.compactMap {
+            discoveredWindow(from: $0, app: app, source: "async-scan")
         }
-
-        if containsApplicationRoot {
-            // A mixed AXApplication/AXWindow response is still structurally malformed.
-            // Accept reported windows so newly launched apps can be discovered, but do
-            // not trust the response to prove that an existing window disappeared.
+        if snapshot.containsApplicationRoot {
             for knownWindow in knownWindows where !windows.contains(where: {
                 sameWindow($0.element, knownWindow.element)
             }) {
                 windows.append(observationDescriptor(for: knownWindow))
             }
-            debugLog("accepted windows from malformed mixed ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) reported=\(windowElements.count) accepted=\(windows.count)")
+            debugLog("accepted windows from malformed mixed ax-windows response app='\(app.localizedName ?? "pid \(pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(pid) reported=\(windowSnapshots.count) accepted=\(windows.count)")
         }
-
         return windows.sorted(by: observationSortOrder)
     }
 
     func discoveredWindow(
-        from element: AXUIElement,
+        from snapshot: AXWindowReadSnapshot,
         app: NSRunningApplication,
         source: String
     ) -> DiscoveredWindowObservation? {
-        logRawAXWindowIfNeeded(element, app: app, source: source)
-        noteFullscreenSpaceHelperIfNeeded(element)
-        guard !isUnknownSubroleWindow(element),
-              !isHiddenOrMinimizedWindow(element),
-              !isFullscreenWindow(element),
-              isManageableWindow(element) || isKnownWindow(element) || isRememberedFullscreenWindow(element)
+        let element = snapshot.handle.element
+        if debugLogging {
+            debugLog(
+                "raw ax window source=\(source) app='\(app.localizedName ?? "pid \(snapshot.handle.pid)")' bundle='\(app.bundleIdentifier ?? "nil")' pid=\(snapshot.handle.pid) title='\(snapshot.title)' id=\(snapshot.handle.windowID.map(String.init) ?? "nil") role=\(snapshot.role ?? "nil") subrole=\(snapshot.subrole ?? "nil") frame=\(snapshot.frame.map { String(describing: $0) } ?? "nil") minimized=\(snapshot.minimized.map(String.init) ?? "nil") fullscreen=\(snapshot.fullscreen.map(String.init) ?? "nil") manageable=\(isManageableWindow(snapshot)) known=\(isKnownWindow(element))"
+            )
+        }
+        noteFullscreenSpaceHelperIfNeeded(snapshot)
+        guard snapshot.subrole != "AXUnknown",
+              snapshot.minimized != true,
+              snapshot.fullscreen != true,
+              isManageableWindow(snapshot) || isKnownWindow(element) || isRememberedFullscreenWindow(element)
         else {
             return nil
         }
-        let pid = app.processIdentifier
-        let title = axString(element, kAXTitleAttribute) ?? ""
-        let appName = app.localizedName ?? "pid \(pid)"
-        let windowID = SkyLight.shared.windowID(for: element)
+
+        let pid = snapshot.handle.pid
         let window = ManagedWindow(
             element: element,
             pid: pid,
-            windowID: windowID,
+            windowID: snapshot.handle.windowID,
             bundleID: app.bundleIdentifier,
-            appName: appName,
-            title: title
+            appName: app.localizedName ?? "pid \(pid)",
+            title: snapshot.title
         )
-        if !isKnownWindow(element), isLikelyTransientPopup(window, app: app) {
-            logTransientPopupIfNeeded(window, app: app)
+        if !isKnownWindow(element), isLikelyTransientPopup(window, app: app, frame: snapshot.frame) {
+            logTransientPopupIfNeeded(window, app: app, frame: snapshot.frame)
             return nil
         }
         if !isKnownWindow(element), isPictureInPictureWindow(window) {
-            logIgnoredPictureInPictureIfNeeded(window, app: app)
+            logIgnoredPictureInPictureIfNeeded(window, app: app, frame: snapshot.frame)
             return nil
         }
-        logDiscoveredWindowIfNeeded(window, app: app)
-        guard behavior(for: window) != .ignore else {
-            return nil
-        }
+        guard behavior(for: window) != .ignore else { return nil }
         return observationDescriptor(for: window)
+    }
+
+    func isManageableWindow(_ snapshot: AXWindowReadSnapshot) -> Bool {
+        guard snapshot.role == kAXWindowRole else { return false }
+        if let subrole = snapshot.subrole, subrole != kAXStandardWindowSubrole { return false }
+        guard let frame = snapshot.frame, frame.width >= 120, frame.height >= 80 else { return false }
+        return snapshot.positionSettable && snapshot.sizeSettable
+    }
+
+    func noteFullscreenSpaceHelperIfNeeded(_ snapshot: AXWindowReadSnapshot) {
+        guard snapshot.role == kAXWindowRole,
+              snapshot.subrole == "AXUnknown",
+              let frame = snapshot.frame,
+              isLikelyFullscreenFrame(frame)
+        else { return }
+        beginFullscreenSpaceChangeGuard()
     }
 
     func canonicalWindows(from observations: [DiscoveredWindowObservation]) -> [ManagedWindow] {
@@ -687,23 +877,11 @@ extension Miri {
         }
     }
 
-    func isHiddenOrMinimizedWindow(_ element: AXUIElement) -> Bool {
-        axBool(element, kAXMinimizedAttribute) == true
-    }
-
-    func isFullscreenWindow(_ element: AXUIElement) -> Bool {
-        axBool(element, "AXFullScreen") == true
-    }
-
     func isRememberedFullscreenWindow(_ element: AXUIElement) -> Bool {
         windowManagement.fullscreenWindowStates.values.contains { sameWindow($0.element, element) }
     }
 
-    func isLikelyFullscreenFrame(_ element: AXUIElement) -> Bool {
-        guard let frame = axFrame(element) else {
-            return false
-        }
-
+    func isLikelyFullscreenFrame(_ frame: CGRect) -> Bool {
         for screen in NSScreen.screens {
             let screenFrame = screen.frame
             let widthMatches = abs(frame.width - screenFrame.width) <= 4
@@ -745,42 +923,6 @@ extension Miri {
         let positionError = AXUIElementIsAttributeSettable(element, kAXPositionAttribute as CFString, &positionSettable)
         let sizeError = AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &sizeSettable)
         return positionError == .success && sizeError == .success && positionSettable.boolValue && sizeSettable.boolValue
-    }
-
-    func axCreatedReconciliationAction(for element: AXUIElement, pid: pid_t) -> AXCreatedReconciliationAction {
-        if pid == 0 || isKnownWindow(element) || isManageableWindow(element) {
-            return .normal
-        }
-
-        let knownWindowCount = allWindows().filter { $0.pid == pid }.count
-        if isLikelyAXCreatedWindowPlaceholder(element) {
-            return knownWindowCount == 0 ? .normal : .shortProbe
-        }
-
-        let role = axString(element, kAXRoleAttribute) ?? "nil"
-        let subrole = axString(element, kAXSubroleAttribute) ?? "nil"
-        let frameDescription = axFrame(element).map { String(describing: $0) } ?? "nil"
-        let title = axString(element, kAXTitleAttribute) ?? ""
-        debugLog("ax created ignored reason=unmanageable-created pid=\(pid) knownWindows=\(knownWindowCount) title='\(title)' role=\(role) subrole=\(subrole) frame=\(frameDescription)")
-        return .ignore
-    }
-
-    func isLikelyAXCreatedWindowPlaceholder(_ element: AXUIElement) -> Bool {
-        guard axString(element, kAXRoleAttribute) == kAXWindowRole else {
-            return false
-        }
-
-        let subrole = axString(element, kAXSubroleAttribute)
-        guard subrole == nil || subrole == kAXStandardWindowSubrole else {
-            return false
-        }
-
-        return axBool(element, kAXMinimizedAttribute) != true
-            && axBool(element, "AXFullScreen") != true
-    }
-
-    func isUnknownSubroleWindow(_ element: AXUIElement) -> Bool {
-        axString(element, kAXSubroleAttribute) == "AXUnknown"
     }
 
     func isKnownWindow(_ element: AXUIElement) -> Bool {
