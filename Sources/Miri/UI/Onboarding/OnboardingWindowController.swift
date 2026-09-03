@@ -1,15 +1,7 @@
 import AppKit
 import QuartzCore
 
-private enum MiriOnboardingPalette {
-    static let orange = NSColor(srgbRed: 1.00, green: 0.28, blue: 0.12, alpha: 1)
-    static let yellow = NSColor(srgbRed: 1.00, green: 0.72, blue: 0.00, alpha: 1)
-    static let green = NSColor(srgbRed: 0.00, green: 0.82, blue: 0.22, alpha: 1)
-    static let graphite = NSColor(srgbRed: 0.075, green: 0.08, blue: 0.09, alpha: 1)
-    static let charcoal = NSColor(srgbRed: 0.14, green: 0.15, blue: 0.16, alpha: 1)
-    static let silver = NSColor(srgbRed: 0.82, green: 0.83, blue: 0.85, alpha: 1)
-    static let paper = NSColor(srgbRed: 0.95, green: 0.95, blue: 0.96, alpha: 1)
-}
+private typealias MiriOnboardingPalette = MiriVisualStyle
 
 @MainActor
 final class OnboardingWindowController: NSWindowController {
@@ -924,7 +916,7 @@ private final class LayoutChoiceButton: NSButton {
 }
 
 @MainActor
-private final class LayoutPreviewView: NSView {
+final class LayoutPreviewView: NSView {
     private let alignment: FocusAlignment
 
     init(alignment: FocusAlignment) {
@@ -963,7 +955,7 @@ private final class LayoutPreviewView: NSView {
 }
 
 @MainActor
-private final class AnimationPreviewView: NSView {
+final class AnimationPreviewView: NSView {
     private enum PreviewState {
         case initial
         case centerFocused
