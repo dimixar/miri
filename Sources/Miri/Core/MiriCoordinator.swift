@@ -247,6 +247,8 @@ extension Miri {
             requestScreenRecordingPermissionImplementation()
         case .restart:
             restartApplicationImplementation()
+        case .restartOnboarding:
+            restartOnboardingImplementation()
         case .openConfig:
             openConfigFromMenuImplementation()
         case .reloadConfig:
@@ -581,6 +583,7 @@ private extension UIAction {
         case .requestAccessibilityPermission: return "ui.request-accessibility-permission"
         case .requestScreenRecordingPermission: return "ui.request-screen-recording-permission"
         case .restart: return "ui.restart"
+        case .restartOnboarding: return "ui.restart-onboarding"
         case .openConfig: return "ui.open-config"
         case .reloadConfig: return "ui.reload-config"
         case .rescanWindows: return "ui.rescan-windows"

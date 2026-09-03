@@ -163,6 +163,7 @@ enum UIAction {
     case requestAccessibilityPermission
     case requestScreenRecordingPermission
     case restart
+    case restartOnboarding
     case openConfig
     case reloadConfig
     case rescanWindows

@@ -78,6 +78,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(permissionItem)
         menu.addItem(permissionSeparator)
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Restart Onboarding…", action: #selector(restartOnboarding), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Open Config", action: #selector(openConfig), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: ""))
         menu.addItem(rescanItem)
@@ -753,6 +754,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func restartMiri() {
         actionSink(.restart)
+    }
+
+    @objc private func restartOnboarding() {
+        let alert = NSAlert()
+        alert.messageText = "Restart onboarding?"
+        alert.informativeText = "Miri will restart, pause window management, and begin setup again using your current configuration as the starting point. Any unsaved Settings changes will be lost."
+        alert.addButton(withTitle: "Restart Onboarding")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        actionSink(.restartOnboarding)
     }
 
     @objc private func openConfig() {

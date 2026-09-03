@@ -30,8 +30,12 @@ final class OnboardingStore {
     private(set) var progress: OnboardingProgress
     private let url: URL
 
-    init(config: MiriConfig, hasExistingConfiguration: Bool) {
-        url = FileManager.default.homeDirectoryForCurrentUser
+    init(
+        config: MiriConfig,
+        hasExistingConfiguration: Bool,
+        storageURL: URL? = nil
+    ) {
+        url = storageURL ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Miri/onboarding.json")
 
         if CommandLine.arguments.contains("--onboarding") {
@@ -68,6 +72,11 @@ final class OnboardingStore {
         var completed = progress
         completed.step = .completed
         self.progress = completed
+        persist()
+    }
+
+    func resetForRestart(config: MiriConfig) {
+        progress = .fresh(config: config)
         persist()
     }
 

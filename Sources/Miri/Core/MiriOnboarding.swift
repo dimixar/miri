@@ -32,6 +32,11 @@ extension Miri {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @MainActor func restartOnboardingImplementation() {
+        onboardingStore.resetForRestart(config: configStore.documentConfig)
+        restartApplicationImplementation()
+    }
+
     @MainActor func completeOnboardingImplementation(_ progress: OnboardingProgress) {
         guard AXIsProcessTrusted() else {
             onboardingWindowController?.presentError(

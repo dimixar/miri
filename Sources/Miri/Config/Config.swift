@@ -1,13 +1,13 @@
 import CoreGraphics
 import Foundation
 
-enum WindowBehavior: String, Codable {
+enum WindowBehavior: String, Codable, Hashable {
     case tile
     case float
     case ignore
 }
 
-enum FocusAlignment: String, Codable {
+enum FocusAlignment: String, Codable, Hashable {
     case `default`
     case centered
     case centeredSmart = "centered_smart"
@@ -31,19 +31,19 @@ enum FocusAlignment: String, Codable {
     }
 }
 
-enum NewWindowPosition: String, Codable {
+enum NewWindowPosition: String, Codable, Hashable {
     case beforeActive = "before_active"
     case afterActive = "after_active"
     case end
 }
 
-enum AnimationCurve: String, Codable {
+enum AnimationCurve: String, Codable, Hashable {
     case smooth
     case snappy
     case linear
 }
 
-enum AnimationStrategy: String, Codable {
+enum AnimationStrategy: String, Codable, Hashable {
     case snapshot
     case off
 
@@ -60,14 +60,14 @@ enum AnimationStrategy: String, Codable {
     }
 }
 
-enum WorkspaceBarOverflowStyle: String, Codable {
+enum WorkspaceBarOverflowStyle: String, Codable, Hashable {
     case plusCount = "plus_count"
     case dotsCount = "dots_count"
     case chevron
     case none
 }
 
-enum WorkspaceBarActiveStyle: String, Codable {
+enum WorkspaceBarActiveStyle: String, Codable, Hashable {
     case braces
     case filledPointer = "filled_pointer"
     case filledDot = "filled_dot"
@@ -101,18 +101,18 @@ enum WorkspaceBarActiveStyle: String, Codable {
     }
 }
 
-enum WorkspaceBarCenterStyle: String, Codable {
+enum WorkspaceBarCenterStyle: String, Codable, Hashable {
     case delimiter
     case border
     case filledBorder = "filled_border"
 }
 
-enum WidthResizeMode: String, Codable {
+enum WidthResizeMode: String, Codable, Hashable {
     case `default`
     case intelligent
 }
 
-enum KeyboardShortcutBackend: String, Codable {
+enum KeyboardShortcutBackend: String, Codable, Hashable {
     case eventTap = "event_tap"
     case registeredHotKeys = "registered_hot_keys"
 }
@@ -426,7 +426,7 @@ struct MiriConfig: Codable {
     }
 }
 
-struct WindowRule: Codable {
+struct WindowRule: Codable, Equatable {
     var bundleID: String?
     var appName: String?
     var titleContains: String?
