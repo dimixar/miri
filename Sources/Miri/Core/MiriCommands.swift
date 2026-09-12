@@ -79,16 +79,14 @@ extension Miri {
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
-            _ = windowManagement.focusColumn(at: workspace.activeColumn - 1)
-            revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
+            focusColumn(by: -1, in: workspace, viewport: currentViewport())
             animated = true
         case .columnRight:
             lastHorizontalFocusDirection = 1
             guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
                 return
             }
-            _ = windowManagement.focusColumn(at: workspace.activeColumn + 1)
-            revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
+            focusColumn(by: 1, in: workspace, viewport: currentViewport())
             animated = true
         case .columnFirst:
             guard focusColumn(at: 0) else {
@@ -265,6 +263,15 @@ extension Miri {
 
     var activeEmptyWorkspaceHasFocusAuthority: Bool {
         windowManagement.activeEmptyWorkspaceHasFocusAuthority
+    }
+
+    func focusColumn(by delta: Int, in workspace: Workspace, viewport: CGRect) {
+        // Resolve the old camera before changing focus, including an implicit
+        // offset, so an already-visible target does not realign the strip.
+        let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
+        windowManagement.setActiveColumn(workspace.activeColumn + delta, in: workspace)
+        windowManagement.setScrollOffset(scrollOffset, in: workspace)
+        revealActiveColumnIfNeeded(in: workspace, viewport: viewport)
     }
 
     func focusColumn(at requestedIndex: Int) -> Bool {
