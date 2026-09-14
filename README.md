@@ -37,8 +37,10 @@ current scope and have not been tested.
 
 - **Niri-like columns.** A keyboard-first horizontal column layout for macOS.
 - **Configurable focus alignment.** Keep the current camera position and reveal
-  only what is clipped, always center the focused window, or center only windows
-  wider than half the display.
+  only what is clipped, always center the focused window, or use Smart Centered
+  to share the viewport with the smallest fitting neighbor of a wide window.
+  Smart Centered minimally reveals windows below half width and always centers
+  a workspace's only window.
 - **Virtual workspaces.** Independent Miri workspaces with per-workspace focus
   and scroll state.
 - **Logical Space contexts.** Separate Miri state per inferred macOS Space,

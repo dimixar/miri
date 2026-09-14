@@ -64,8 +64,14 @@ The repository includes a complete default config at
 - `preset_width_ratios`: ratios used by width cycling commands.
 - `focus_alignment`: `default`, `centered`, or `centered_smart`. Default moves
   only enough to fully reveal the focused window. Centered always centers it.
-  Centered smart centers windows wider than half the viewport and minimally
-  reveals windows at or below half width. Legacy `left` and `smart` values are
+  Centered smart always centers a workspace's only tiled window. With multiple
+  windows, it minimally reveals a focused window below half width. At half width
+  or wider, it fits the smallest eligible immediate neighbor alongside the focus,
+  or centers the focus if neither neighbor fits. Equal-width neighbors favor the
+  existing view, then the least scrolling, then the left neighbor. An already
+  visible selected pair stays stationary; otherwise the focus stays as close to
+  center as the pair allows. Widths are measured within the usable viewport;
+  fitting does not resize or reorder windows. Legacy `left` and `smart` values are
   migrated to `default`; legacy `center` is migrated to `centered`. The obsolete
   `center_focused_column` key is removed during migration. Loading a legacy
   value atomically rewrites the active config with its normalized replacement.

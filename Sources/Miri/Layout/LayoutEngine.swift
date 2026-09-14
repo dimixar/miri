@@ -107,28 +107,13 @@ enum LayoutEngine {
     ) -> [CGRect] {
         guard !workspace.columns.isEmpty else { return [] }
         let metrics = stripMetrics(workspace: workspace, viewport: viewport)
-        let offset: CGFloat
-        if metrics.widths.indices.contains(activeColumn),
-           metrics.origins.indices.contains(activeColumn),
-           shouldCenterColumn(width: metrics.widths[activeColumn], viewport: viewport, settings: settings) {
-            offset = centeredScrollOffset(
-                columnMinX: metrics.origins[activeColumn],
-                columnWidth: metrics.widths[activeColumn],
-                viewport: viewport
-            )
-        } else if let preferredScrollOffset {
-            offset = min(
-                max(preferredScrollOffset, 0),
-                maxHorizontalCameraOffset(workspace: workspace, viewport: viewport, settings: settings)
-            )
-        } else {
-            offset = defaultScrollOffset(
-                metrics: metrics,
-                activeColumn: activeColumn,
-                viewport: viewport,
-                settings: settings
-            )
-        }
+        let offset = resolveScrollOffset(
+            metrics: metrics,
+            activeColumn: activeColumn,
+            viewport: viewport,
+            focusAlignment: settings.focusAlignment,
+            preferredScrollOffset: preferredScrollOffset
+        )
         return workspace.columns.indices.map { index in
             CGRect(
                 x: viewport.minX + metrics.origins[index] - offset,
@@ -159,47 +144,119 @@ enum LayoutEngine {
     }
 
     static func maxHorizontalCameraOffset(
-        workspace: LayoutEngineWorkspace,
+        metrics: (origins: [CGFloat], widths: [CGFloat]),
         viewport: CGRect,
-        settings: LayoutEngineSettings
+        focusAlignment: FocusAlignment
     ) -> CGFloat {
-        guard !workspace.columns.isEmpty else { return 0 }
-        let metrics = stripMetrics(workspace: workspace, viewport: viewport)
+        guard !metrics.widths.isEmpty, metrics.origins.count == metrics.widths.count else { return 0 }
         let contentWidth = zip(metrics.origins, metrics.widths).map(+).max() ?? viewport.width
-        let lastOffset = defaultScrollOffset(
+        let lastOffset = alignedScrollOffset(
             metrics: metrics,
-            activeColumn: workspace.columns.count - 1,
+            activeColumn: metrics.widths.count - 1,
             viewport: viewport,
-            settings: settings
-        )
+            focusAlignment: focusAlignment,
+            preferredScrollOffset: nil
+        ) ?? 0
         return max(0, contentWidth - viewport.width, lastOffset)
     }
 
-    static func defaultScrollOffset(
+    /// Resolves alignment before ordinary strip bounds: centering a boundary
+    /// window, or fitting its neighbor, can legitimately need a negative offset.
+    static func resolveScrollOffset(
         metrics: (origins: [CGFloat], widths: [CGFloat]),
         activeColumn: Int,
         viewport: CGRect,
-        settings: LayoutEngineSettings
+        focusAlignment: FocusAlignment,
+        preferredScrollOffset: CGFloat?,
+        revealActiveColumn: Bool = false
     ) -> CGFloat {
-        guard metrics.origins.indices.contains(activeColumn), metrics.widths.indices.contains(activeColumn) else {
+        guard viewport.width > 0,
+              metrics.origins.count == metrics.widths.count,
+              metrics.widths.indices.contains(activeColumn) else {
             return 0
         }
-        switch settings.focusAlignment {
-        case .centered:
-            return centeredScrollOffset(columnMinX: metrics.origins[activeColumn], columnWidth: metrics.widths[activeColumn], viewport: viewport)
-        case .centeredSmart where metrics.widths[activeColumn] > viewport.width / 2:
-            return centeredScrollOffset(columnMinX: metrics.origins[activeColumn], columnWidth: metrics.widths[activeColumn], viewport: viewport)
-        case .default, .centeredSmart:
-            return max(0, metrics.origins[activeColumn] + metrics.widths[activeColumn] - viewport.width)
+        if let offset = alignedScrollOffset(
+            metrics: metrics,
+            activeColumn: activeColumn,
+            viewport: viewport,
+            focusAlignment: focusAlignment,
+            preferredScrollOffset: preferredScrollOffset
+        ) {
+            return offset
         }
+
+        let columnMinX = metrics.origins[activeColumn]
+        let columnMaxX = columnMinX + metrics.widths[activeColumn]
+        var offset = preferredScrollOffset ?? max(0, columnMaxX - viewport.width)
+        if revealActiveColumn {
+            if columnMinX < offset {
+                offset = columnMinX
+            } else if columnMaxX > offset + viewport.width {
+                offset = columnMaxX - viewport.width
+            }
+        }
+        // A smart pair may extend the camera beyond ordinary strip bounds.
+        // Focusing its visible narrow member must not snap that view to an edge.
+        if focusAlignment == .centeredSmart,
+           columnMinX >= offset,
+           columnMaxX <= offset + viewport.width {
+            return offset
+        }
+        return min(max(offset, 0), maxHorizontalCameraOffset(
+            metrics: metrics,
+            viewport: viewport,
+            focusAlignment: focusAlignment
+        ))
     }
 
-    static func shouldCenterColumn(width: CGFloat, viewport: CGRect, settings: LayoutEngineSettings) -> Bool {
-        switch settings.focusAlignment {
-        case .default: return false
-        case .centered: return true
-        case .centeredSmart: return width > viewport.width / 2
+    private static func alignedScrollOffset(
+        metrics: (origins: [CGFloat], widths: [CGFloat]),
+        activeColumn: Int,
+        viewport: CGRect,
+        focusAlignment: FocusAlignment,
+        preferredScrollOffset: CGFloat?
+    ) -> CGFloat? {
+        guard focusAlignment != .default else { return nil }
+        let width = metrics.widths[activeColumn]
+        let centeredOffset = centeredScrollOffset(
+            columnMinX: metrics.origins[activeColumn],
+            columnWidth: width,
+            viewport: viewport
+        )
+        if focusAlignment == .centered || metrics.widths.count == 1 { return centeredOffset }
+        guard width >= viewport.width / 2 else { return nil }
+
+        // Column slots already include their inner gaps. Allow only arithmetic
+        // roundoff here, so an exact fit survives fractional width ratios.
+        let tolerance = max(viewport.width, 1) * CGFloat.ulpOfOne * 8
+        let referenceOffset = preferredScrollOffset ?? centeredOffset
+        let candidates = [activeColumn - 1, activeColumn + 1].compactMap { index -> (
+            index: Int, width: CGFloat, lowerOffset: CGFloat, upperOffset: CGFloat, movement: CGFloat
+        )? in
+            guard metrics.widths.indices.contains(index) else { return nil }
+            let pairMinX = min(metrics.origins[activeColumn], metrics.origins[index])
+            let pairMaxX = max(
+                metrics.origins[activeColumn] + width,
+                metrics.origins[index] + metrics.widths[index]
+            )
+            guard pairMaxX - pairMinX <= viewport.width + tolerance else { return nil }
+            let lowerOffset = min(pairMaxX - viewport.width, pairMinX)
+            let upperOffset = pairMinX
+            let nearestOffset = min(max(referenceOffset, lowerOffset), upperOffset)
+            return (index, metrics.widths[index], lowerOffset, upperOffset, abs(nearestOffset - referenceOffset))
+        }.sorted { lhs, rhs in
+            if lhs.width != rhs.width { return lhs.width < rhs.width }
+            if lhs.movement != rhs.movement { return lhs.movement < rhs.movement }
+            return lhs.index < rhs.index
         }
+
+        guard let neighbor = candidates.first else { return centeredOffset }
+        if let preferredScrollOffset,
+           preferredScrollOffset >= neighbor.lowerOffset,
+           preferredScrollOffset <= neighbor.upperOffset {
+            return preferredScrollOffset
+        }
+        return min(max(centeredOffset, neighbor.lowerOffset), neighbor.upperOffset)
     }
 
     static func centeredScrollOffset(columnMinX: CGFloat, columnWidth: CGFloat, viewport: CGRect) -> CGFloat {

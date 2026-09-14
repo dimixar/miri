@@ -283,6 +283,8 @@ extension Miri {
             let previousWorkspace = windowManagement.activeWorkspace
             let workspace = windowManagement.workspaces[loc.workspace]
             let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
+            let viewport = currentViewport()
+            let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
             setActiveWorkspace(loc.workspace)
             windowManagement.setActiveColumn(loc.column, in: workspace)
             if changedFocus {
@@ -290,7 +292,9 @@ extension Miri {
             }
             let shouldProject = changedFocus || forceLayoutIfAlreadyFocused
             if shouldProject {
-                revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
+                // Preserve an implicit camera just as keyboard focus does.
+                windowManagement.setScrollOffset(scrollOffset, in: workspace)
+                revealActiveColumnIfNeeded(in: workspace, viewport: viewport)
             }
             if applyLayout, shouldProject {
                 let shouldAnimate = animateIfSameWorkspace

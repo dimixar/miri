@@ -459,17 +459,7 @@ extension Miri {
             return
         }
 
-        if shouldCenterColumn(width: newMetrics.widths[activeColumn], viewport: viewport) {
-            clearIntelligentResizeMemory()
-            windowManagement.setScrollOffset(centeredScrollOffset(
-                columnMinX: newMetrics.origins[activeColumn],
-                columnWidth: newMetrics.widths[activeColumn],
-                viewport: viewport
-            ), in: workspace)
-            return
-        }
-
-        var targetOffset: CGFloat
+        let targetOffset: CGFloat
         switch anchor {
         case .left:
             targetOffset = newMetrics.origins[activeColumn] - (oldFrame.minX - viewport.minX)
@@ -477,44 +467,14 @@ extension Miri {
             targetOffset = newMetrics.origins[activeColumn] + newMetrics.widths[activeColumn] - (oldFrame.maxX - viewport.minX)
         }
 
-        targetOffset = scrollOffsetEnsuringFullVisibility(
-            ofColumn: activeColumn,
+        windowManagement.setScrollOffset(LayoutEngine.resolveScrollOffset(
             metrics: newMetrics,
+            activeColumn: activeColumn,
             viewport: viewport,
-            preferredOffset: targetOffset
-        )
-        windowManagement.setScrollOffset(
-            min(max(targetOffset, 0), maxHorizontalCameraOffset(for: workspace, viewport: viewport)),
-            in: workspace
-        )
-    }
-
-    func scrollOffsetEnsuringFullVisibility(
-        ofColumn activeColumn: Int,
-        metrics: (origins: [CGFloat], widths: [CGFloat]),
-        viewport: CGRect,
-        preferredOffset: CGFloat
-    ) -> CGFloat {
-        guard metrics.origins.indices.contains(activeColumn),
-              metrics.widths.indices.contains(activeColumn),
-              metrics.widths[activeColumn] <= viewport.width
-        else {
-            return preferredOffset
-        }
-
-        var offset = preferredOffset
-        let columnMinX = metrics.origins[activeColumn]
-        let columnMaxX = columnMinX + metrics.widths[activeColumn]
-        let visibleMinX = offset
-        let visibleMaxX = offset + viewport.width
-
-        if columnMinX < visibleMinX {
-            offset = columnMinX
-        } else if columnMaxX > visibleMaxX {
-            offset = columnMaxX - viewport.width
-        }
-
-        return offset
+            focusAlignment: focusAlignment,
+            preferredScrollOffset: targetOffset,
+            revealActiveColumn: newMetrics.widths[activeColumn] <= viewport.width
+        ), in: workspace)
     }
 
     func intelligentGrowDirection(for frame: CGRect, viewport: CGRect) -> IntelligentResizeDirection {

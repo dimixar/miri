@@ -126,7 +126,7 @@ struct OnboardingRootView: View {
                 onboardingLayoutChoice(
                     .centeredSmart,
                     title: "Centered Smart",
-                    detail: "Centers wide windows and gently reveals narrow ones."
+                    detail: "Fits wide windows with a neighbor when possible. Centers a lone window."
                 )
             }
             .frame(width: MiriTheme.Size.onboardingContentWidth)
