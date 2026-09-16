@@ -168,12 +168,27 @@ enum LayoutEngine {
         viewport: CGRect,
         focusAlignment: FocusAlignment,
         preferredScrollOffset: CGFloat?,
-        revealActiveColumn: Bool = false
+        revealActiveColumn: Bool = false,
+        preserveVisibleFocus: Bool = true
     ) -> CGFloat {
         guard viewport.width > 0,
               metrics.origins.count == metrics.widths.count,
               metrics.widths.indices.contains(activeColumn) else {
             return 0
+        }
+        let columnMinX = metrics.origins[activeColumn]
+        let columnMaxX = columnMinX + metrics.widths[activeColumn]
+        let tolerance = max(viewport.width, 1) * CGFloat.ulpOfOne * 8
+        // Focus handlers pass the camera from before the focus change. Check
+        // that view before selecting a neighbor, and honor it on later projections.
+        // Width changes can explicitly request fresh smart alignment instead.
+        if preserveVisibleFocus,
+           focusAlignment == .centeredSmart,
+           metrics.widths.count > 1,
+           let preferredScrollOffset,
+           columnMinX >= preferredScrollOffset - tolerance,
+           columnMaxX <= preferredScrollOffset + viewport.width + tolerance {
+            return preferredScrollOffset
         }
         if let offset = alignedScrollOffset(
             metrics: metrics,
@@ -185,8 +200,6 @@ enum LayoutEngine {
             return offset
         }
 
-        let columnMinX = metrics.origins[activeColumn]
-        let columnMaxX = columnMinX + metrics.widths[activeColumn]
         var offset = preferredScrollOffset ?? max(0, columnMaxX - viewport.width)
         if revealActiveColumn {
             if columnMinX < offset {

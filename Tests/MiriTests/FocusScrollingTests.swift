@@ -171,25 +171,88 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
-    func testSmartCenteredChoosesSmallestNeighborEvenWhenLargerPairWasVisible() throws {
-        for (widths, offset, neighbor, expectedOffset) in [
-            ([CGFloat(0.35), 0.6, 0.25], CGFloat(0), 2, CGFloat(240)),
-            ([CGFloat(0.25), 0.6, 0.35], CGFloat(240), 0, CGFloat(0)),
+    func testSmartCenteredPreservesVisibleFocusDespiteASmallerHiddenNeighbor() throws {
+        for (widths, activeColumn, direction, offset) in [
+            ([CGFloat(0.33), 0.5, 0.5], 2, -1, CGFloat(396)),
+            ([CGFloat(0.5), 0.5, 0.33], 0, 1, CGFloat(0)),
+            ([CGFloat(0.35), 0.6, 0.25], 0, 1, CGFloat(0)),
+            ([CGFloat(0.25), 0.6, 0.35], 2, -1, CGFloat(300)),
         ] {
             let (miri, workspace) = try fixture(
                 alignment: .centeredSmart,
                 widths: widths,
-                activeColumn: 1,
+                activeColumn: activeColumn,
                 scrollOffset: offset
             )
+            let before = projectedFrames(miri)
+            XCTAssertTrue(viewport.contains(before[activeColumn]))
+            XCTAssertTrue(viewport.contains(before[1]))
+            XCTAssertFalse(viewport.contains(before[2 - activeColumn]))
 
+            miri.focusColumn(by: direction, in: workspace, viewport: viewport)
+
+            XCTAssertEqual(workspace.activeColumn, 1)
+            XCTAssertEqual(workspace.scrollOffset, offset)
+            XCTAssertEqual(projectedFrames(miri), before)
+            // Later projection/reconciliation must not reselect the hidden neighbor.
             miri.revealActiveColumnIfNeeded(in: workspace, viewport: viewport)
+            XCTAssertEqual(projectedFrames(miri), before)
+            miri.focusColumn(by: -direction, in: workspace, viewport: viewport)
+            XCTAssertEqual(projectedFrames(miri), before)
+        }
+    }
 
-            let frames = projectedFrames(miri)
+    func testSmartCenteredPreservesImplicitVisibleFocusDespiteASmallerHiddenNeighbor() throws {
+        for (widths, activeColumn, direction) in [
+            ([CGFloat(0.33), 0.5, 0.5], 2, -1),
+            ([CGFloat(0.5), 0.5, 0.33], 0, 1),
+        ] {
+            let (miri, workspace) = try fixture(
+                alignment: .centeredSmart,
+                widths: widths,
+                activeColumn: activeColumn,
+                scrollOffset: nil
+            )
+            let before = projectedFrames(miri)
+            XCTAssertTrue(viewport.contains(before[1]))
+
+            miri.focusColumn(by: direction, in: workspace, viewport: viewport)
+
+            XCTAssertEqual(projectedFrames(miri), before)
+            XCTAssertEqual(miri.stripFrames(
+                for: workspace,
+                viewport: viewport,
+                activeColumn: workspace.activeColumn,
+                scrollOffset: workspace.scrollOffset
+            ), before)
+        }
+    }
+
+    func testSmartCenteredStillSelectsSmallestNeighborForClippedAndOffscreenFocus() throws {
+        for (widths, activeColumn, direction, offset, expectedOffset, neighbor) in [
+            // One point of clipping must run smart centering, just like a fully hidden target.
+            ([CGFloat(0.33), 0.5, 0.5], 2, -1, CGFloat(397), CGFloat(0), 0),
+            ([CGFloat(0.5), 0.5, 0.33], 0, 1, CGFloat(-1), CGFloat(396), 2),
+            ([CGFloat(0.33), 0.5, 0.5], 2, -1, CGFloat(996), CGFloat(0), 0),
+            ([CGFloat(0.5), 0.5, 0.33], 0, 1, CGFloat(-600), CGFloat(396), 2),
+        ] {
+            let (miri, workspace) = try fixture(
+                alignment: .centeredSmart,
+                widths: widths,
+                activeColumn: activeColumn,
+                scrollOffset: offset
+            )
+            let before = projectedFrames(miri)
+            XCTAssertTrue(viewport.contains(before[activeColumn]))
+            XCTAssertFalse(viewport.contains(before[1]))
+
+            miri.focusColumn(by: direction, in: workspace, viewport: viewport)
+
+            let after = projectedFrames(miri)
             XCTAssertEqual(try XCTUnwrap(workspace.scrollOffset), expectedOffset, accuracy: 0.001)
-            XCTAssertTrue(viewport.contains(frames[1]))
-            XCTAssertTrue(viewport.contains(frames[neighbor]))
-            XCTAssertFalse(viewport.contains(frames[2 - neighbor]))
+            XCTAssertTrue(viewport.contains(after[1]))
+            XCTAssertTrue(viewport.contains(after[neighbor]))
+            XCTAssertFalse(viewport.contains(after[2 - neighbor]))
         }
     }
 
@@ -208,6 +271,36 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertTrue(viewport.contains(frames[1]))
         XCTAssertTrue(viewport.contains(frames[2]))
         XCTAssertFalse(viewport.contains(frames[0]))
+    }
+
+    func testSmartCenteredResumesAlignmentAfterLeavingAPreservedVisiblePair() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .centeredSmart,
+            widths: [0.33, 0.5, 0.5, 0.25],
+            activeColumn: 2,
+            scrollOffset: 396
+        )
+        let before = projectedFrames(miri)
+        miri.focusColumn(by: -1, in: workspace, viewport: viewport)
+        XCTAssertEqual(projectedFrames(miri), before)
+        miri.focusColumn(by: 1, in: workspace, viewport: viewport)
+        XCTAssertEqual(projectedFrames(miri), before)
+
+        // Reveal the hidden narrow window, then focus its now-visible neighbor.
+        miri.focusColumn(by: 1, in: workspace, viewport: viewport)
+        let revealed = projectedFrames(miri)
+        XCTAssertTrue(viewport.contains(revealed[3]))
+        XCTAssertFalse(viewport.contains(revealed[1]))
+        miri.focusColumn(by: -1, in: workspace, viewport: viewport)
+        XCTAssertEqual(projectedFrames(miri), revealed)
+
+        // Returning to the clipped half-width window must choose its smaller neighbor.
+        miri.focusColumn(by: -1, in: workspace, viewport: viewport)
+        let after = projectedFrames(miri)
+        XCTAssertEqual(workspace.scrollOffset, 0)
+        XCTAssertTrue(viewport.contains(after[0]))
+        XCTAssertTrue(viewport.contains(after[1]))
+        XCTAssertFalse(viewport.contains(after[2]))
     }
 
     func testSmartCenteredLeavesNarrowFocusAloneEvenWhenANeighborCouldBeRevealed() throws {
@@ -368,6 +461,88 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertEqual(projectedFrames(miri, viewport: viewport), before)
     }
 
+    func testSmartCenteredExternalFocusUsesVisibilityBeforeSelectingANeighbor() throws {
+        for (widths, activeColumn, offsetRatio, expectedOffsetRatio) in [
+            ([CGFloat(0.33), 0.5, 0.5], 2, CGFloat(0.33), CGFloat(0.33)),
+            ([CGFloat(0.5), 0.5, 0.33], 0, CGFloat(0), CGFloat(0)),
+            ([CGFloat(0.33), 0.5, 0.5], 2, CGFloat(0.4), CGFloat(0)),
+            ([CGFloat(0.5), 0.5, 0.33], 0, CGFloat(-0.1), CGFloat(0.33)),
+            ([CGFloat(0.33), 0.5, 0.5], 2, CGFloat(0.83), CGFloat(0)),
+            ([CGFloat(0.5), 0.5, 0.33], 0, CGFloat(-0.5), CGFloat(0.33)),
+        ] {
+            let (miri, workspace) = try fixture(
+                alignment: .centeredSmart,
+                widths: widths,
+                activeColumn: activeColumn,
+                scrollOffset: nil
+            )
+            let viewport = miri.currentViewport()
+            miri.windowManagement.setScrollOffset(offsetRatio * viewport.width, in: workspace)
+            let before = projectedFrames(miri, viewport: viewport)
+            let target = workspace.columns[1]
+            let shouldStayStationary = offsetRatio == expectedOffsetRatio
+            XCTAssertEqual(viewport.contains(before[1]), shouldStayStationary)
+
+            XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+
+            XCTAssertEqual(workspace.activeColumn, 1)
+            XCTAssertEqual(
+                try XCTUnwrap(workspace.scrollOffset),
+                expectedOffsetRatio * viewport.width,
+                accuracy: 0.001
+            )
+            let after = projectedFrames(miri, viewport: viewport)
+            XCTAssertTrue(viewport.contains(after[1]))
+            if shouldStayStationary {
+                XCTAssertEqual(after, before)
+            } else {
+                XCTAssertNotEqual(after, before)
+            }
+        }
+    }
+
+    func testSmartCenteredVisibleFocusStaysStationaryWithGapsAndFractionalWidths() throws {
+        let viewport = CGRect(x: 120, y: 80, width: 1001, height: 800)
+        let (miri, workspace) = try fixture(
+            alignment: .centeredSmart,
+            widths: [0.33, 0.5, 0.5],
+            activeColumn: 2,
+            scrollOffset: 0.33 * viewport.width
+        )
+        let before = projectedFrames(miri, viewport: viewport, innerGap: 12, physicalPixelScale: 2)
+
+        miri.focusColumn(by: -1, in: workspace, viewport: viewport)
+
+        XCTAssertEqual(
+            projectedFrames(miri, viewport: viewport, innerGap: 12, physicalPixelScale: 2),
+            before
+        )
+    }
+
+    func testSmartCenteredResizeStillReconsidersSmallestNeighbor() throws {
+        for resizeMode: WidthResizeMode in [.default, .intelligent] {
+            let (miri, workspace) = try fixture(
+                alignment: .centeredSmart,
+                widths: [0.35, 0.5, 0.25],
+                activeColumn: 0,
+                scrollOffset: 0,
+                resizeMode: resizeMode
+            )
+            let viewport = miri.currentViewport()
+            miri.focusColumn(by: 1, in: workspace, viewport: viewport)
+            let before = projectedFrames(miri, viewport: viewport)
+            XCTAssertTrue(viewport.contains(before[0]))
+            XCTAssertFalse(viewport.contains(before[2]))
+
+            XCTAssertTrue(miri.setActiveWindowWidthRatio(0.6))
+
+            let after = projectedFrames(miri, viewport: viewport)
+            XCTAssertTrue(viewport.contains(after[1]))
+            XCTAssertTrue(viewport.contains(after[2]))
+            XCTAssertFalse(viewport.contains(after[0]))
+        }
+    }
+
     func testSmartCenteredWidthChangesTransitionBetweenPairingAndCentering() throws {
         for resizeMode: WidthResizeMode in [.default, .intelligent] {
             let (miri, workspace) = try fixture(
@@ -397,6 +572,32 @@ final class FocusScrollingTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testSmartCenteredManualResizeStillReconsidersSmallestNeighbor() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .centeredSmart,
+            widths: [0.35, 0.5, 0.25],
+            activeColumn: 0,
+            scrollOffset: 0
+        )
+        let viewport = miri.currentViewport()
+        miri.focusColumn(by: 1, in: workspace, viewport: viewport)
+        var resizedFrame = projectedFrames(miri, viewport: viewport)[1]
+        resizedFrame.size.width = 0.6 * viewport.width
+        let target = workspace.columns[1]
+        // Manual resize normally runs inside a coordinator event. Keep its
+        // emitted notification queued in this fixture, which has no runtime.
+        miri.isHandlingCoordinatorEvent = true
+        defer { miri.isHandlingCoordinatorEvent = false }
+
+        XCTAssertTrue(miri.updateManualWidthRatio(for: target.element, observedFrame: resizedFrame))
+
+        let after = projectedFrames(miri, viewport: viewport)
+        XCTAssertTrue(viewport.contains(after[1]))
+        XCTAssertTrue(viewport.contains(after[2]))
+        XCTAssertFalse(viewport.contains(after[0]))
+        XCTAssertFalse(miri.updateManualWidthRatio(for: target.element, observedFrame: resizedFrame))
     }
 
     func testFirstAndLastJumpsKeepTheirExistingCameraReset() throws {

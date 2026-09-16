@@ -185,7 +185,17 @@ extension Miri {
         let virtualOrigin = metrics.origins[location.columnIndex]
         let newScrollOffset = virtualOrigin - (frame.minX - viewport.minX)
 
-        windowManagement.setScrollOffset(newScrollOffset, in: location.workspace)
+        // Resizing changes the geometry; retain smart alignment even when the
+        // resized window happens to fit at its observed position.
+        let resolvedScrollOffset = LayoutEngine.resolveScrollOffset(
+            metrics: metrics,
+            activeColumn: location.columnIndex,
+            viewport: viewport,
+            focusAlignment: focusAlignment,
+            preferredScrollOffset: newScrollOffset,
+            preserveVisibleFocus: false
+        )
+        windowManagement.setScrollOffset(resolvedScrollOffset, in: location.workspace)
         setActiveWorkspace(location.workspaceIndex)
         windowManagement.setActiveColumn(location.columnIndex, in: location.workspace)
         layoutController.recordPresentationFrame(frame, for: location.window)
@@ -193,7 +203,7 @@ extension Miri {
         if let previousRatio,
            abs(previousRatio - ratio) < 0.005,
            let oldScrollOffset,
-           abs(oldScrollOffset - newScrollOffset) < 0.5
+           abs(oldScrollOffset - resolvedScrollOffset) < 0.5
         {
             return false
         }

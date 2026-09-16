@@ -473,7 +473,8 @@ extension Miri {
             viewport: viewport,
             focusAlignment: focusAlignment,
             preferredScrollOffset: targetOffset,
-            revealActiveColumn: newMetrics.widths[activeColumn] <= viewport.width
+            revealActiveColumn: newMetrics.widths[activeColumn] <= viewport.width,
+            preserveVisibleFocus: false
         ), in: workspace)
     }
 
