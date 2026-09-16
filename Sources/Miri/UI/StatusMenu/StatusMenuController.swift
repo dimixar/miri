@@ -14,7 +14,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let rescanItem = NSMenuItem(title: "Rescan Windows", action: #selector(rescanWindows), keyEquivalent: "")
     private var workspaceMenuItems: [NSMenuItem] = []
     private var lastWorkspaceBarSignature: WorkspaceBarRenderSignature?
-    private var workspaceBarRefreshScheduled = false
+    private lazy var workspaceBarRefreshScheduler = WorkspaceBarRefreshScheduler { [weak self] in
+        self?.refreshWorkspaceBar()
+    }
     private var iconCache: [String: NSImage] = [:]
     private lazy var fallbackIcon = NSWorkspace.shared.icon(for: .application)
 
@@ -47,14 +49,20 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: NSWorkspace.shared
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(activeSpaceDidChange(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
         if let button = statusItem.button {
             let observer = StatusBarAppearanceObserverView(frame: .zero)
             observer.onAppearanceChange = { [weak self] in
-                self?.invalidateWorkspaceBarAppearance()
+                self?.scheduleWorkspaceBarRefresh()
             }
             button.addSubview(observer)
         }
-        refreshWorkspaceBar(force: true)
+        refreshWorkspaceBar()
     }
 
     deinit {
@@ -112,7 +120,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         refreshPermissionItem(state.permissions)
         refreshWorkspaceMenuItems()
-        refreshWorkspaceBar(force: true)
+        refreshWorkspaceBar()
     }
 
     private func refreshWorkspaceMenuItems() {
@@ -154,7 +162,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func systemColorsDidChange(_ notification: Notification) {
-        invalidateWorkspaceBarAppearance()
+        scheduleWorkspaceBarRefresh()
+    }
+
+    @objc private func activeSpaceDidChange(_ notification: Notification) {
+        workspaceBarRefreshScheduler.beginSettling()
     }
 
     @objc private func permissionsDidChange(_ notification: Notification) {
@@ -204,40 +216,42 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         permissionItem.target = self
     }
 
-    private func invalidateWorkspaceBarAppearance() {
-        lastWorkspaceBarSignature = nil
-        scheduleWorkspaceBarRefresh()
-    }
-
     private func scheduleWorkspaceBarRefresh() {
-        guard !workspaceBarRefreshScheduled else {
-            return
-        }
-        workspaceBarRefreshScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                return
-            }
-            workspaceBarRefreshScheduled = false
-            refreshWorkspaceBar(force: false)
-        }
+        workspaceBarRefreshScheduler.requestRefresh()
     }
 
-    private func refreshWorkspaceBar(force: Bool) {
+    private func refreshWorkspaceBar() {
         let state = stateProvider()
         let barStatus = state.workspaceBar
         let config = state.config
-        let signature = WorkspaceBarRenderSignature(status: barStatus, config: config)
-        guard force || signature != lastWorkspaceBarSignature else {
+        let appearance = statusItem.button?.effectiveAppearance ?? NSApp.effectiveAppearance
+        let signature = WorkspaceBarRenderSignature(
+            status: barStatus,
+            config: config,
+            appearance: WorkspaceBarAppearanceSignature(
+                appearance: appearance,
+                increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            )
+        )
+        if let previous = lastWorkspaceBarSignature,
+           previous.status.fullscreenWindows != barStatus.fullscreenWindows {
+            workspaceBarRefreshScheduler.beginSettling()
+        }
+        guard signature != lastWorkspaceBarSignature else {
             return
         }
         lastWorkspaceBarSignature = signature
-        statusItem.button?.title = ""
-        statusItem.button?.image = drawWorkspaceBar(barStatus, config: config)
+        if statusItem.button?.title != "" {
+            statusItem.button?.title = ""
+        }
+        statusItem.button?.image = drawWorkspaceBar(barStatus, config: config, appearance: appearance)
     }
 
-    private func drawWorkspaceBar(_ status: MiriWorkspaceBarStatus, config: MiriConfig) -> NSImage {
-        let appearance = statusItem.button?.effectiveAppearance ?? NSApp.effectiveAppearance
+    private func drawWorkspaceBar(
+        _ status: MiriWorkspaceBarStatus,
+        config: MiriConfig,
+        appearance: NSAppearance
+    ) -> NSImage {
         var renderedImage: NSImage?
         appearance.performAsCurrentDrawingAppearance {
             renderedImage = renderWorkspaceBar(status, config: config, appearance: appearance)
@@ -506,6 +520,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private struct WorkspaceBarRenderSignature: Equatable {
         let status: MiriWorkspaceBarStatus
+        let appearance: WorkspaceBarAppearanceSignature
         let useCustomColors: Bool?
         let highlightColor: String?
         let visibleIconCount: Int?
@@ -517,8 +532,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let centerBorderOutset: Int?
         let centerBorderThickness: Int?
 
-        init(status: MiriWorkspaceBarStatus, config: MiriConfig) {
+        init(status: MiriWorkspaceBarStatus, config: MiriConfig, appearance: WorkspaceBarAppearanceSignature) {
             self.status = status
+            self.appearance = appearance
             useCustomColors = config.workspaceBarUseCustomColors
             highlightColor = config.workspaceBarHighlightColor
             visibleIconCount = config.workspaceBarVisibleIconCount
