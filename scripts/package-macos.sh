@@ -4,7 +4,7 @@ set -euo pipefail
 app_name="Miri"
 executable_name="miri"
 bundle_id="io.github.mariarcks.miri"
-minimum_system_version="13.0"
+minimum_system_version="26.0"
 
 version="0.0.0"
 build_number="${MIRI_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
@@ -77,23 +77,21 @@ stage_root="$output_dir/stage/arm64-darwin"
 volume_root="$stage_root/volume"
 app_dir="$volume_root/$app_name.app"
 dmg_path="$output_dir/$app_name-$version-arm64-darwin.dmg"
-binary_path="$repo_root/.build/arm64-apple-macosx/release/$executable_name"
 icon_source="$repo_root/assets/MiriIcon.png"
 adaptive_icon_source="$repo_root/assets/Miri.icon"
 adaptive_icon_name=""
 
 if [[ "$skip_build" != "1" ]]; then
-  swift build -c release --arch arm64
+  (cd "$repo_root" && swift build -c release --arch arm64)
 fi
 
+# Ask SwiftPM instead of accidentally packaging an old binary left behind by
+# another toolchain's build-directory layout.
+binary_dir="$(cd "$repo_root" && swift build -c release --arch arm64 --show-bin-path)"
+binary_path="$binary_dir/$executable_name"
 if [[ ! -x "$binary_path" ]]; then
-  fallback_binary="$repo_root/.build/release/$executable_name"
-  if [[ -x "$fallback_binary" ]]; then
-    binary_path="$fallback_binary"
-  else
-    echo "Release binary not found at $binary_path" >&2
-    exit 1
-  fi
+  echo "Release binary not found at $binary_path" >&2
+  exit 1
 fi
 
 if [[ ! -f "$icon_source" ]]; then
@@ -113,9 +111,8 @@ cp "$binary_path" "$app_dir/Contents/MacOS/$executable_name"
 chmod 755 "$app_dir/Contents/MacOS/$executable_name"
 cp "$repo_root/LICENSE" "$app_dir/Contents/Resources/LICENSE"
 
-# Xcode 26 and macOS 26 can render Icon Composer assets for the current
-# appearance. Keep this optional so contributors with older Xcode versions can
-# still create a package using the static icon below.
+# Compile the appearance-aware Icon Composer asset when available, retaining
+# the static icon as a fallback if asset compilation fails.
 if [[ -d "$adaptive_icon_source" ]] && xcrun --find actool >/dev/null 2>&1; then
   adaptive_info_plist="$stage_root/MiriIcon-partial.plist"
   if xcrun actool "$adaptive_icon_source" \
@@ -191,6 +188,8 @@ cat > "$app_dir/Contents/Info.plist" <<EOF
   <string>$version</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Miri captures temporary window images to animate layout changes. Images are not saved or shared.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

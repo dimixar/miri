@@ -96,6 +96,7 @@ final class LayoutController {
     private let axOperations: AXOperationController
     let emit: (LayoutEvent) -> Void
     let windowSystem: LayoutWindowSystemAdapting
+    let snapshotCapturer: any WindowSnapshotCapturing
 
     var appliedFrames: [ObjectIdentifier: CGRect] = [:]
     var requestedFrames: [ObjectIdentifier: CGRect] = [:]
@@ -113,6 +114,7 @@ final class LayoutController {
     var snapshotHiddenWindows: [ManagedWindow] = []
     var snapshotAnimationPreparing = false
     var snapshotAnimationPreparingRequestGeneration: UInt64?
+    var snapshotCaptureTask: Task<Void, Never>?
 
     private var pendingSubmission: LayoutSubmission?
     private var deferredSubmissionGeneration: UInt64 = 0
@@ -127,11 +129,13 @@ final class LayoutController {
         dependencies: LayoutControllerDependencies,
         axOperations: AXOperationController,
         windowSystem: LayoutWindowSystemAdapting = LayoutWindowSystemAdapter(),
+        snapshotCapturer: any WindowSnapshotCapturing = WindowSnapshotCapturer(),
         emit: @escaping (LayoutEvent) -> Void
     ) {
         self.dependencies = dependencies
         self.axOperations = axOperations
         self.windowSystem = windowSystem
+        self.snapshotCapturer = snapshotCapturer
         self.emit = emit
     }
 
@@ -152,7 +156,7 @@ final class LayoutController {
         } else {
             assert(snapshotAnimationPreparingRequestGeneration == nil, "Inactive snapshot preparation cannot retain a request")
         }
-        assert(pendingSubmission?.token != activeRequestToken, "A deferred request cannot also own the application gate")
+        assert(pendingSubmission == nil || pendingSubmission?.token != activeRequestToken, "A deferred request cannot also own the application gate")
 #endif
     }
 
@@ -224,8 +228,9 @@ final class LayoutController {
         )
         cancelPendingSubmission(reason: "replaced-by-newer-submission")
         let snapshotIsFinalizing = snapshotAnimationSession?.finalizing == true
-        if snapshotIsFinalizing
-            || (!animated && (snapshotAnimationSession != nil || snapshotAnimationPreparing))
+        if snapshotAnimationPreparing
+            || snapshotIsFinalizing
+            || (!animated && snapshotAnimationSession != nil)
         {
             deferSubmission(submission)
         } else {
@@ -278,16 +283,30 @@ final class LayoutController {
                   self.pendingSubmission != nil,
                   self.deferredSubmissionGeneration == generation,
                   self.dependencies.isLayoutTrackingAllowed() else { return }
-            guard self.snapshotAnimationSession == nil,
-                  !self.snapshotAnimationPreparing,
-                  self.activeRequestToken == nil else {
+            if !self.resumeDeferredSubmissionIfReady() {
                 self.pollDeferredSubmission(generation: generation)
-                return
             }
-            guard let submission = self.pendingSubmission else { return }
-            self.pendingSubmission = nil
-            self.execute(submission)
         }
+    }
+
+    /// Animated requests can retarget as soon as capture and parking finish;
+    /// immediate layouts still wait for the overlay to settle and disappear.
+    @discardableResult
+    func resumeDeferredSubmissionIfReady() -> Bool {
+        guard let submission = pendingSubmission,
+              dependencies.isLayoutTrackingAllowed(),
+              !snapshotAnimationPreparing,
+              snapshotAnimationSession?.finalizing != true
+        else { return false }
+        let canRetarget = snapshotAnimationSession != nil
+            && submission.animated
+            && submission.previousState != nil
+            && dependencies.settings().animationStrategy == .snapshot
+        guard canRetarget || (snapshotAnimationSession == nil && activeRequestToken == nil) else { return false }
+        pendingSubmission = nil
+        deferredSubmissionGeneration &+= 1
+        execute(submission)
+        return true
     }
 
     func removeTracking(for window: ManagedWindow) {
@@ -341,8 +360,7 @@ final class LayoutController {
         sessionPauseGeneration &+= 1
         let generation = sessionPauseGeneration
         cancelPendingSubmission(reason: "session-unavailable")
-        snapshotAnimationPreparing = false
-        snapshotAnimationPreparingRequestGeneration = nil
+        cancelSnapshotPreparation()
         if let session = snapshotAnimationSession {
             session.cancelled = true
             session.timer?.cancel()
@@ -391,8 +409,7 @@ final class LayoutController {
     }
 
     func stopAnimation(clearPresentation: Bool) {
-        snapshotAnimationPreparing = false
-        snapshotAnimationPreparingRequestGeneration = nil
+        cancelSnapshotPreparation()
         if snapshotAnimationSession != nil {
             prepareInterruptedSnapshotAnimationForNextCapture()
         } else {

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "miri",
     platforms: [
-        .macOS(.v13),
+        .macOS("26.0"),
     ],
     targets: [
         .executableTarget(

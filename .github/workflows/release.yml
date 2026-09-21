@@ -154,7 +154,7 @@ jobs:
     name: Build macOS DMG
     needs: preflight
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -162,6 +162,11 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.ref }}
           fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
 
       - name: Show toolchain
         run: |

@@ -280,8 +280,7 @@ extension LayoutController {
         }
         session.timer?.cancel()
         session.timer = nil
-        snapshotAnimationPreparing = false
-        snapshotAnimationPreparingRequestGeneration = nil
+        cancelSnapshotPreparation()
         snapshotHiddenWindows.removeAll()
         session.finalizing = true
         apply(session.finalLayout, focusActiveWindow: false) { [weak self, weak session] in
@@ -365,28 +364,100 @@ extension LayoutController {
         return overlayFrame.insetBy(dx: -2, dy: -2)
     }
 
-    func addMissingSnapshotLayer(for motion: WindowMotion, to session: SnapshotAnimationSession) -> CALayer? {
-        let id = ObjectIdentifier(motion.window)
-        if let layer = session.layersByWindowID[id] {
-            return layer
-        }
+    func cancelSnapshotPreparation() {
+        snapshotCaptureTask?.cancel()
+        snapshotCaptureTask = nil
+        snapshotAnimationPreparing = false
+        snapshotAnimationPreparingRequestGeneration = nil
+    }
 
-        guard let windowID = motion.window.windowID,
-              let image = CGWindowListCreateImage(
-                .null,
-                .optionIncludingWindow,
-                CGWindowID(windowID),
-                [.bestResolution, .boundsIgnoreFraming]
-              )
-        else {
-            handleMissingSnapshotImage(for: motion.window)
+    func finishSnapshotPreparation(for requestToken: LayoutRequestToken) {
+        guard snapshotAnimationPreparingRequestGeneration == requestToken.rawValue else { return }
+        snapshotCaptureTask = nil
+        snapshotAnimationPreparing = false
+        snapshotAnimationPreparingRequestGeneration = nil
+    }
+
+    func captureSnapshotMotions(
+        _ motions: [WindowMotion],
+        requestToken: LayoutRequestToken
+    ) async -> [(WindowMotion, CGImage)] {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let requests = motions.compactMap { motion in
+            motion.window.windowID.map { WindowSnapshotRequest(windowID: $0, pid: motion.window.pid) }
+        }
+        let results = await snapshotCapturer.capture(requests)
+        guard !Task.isCancelled, activeRequestToken == requestToken else { return [] }
+
+        let captured = motions.compactMap { motion -> (WindowMotion, CGImage)? in
+            guard let windowID = motion.window.windowID else {
+                handleMissingSnapshotImage(for: motion.window)
+                return nil
+            }
+            let request = WindowSnapshotRequest(windowID: windowID, pid: motion.window.pid)
+            guard let result = results[request] else { return nil }
+            switch result {
+            case .success(let image):
+                return (motion, image)
+            case .failure(.missingWindow):
+                handleMissingSnapshotImage(for: motion.window)
+            case .failure(.captureFailed(let reason)):
+                // Permission and capture errors do not imply a stale AX window.
+                debugLog("snapshot capture error request=\(requestToken) id=\(windowID) reason=\(reason)")
+            case .failure(.cancelled):
+                break
+            }
             return nil
         }
+        debugLog("snapshot capture batch request=\(requestToken) windows=\(motions.count) captured=\(captured.count) durationMS=\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - startedAt) * 1000))")
+        return captured
+    }
 
-        let layer = session.overlay.addSnapshotLayer(image: image, at: motion.startFrame)
-        session.layersByWindowID[id] = layer
-        hideSnapshotWindows([motion.window])
-        return layer
+    func captureMissingSnapshotLayers(
+        for motions: [WindowMotion],
+        in session: SnapshotAnimationSession,
+        viewport: CGRect
+    ) {
+        let missing = motions.filter { session.layersByWindowID[ObjectIdentifier($0.window)] == nil }
+        guard !missing.isEmpty else {
+            updateSnapshotAnimationTargets(motions, in: session)
+            ensureSnapshotFrameRunner(for: session, viewport: viewport)
+            return
+        }
+
+        // Keep the current presentation stable while new windows are captured.
+        // Further commands are coalesced until capture and AX parking finish.
+        session.timer?.cancel()
+        session.timer = nil
+        session.lastFrameTime = 0
+        let requestToken = session.requestToken
+        snapshotAnimationPreparing = true
+        snapshotAnimationPreparingRequestGeneration = requestToken.rawValue
+        snapshotCaptureTask = Task { [weak self, weak session] in
+            guard let self, let session else { return }
+            let captured = await captureSnapshotMotions(missing, requestToken: requestToken)
+            guard !Task.isCancelled,
+                  activeRequestToken == requestToken,
+                  snapshotAnimationSession === session,
+                  !session.cancelled
+            else { return }
+
+            for (motion, image) in captured {
+                let id = ObjectIdentifier(motion.window)
+                session.layersByWindowID[id] = session.overlay.addSnapshotLayer(image: image, at: motion.startFrame)
+            }
+            hideSnapshotWindows(captured.map { $0.0.window }) { [weak self, weak session] in
+                guard let self, let session,
+                      activeRequestToken == requestToken,
+                      snapshotAnimationSession === session,
+                      !session.cancelled
+                else { return }
+                finishSnapshotPreparation(for: requestToken)
+                updateSnapshotAnimationTargets(motions, in: session)
+                ensureSnapshotFrameRunner(for: session, viewport: viewport)
+                resumeDeferredSubmissionIfReady()
+            }
+        }
     }
 
     func handleMissingSnapshotImage(for window: ManagedWindow) {
@@ -528,8 +599,7 @@ extension LayoutController {
             session.cancel()
             if snapshotAnimationSession === session {
                 snapshotAnimationSession = nil
-                snapshotAnimationPreparing = false
-                snapshotAnimationPreparingRequestGeneration = nil
+                cancelSnapshotPreparation()
                 snapshotOverlayWindow = nil
             }
             return
@@ -683,16 +753,7 @@ extension LayoutController {
                 requestToken: requestToken,
                 deferredFloatingRaise: focusActiveWindow
             )
-            for motion in motions {
-                guard let layer = addMissingSnapshotLayer(for: motion, to: session) else {
-                    continue
-                }
-                if let currentFrame = presentationFrames[ObjectIdentifier(motion.window)] {
-                    session.overlay.setSnapshotLayer(layer, to: currentFrame)
-                }
-            }
-            updateSnapshotAnimationTargets(motions, in: session)
-            ensureSnapshotFrameRunner(for: session, viewport: viewport)
+            captureMissingSnapshotLayers(for: motions, in: session, viewport: viewport)
             return
         }
 
@@ -705,40 +766,20 @@ extension LayoutController {
         snapshotAnimationPreparingRequestGeneration = requestToken.rawValue
 
         let snapshotSourceMotions = motions
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                return
-            }
-            guard snapshotAnimationSession == nil,
-                  activeRequestToken != nil,
+        snapshotCaptureTask = Task { [weak self] in
+            guard let self else { return }
+            let snapshotMotions = await captureSnapshotMotions(snapshotSourceMotions, requestToken: requestToken)
+            guard !Task.isCancelled,
+                  snapshotAnimationSession == nil,
                   activeRequestToken == requestToken
             else {
-                if snapshotAnimationPreparingRequestGeneration == requestToken.rawValue {
-                    snapshotAnimationPreparing = false
-                    snapshotAnimationPreparingRequestGeneration = nil
-                }
+                finishSnapshotPreparation(for: requestToken)
                 return
-            }
-
-            let snapshotMotions = snapshotSourceMotions.compactMap { motion -> (WindowMotion, CGImage)? in
-                guard let windowID = motion.window.windowID,
-                      let image = CGWindowListCreateImage(
-                        .null,
-                        .optionIncludingWindow,
-                        CGWindowID(windowID),
-                        [.bestResolution, .boundsIgnoreFraming]
-                      )
-                else {
-                    handleMissingSnapshotImage(for: motion.window)
-                    return nil
-                }
-                return (motion, image)
             }
 
             guard !snapshotMotions.isEmpty else {
                 debugLog("snapshot capture failed request=\(requestToken) motions=\(snapshotSourceMotions.count)")
-                snapshotAnimationPreparing = false
-                snapshotAnimationPreparingRequestGeneration = nil
+                finishSnapshotPreparation(for: requestToken)
                 applyLayout(finalLayout, focusActiveWindow: false)
                 restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
                 presentationFrames.removeAll()
@@ -759,8 +800,7 @@ extension LayoutController {
                 snapshotOverlayWindow = newOverlay
                 overlay = newOverlay
             } else {
-                snapshotAnimationPreparing = false
-                snapshotAnimationPreparingRequestGeneration = nil
+                finishSnapshotPreparation(for: requestToken)
                 applyLayout(finalLayout, focusActiveWindow: false)
                 restoreFloatingVisibility(raise: true, deferred: focusActiveWindow)
                 presentationFrames.removeAll()
@@ -771,8 +811,6 @@ extension LayoutController {
 
             let session = SnapshotAnimationSession(overlay: overlay)
             snapshotAnimationSession = session
-            snapshotAnimationPreparing = false
-            snapshotAnimationPreparingRequestGeneration = nil
             session.generation = 1
             session.startedAt = CFAbsoluteTimeGetCurrent()
             session.updateTarget(
@@ -794,16 +832,21 @@ extension LayoutController {
             overlay.show()
 
             DispatchQueue.main.async { [weak self, session] in
-                guard let self, snapshotAnimationSession === session, !session.cancelled else {
-                    return
-                }
+                guard let self,
+                      activeRequestToken == requestToken,
+                      snapshotAnimationSession === session,
+                      !session.cancelled
+                else { return }
                 hideSnapshotWindows(snapshotMotions.map { $0.0.window }) { [weak self, weak session] in
                     guard let self, let session,
+                          activeRequestToken == requestToken,
                           snapshotAnimationSession === session,
                           !session.cancelled
                     else { return }
+                    finishSnapshotPreparation(for: requestToken)
                     updateSnapshotAnimationTargets(snapshotLayers.map(\.motion), in: session)
                     ensureSnapshotFrameRunner(for: session, viewport: viewport)
+                    resumeDeferredSubmissionIfReady()
                 }
             }
         }
