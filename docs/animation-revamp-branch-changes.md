@@ -1,6 +1,12 @@
 # Animation revamp branch changes
 
-This document summarizes the changes in this branch compared to `feature/local`.
+This document summarizes the original animation branch compared to `feature/local`.
+
+> Historical branch notes. Current miri requires macOS 26 or newer and captures
+> snapshots asynchronously with ScreenCaptureKit. Commands during capture or
+> parking are coalesced, and retargeting pauses the frame runner when missing
+> windows need capture. See [Snapshot animation](snapshot-animation.md) for the
+> current pipeline; the file lists and validation below describe the older branch.
 
 ## Summary
 

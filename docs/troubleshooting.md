@@ -1,5 +1,13 @@
 # Troubleshooting
 
+## System And Build Requirements
+
+miri requires macOS 26 or newer, including when animations are disabled. Source
+builds require Xcode 26 or newer with a macOS SDK that includes
+`SCScreenshotConfiguration` and `SCScreenshotManager.captureScreenshot`. If those
+symbols are missing at compile time, check `xcodebuild -version` and
+`xcrun --show-sdk-path` to confirm the selected toolchain.
+
 ## Permissions
 
 miri needs Accessibility permission to focus, move, and resize app windows.
@@ -260,7 +268,9 @@ layout request=... workspace=... animationRequested=true animationStrategy=off a
 ```
 
 This is an immediate layout. `animationRequested` records the caller's intent;
-`animationActive` records whether snapshot animation is actually running.
+`animationActive` records whether the request selects the snapshot path, not
+whether capture has succeeded or the frame runner has started. Check
+`snapshot captured` and `snapshot tick` for actual presentation progress.
 
 `window_reconciliation_interval_ms` controls the long safety rescan interval.
 The normal path should be event-driven and targeted per PID.
@@ -271,6 +281,10 @@ Useful log lines:
 
 - `snapshot request`
 - `snapshot start`
+- `snapshot capture batch`
+- `snapshot capture error`
+- `snapshot missing image`
+- `snapshot captured`
 - `snapshot retarget`
 - `snapshot target`
 - `snapshot tick`
@@ -284,9 +298,29 @@ Check:
 - `animation_pixel_threshold` is not too high.
 - Screen Recording permission is granted.
 
+If motion starts late, check `durationMS` in `snapshot capture batch`. It measures
+shareable-content lookup and screenshot capture, not animation duration or AX
+parking. Capture runs asynchronously with at most three window requests in
+flight. Commands received during capture or parking are coalesced; they do not
+start additional overlapping layout batches. Increasing `animation_fps` does
+not speed up screenshot acquisition.
+
+`snapshot capture error` includes the failure reason. Check Screen Recording
+access for the running app or terminal; permission and capture errors do not
+mean a window closed. `snapshot missing image` instead means a window ID or a
+matching ScreenCaptureKit window/owner entry is missing and queues targeted
+reconciliation. An initial batch with no images falls back to final AX placement;
+partial success animates only captured windows.
+
+Window images are still snapshots, not live video: content can remain frozen
+while layers move. Desktop-independent capture includes covered and offscreen
+windows, but minimized or otherwise unavailable content may not provide a fresh
+image. Miri's private parking behavior still needs validation when investigating
+app-specific or OS-specific capture problems.
+
 Large `dtRaw` values in `snapshot tick` indicate main-thread stalls. The runner
 caps per-frame movement, but repeated stalls can still make animation feel less
-smooth.
+smooth. See [Snapshot animation](snapshot-animation.md) for the full pipeline.
 
 ## Resetting State
 

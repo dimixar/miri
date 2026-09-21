@@ -1,5 +1,12 @@
 # Pull request draft
 
+> Historical draft for the original animation experiment, not the current
+> implementation guide. The CoreGraphics capture API and options below have
+> since been replaced by asynchronous ScreenCaptureKit screenshots. Current
+> miri requires macOS 26 or newer; see [Snapshot animation](snapshot-animation.md)
+> for the supported API, bounded capture batches, and preparation/retargeting
+> behavior. The draft's file list and validation record describe that older branch.
+
 ## Suggested title
 
 ```text

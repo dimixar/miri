@@ -79,7 +79,8 @@ current scope and have not been tested.
   logical Space state across restarts. A versioned, continuously refreshed exit
   snapshot supports bounded cleanup after abrupt termination.
 - **Snapshot transitions.** Window movement and resizing animations using
-  captured snapshots and final Accessibility placement.
+  asynchronously captured ScreenCaptureKit images and final Accessibility
+  placement. Images are reused during retargeting, not continuously streamed.
 - **Precise window rules.** Rule matching and behavior overrides for apps and
   individual window titles.
 - **Small private and undocumented API surface.** Core window management stays
@@ -88,8 +89,9 @@ current scope and have not been tested.
 
 ## Requirements
 
-- macOS 13 or newer.
-- Swift 6 toolchain.
+- macOS 26 or newer.
+- To build from source: Xcode 26 or newer (macOS SDK 26 or newer and a Swift 6
+  toolchain).
 - Accessibility permission for window management.
 - Input Monitoring permission may be needed for the `event_tap` shortcut
   backend and for detecting managed-window interaction after session recovery.
@@ -314,9 +316,9 @@ Undocumented lock and Accessibility contracts may change between macOS
 releases.
 
 `CGSessionCopyCurrentDictionary`, `kCGSessionOnConsoleKey`, NSWorkspace
-session/sleep notifications, CG event taps and event fields, and CoreGraphics
-window-list/image functions are low-level but public SDK APIs; they are not part
-of the private list above.
+session/sleep notifications, CG event taps and event fields, CoreGraphics
+window-list metadata functions, and ScreenCaptureKit screenshot capture are
+public SDK APIs; they are not part of the private list above.
 
 ## Notes And Limitations
 

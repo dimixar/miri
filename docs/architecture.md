@@ -56,8 +56,10 @@ snapshots, a global generation invalidates full scans across native Space or
 session boundaries, and a separate global focus-adoption generation rejects
 A→B→A activation races. Discovery never adopts focus directly; an authoritative
 frontmost-PID probe may use its fresh result, a still-managed cached focused
-identity, or the sole managed window for that PID. Snapshot animation waits for the
-first bounded parking/restoration result before exposing or removing overlays.
+identity, or the sole managed window for that PID. Snapshot animation shows the
+overlay before parking real windows, waits for bounded parking results before
+starting the frame runner, and waits for final AX application before removing
+the overlay.
 CoreGraphics window IDs and bounds provide geometry data for reconciliation,
 persistence, Space-context matching, debugging, and cleanup. Private AX-to-ID
 mapping is optional worker-side enrichment and does not gate focused-window or
@@ -177,9 +179,24 @@ focus authority: stale AX focus and reconciliation signals cannot return to a
 parked window, and the authority is retired when a new window is inserted into
 the selected workspace.
 
+`LayoutController` delegates image capture to `WindowSnapshotCapturer`, using
+ScreenCaptureKit's macOS 26 `SCScreenshotManager.captureScreenshot` API. Each
+batch enumerates shareable windows once, including offscreen windows, and
+captures each matching window independently with at most three requests in
+flight. Capture is asynchronous; the resulting in-memory images feed the
+existing layer animation rather than a continuous stream. CoreGraphics remains
+in use for window metadata, not screenshot capture.
+
+Submissions received during capture or parking are coalesced to the newest
+request. After preparation, animated requests can retarget existing layers;
+only missing layers need additional captures. Cancellation and request tokens
+prevent late results from modifying a superseded or unavailable session. See
+[Snapshot animation](snapshot-animation.md) for configuration and failure policy.
+
 During snapshot animation, miri may focus the requested real window, but it
 defers final real-window position and size changes until the animation settles.
-This prevents AX frame writes from fighting the overlay animation.
+Preparation still parks real windows under the overlay. This prevents normal
+layout frame writes from fighting the overlay animation.
 
 ## Native Space Handling
 
@@ -227,8 +244,8 @@ non-fatal; the undocumented notifications, properties, and attributes remain
 macOS-version-sensitive.
 
 CoreGraphics session dictionaries, NSWorkspace session/sleep notifications, CG
-event taps and fields, and CoreGraphics window-list/image functions used by miri
-are public SDK APIs despite being relatively low-level.
+event taps and fields, CoreGraphics window-list metadata, and ScreenCaptureKit
+screenshot capture are public SDK APIs.
 
 ## Files Worth Watching
 

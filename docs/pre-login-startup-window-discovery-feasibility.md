@@ -20,7 +20,7 @@ Apple describes that key as:
 
 > “A CFBoolean value indicating whether the login operation has been done.”
 
-This is a public CoreGraphics API available far earlier than Miri’s macOS 13 deployment target.
+This is a public CoreGraphics API available far earlier than Miri’s macOS 26 deployment target.
 
 - [CGSessionCopyCurrentDictionary](https://developer.apple.com/documentation/coregraphics/cgsessioncopycurrentdictionary/)
 - [kCGSessionLoginDoneKey](https://developer.apple.com/documentation/coregraphics/kcgsessionlogindonekey)

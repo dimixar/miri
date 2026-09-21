@@ -120,11 +120,19 @@ The repository includes a complete default config at
 
 ## Animation
 
-- `animation_strategy`: `snapshot` or `off`. `off` always applies the final
-  layout immediately under the normal layout lock; nonzero animation-duration
-  settings do not override it.
+Snapshot mode uses asynchronous ScreenCaptureKit screenshots and requires Screen
+Recording permission. Without access, the effective strategy is `off`. The
+application requires macOS 26 or newer even when animations are disabled; there
+is no older-OS capture fallback. No new configuration keys are needed for the
+ScreenCaptureKit backend. See [Snapshot animation](snapshot-animation.md).
+
+- `animation_strategy`: `snapshot` or `off`. `off` applies the final layout
+  without animation under the normal layout lock, waiting for an existing
+  snapshot session to finish if necessary. Nonzero animation-duration settings
+  do not override it.
 - `snapshot_animation_speed`: `1` to `100`; drives snapshot movement speed.
 - `animation_fps`: manual snapshot runner frame rate, clamped to `1...120`.
+  This controls layer movement, not screenshot capture frequency.
 - `animation_pixel_threshold`: distance under which a snapshot layer snaps to
   its target.
 - `animation_duration_ms`, `keyboard_animation_ms`,

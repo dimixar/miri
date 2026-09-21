@@ -189,11 +189,13 @@ window: no destroyed, minimized, deminimized, hidden, shown, focused-window, or
 main-window change notification. It can also report stale or contradictory AX
 frames for multiple real windows, for example distinct windows temporarily
 claiming the same position and size. When a tracked window reaches snapshot
-animation but CoreGraphics can no longer produce an image for its window ID,
-miri treats that missing snapshot image as a stale-window hint and queues a
-targeted reconciliation for that PID after layout and snapshot animation are
-safe. This keeps the fallback event-driven and avoids reintroducing frequent
-global scans.
+animation without a window ID, or ScreenCaptureKit's shareable-content list has
+no matching window ID and owner PID, miri treats that as a stale-window hint.
+It queues targeted reconciliation for that PID after layout and snapshot
+animation are safe. Other screenshot failures, including permission and image
+capture errors, are logged separately and do not trigger this stale-window
+fallback. This keeps the fallback event-driven and avoids reintroducing
+frequent global scans.
 
 For apps with this class of missing notifications, `active_rescan_enabled` is
 enabled by default with matching `active_rescan_bundle_ids`. While any listed
@@ -273,8 +275,10 @@ Useful log lines in `~/.config/miri/debug.log`:
   time, budget exhaustion, estimated AX call count, and adaptive `retryAfter`;
   known discovery state remains preserved when the
   operation is unavailable.
-- `snapshot missing image`: snapshot capture failed for a tracked window and
-  queued targeted PID reconciliation.
+- `snapshot missing image`: a tracked window lacks a window ID or a matching
+  ScreenCaptureKit window/owner entry; targeted PID reconciliation was queued.
+- `snapshot capture error`: screenshot capture or shareable-content enumeration
+  failed without treating the tracked window as stale.
 - `active rescan reason=...`: optional active rescan ran for a configured
   bundle currently present in the tiled layout.
 - `ignoring malformed root-only ax-windows response`: an app returned only a
