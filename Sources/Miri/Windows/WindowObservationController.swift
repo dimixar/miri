@@ -25,6 +25,7 @@ final class WindowObservationController: NSObject {
     private var activeRescanTimer: Timer?
     private var activeRescanPIDs = Set<pid_t>()
     private var launchSettlingTimer: Timer?
+    private var discoverySettlingTimer: Timer?
 
     private var focusedWindowProbeGeneration: UInt64 = 0
     private(set) var launchSettlingDeadlines: [pid_t: CFAbsoluteTime] = [:]
@@ -306,6 +307,34 @@ final class WindowObservationController: NSObject {
         }
     }
 
+    func configureDiscoverySettlingTimer(
+        enabled: Bool,
+        duration: TimeInterval = 30,
+        interval: TimeInterval = 1
+    ) {
+        guard enabled else {
+            discoverySettlingTimer?.invalidate()
+            discoverySettlingTimer = nil
+            return
+        }
+        guard !stopped, discoverySettlingTimer == nil else { return }
+        let deadline = CFAbsoluteTimeGetCurrent() + duration
+        discoverySettlingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard CFAbsoluteTimeGetCurrent() < deadline else {
+                    self.configureDiscoverySettlingTimer(enabled: false)
+                    return
+                }
+                self.emit(.windows(.reconciliationRequested(.all(
+                    adoptFocused: false,
+                    source: .discoverySettling,
+                    reason: "discovery-settling"
+                ))))
+            }
+        }
+    }
+
     func configureActiveRescanTimer(pids: Set<pid_t>, interval: TimeInterval = 1) {
         activeRescanPIDs = pids
         if !pids.isEmpty, activeRescanTimer == nil {
@@ -388,6 +417,7 @@ final class WindowObservationController: NSObject {
         periodicTimer?.invalidate()
         activeRescanTimer?.invalidate()
         launchSettlingTimer?.invalidate()
+        configureDiscoverySettlingTimer(enabled: false)
         periodicTimer = nil
         activeRescanTimer = nil
         launchSettlingTimer = nil

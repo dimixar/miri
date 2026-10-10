@@ -64,6 +64,7 @@ struct ReconciliationIntent {
         case periodicTimer
         case activeRescan
         case launchSettling
+        case discoverySettling
         case sessionRecovery
         case userInterface
         case delayedProbe

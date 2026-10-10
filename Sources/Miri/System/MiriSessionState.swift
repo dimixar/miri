@@ -55,6 +55,7 @@ extension Miri {
         pendingSessionRecoveryCommands.removeAll()
         pendingSessionRecoveryLaunchedPIDs.removeAll()
         windowManagement.observation.configurePeriodicTimer(enabled: false, interval: windowReconciliationInterval)
+        windowManagement.observation.configureDiscoverySettlingTimer(enabled: false)
         windowManagement.observation.configureActiveRescanTimer(pids: [])
         cancelAppLaunchSettlingForUnavailableSession()
         manualResizeController.cancel()

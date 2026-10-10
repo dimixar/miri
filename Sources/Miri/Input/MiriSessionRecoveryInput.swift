@@ -466,6 +466,9 @@ extension Miri {
             guard let app = NSRunningApplication(processIdentifier: pid) else { continue }
             beginAppLaunchSettling(for: app, reason: "session-recovery")
         }
+        if sessionController.recoveryStartedWithEmptyModel {
+            windowManagement.observation.configureDiscoverySettlingTimer(enabled: true)
+        }
         scheduleReconciliationTimer()
         syncActiveRescanTimer()
         for command in commands { submit(command) }

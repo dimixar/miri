@@ -83,4 +83,55 @@ final class SessionRecoveryTests: XCTestCase {
         wait(for: [staleRetry], timeout: 0.65)
         sessions.forEach { $0.stop() }
     }
+
+    func testDiscoverySettlingKeepsScanningWithoutExtendingItsDeadline() {
+        let afterDeadline = expectation(description: "settling must finish")
+        afterDeadline.isInverted = true
+        let started = Date()
+        var scans = 0
+        let operations = AXOperationController(log: { _ in })
+        weak var settlingObservation: WindowObservationController?
+        let observation = WindowObservationController(axOperations: operations) { event in
+            guard case .windows(.reconciliationRequested(let intent)) = event else { return }
+            XCTAssertEqual(intent.source, .discoverySettling)
+            guard case .allWindows = intent.scope else {
+                return XCTFail("Settling must discover previously unknown apps")
+            }
+            scans += 1
+            if Date().timeIntervalSince(started) > 0.35 {
+                afterDeadline.fulfill()
+            }
+            // A duplicate startup/recovery callback must not extend polling.
+            settlingObservation?.configureDiscoverySettlingTimer(enabled: true, duration: 0.25, interval: 0.025)
+        }
+        settlingObservation = observation
+        observation.configureDiscoverySettlingTimer(enabled: true, duration: 0.25, interval: 0.025)
+
+        wait(for: [afterDeadline], timeout: 0.5)
+        XCTAssertGreaterThan(scans, 1, "An empty first scan must not end discovery")
+        observation.stop()
+    }
+
+    func testStoppingObservationCancelsDiscoverySettling() {
+        let firstScan = expectation(description: "settling started")
+        let stoppedScan = expectation(description: "no discovery after stop")
+        stoppedScan.isInverted = true
+        var stopped = false
+        let operations = AXOperationController(log: { _ in })
+        let observation = WindowObservationController(axOperations: operations) { event in
+            guard case .windows(.reconciliationRequested) = event else { return }
+            if stopped {
+                stoppedScan.fulfill()
+            } else {
+                firstScan.fulfill()
+            }
+        }
+        observation.configureDiscoverySettlingTimer(enabled: true, duration: 1, interval: 0.025)
+        wait(for: [firstScan], timeout: 1)
+        stopped = true
+        observation.stop()
+        observation.configureDiscoverySettlingTimer(enabled: true, duration: 1, interval: 0.025)
+
+        wait(for: [stoppedScan], timeout: 0.1)
+    }
 }

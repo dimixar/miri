@@ -309,11 +309,17 @@ extension Miri {
     }
 
     @MainActor private func executeReconciliation(_ intent: ReconciliationIntent) {
-        guard intent.source == .periodicTimer else {
+        // A settling tick must not supersede a slower full scan on every
+        // second, preventing its results and outer deadline from applying.
+        if intent.source == .discoverySettling,
+           activeFullWindowScanGeneration == fullWindowScanGeneration {
+            return
+        }
+        guard intent.source == .periodicTimer || intent.source == .discoverySettling else {
             executeReconciliationAfterEnvironmentRefresh(intent)
             return
         }
-        guard !reloadConfigIfNeeded() else { return }
+        if intent.source == .periodicTimer, reloadConfigIfNeeded() { return }
         let wasTransient = windowManagement.observation.transientWindowActive
         refreshTransientSystemWindowState { [weak self] in
             guard let self,
@@ -323,6 +329,10 @@ extension Miri {
             else { return }
             var refreshedIntent = intent
             refreshedIntent.adoptFocused = refreshedIntent.adoptFocused || wasTransient
+            if intent.source == .discoverySettling,
+               self.activeFullWindowScanGeneration == self.fullWindowScanGeneration {
+                return
+            }
             guard !self.reconciliationAdmissionClosed else {
                 self.coalescePendingReconciliation(
                     refreshedIntent,

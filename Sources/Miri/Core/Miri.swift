@@ -16,6 +16,7 @@ final class Miri: NSObject, NSApplicationDelegate {
     var reconciliationDrainScheduled = false
     var reconciliationDrainGeneration: UInt64 = 0
     var fullWindowScanGeneration: UInt64 = 0
+    var activeFullWindowScanGeneration: UInt64?
     var terminationPrepared = false
     var terminationCompleted = false
     var runtimeStarted = false
@@ -141,7 +142,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
         if sessionController.isLayoutTrackingAllowed {
-            beginStartupDiscoveryAfterTransientRefresh()
+            beginStartupDiscoveryAfterTransientRefresh(generation: sessionController.resumeGeneration)
         } else {
             print("miri: layout tracking paused because the user session is unavailable")
         }
@@ -153,20 +154,26 @@ final class Miri: NSObject, NSApplicationDelegate {
         print("miri: Cmd-Tab is passed through and adopted after macOS focuses a window")
     }
 
-    private func beginStartupDiscoveryAfterTransientRefresh() {
+    private func beginStartupDiscoveryAfterTransientRefresh(generation: UInt64) {
+        guard appPhase == .running,
+              sessionController.resumeGeneration == generation,
+              sessionController.isLayoutTrackingAllowed
+        else { return }
         // Preserve the pre-async startup ordering: establish the transient
         // environment guard before admitting discovery and projection.
         refreshTransientSystemWindowState { [weak self] in
             guard let self,
                   self.appPhase == .running,
+                  self.sessionController.resumeGeneration == generation,
                   self.sessionController.isLayoutTrackingAllowed
             else { return }
             guard !self.windowManagement.observation.transientWindowActive else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.beginStartupDiscoveryAfterTransientRefresh()
+                    self?.beginStartupDiscoveryAfterTransientRefresh(generation: generation)
                 }
                 return
             }
+            self.windowManagement.observation.configureDiscoverySettlingTimer(enabled: true)
             self.requestReconciliation(
                 .all(adoptFocused: true, source: .startup, reason: "startup")
             )

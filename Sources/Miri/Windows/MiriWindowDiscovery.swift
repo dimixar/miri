@@ -533,6 +533,13 @@ extension Miri {
 
         fullWindowScanGeneration &+= 1
         let generation = fullWindowScanGeneration
+        activeFullWindowScanGeneration = generation
+        let finish: (Bool) -> Void = { [weak self] completed in
+            if self?.activeFullWindowScanGeneration == generation {
+                self?.activeFullWindowScanGeneration = nil
+            }
+            completion(completed)
+        }
         let regularApps = NSWorkspace.shared.runningApplications
             .filter {
                 $0.activationPolicy == .regular
@@ -552,13 +559,13 @@ extension Miri {
         let accumulator = FullWindowDiscoveryAccumulator(
             generation: generation,
             pids: Set(apps.map(\.processIdentifier)),
-            completion: completion
+            completion: finish
         )
         guard !apps.isEmpty else {
             completeRescanWindows(
                 WindowDiscoverySnapshot(observations: [], unavailablePIDs: []),
                 adoptFocused: adoptFocused,
-                completion: completion
+                completion: finish
             )
             return
         }
