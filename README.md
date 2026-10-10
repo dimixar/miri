@@ -199,12 +199,13 @@ problematic apps, window rules, excluded shortcuts, and command keybindings.
 
 miri pauses window discovery, Accessibility handling, layout projection,
 animations, and reconciliation timers when macOS reports that the screen is
-locked, the console session is inactive, or the system is sleeping. It does not
-immediately reconcile windows when an unlock, login, or wake notification
-arrives because the login UI and the user's desktop can overlap briefly during
+locked, the console session is inactive, or the system is sleeping. An unlock,
+login, or wake notification alone does not bypass the session and transient-window
+guards because the login UI and the user's desktop can overlap briefly during
 that transition.
 
-Once the desktop session is available, miri waits for a layout-relevant action:
+Once the desktop session is available, miri waits for a layout-relevant action
+if it already knows windows in any workspace or macOS Space:
 
 - a mouse-button press or scroll event targeting an on-screen managed window;
 - a key press delivered to the focused managed window; or
@@ -217,6 +218,16 @@ managed-window interaction can also resume tracking. Recovery first quiesces
 pre-lock AX work, clears stale frame/focus caches, refreshes current focus, and
 completes one full rescan. Only then does miri return to running, restart safety
 timers, and run a triggering command if one was queued.
+
+If the whole runtime window model is empty, miri instead attempts recovery
+automatically and retries every half-second while the session/transient guards
+block it. Floating, fullscreen, minimized, and Space-buffered windows count as
+known state; saved layout metadata alone does not. Startup and successful
+empty-model recovery also open a 30-second discovery settling period, requesting
+full rescans every second without superseding a full scan still in progress.
+This captures apps and windows restored after the first scan. An empty scan does
+not re-enable the interaction requirement. Lock, sleep, or termination cancels
+the settling work; afterward, normal observation and periodic rescans take over.
 
 Some applications expose transiently malformed Accessibility state during a
 session transition. In particular, an `AXWindows` query may return an
