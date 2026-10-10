@@ -136,6 +136,7 @@ enum SessionEvent {
         systemSleeping: Bool?,
         reason: String
     )
+    case emptyModelRecoveryDue(generation: UInt64)
     case recoveryReady(generation: UInt64, reason: String)
 }
 

@@ -117,6 +117,15 @@ final class WindowManagement {
     var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { model.activeContext.fullscreenWindowStates }
     var fullscreenSpaceChangeGuardWorkspace: Int? { model.activeContext.fullscreenSpaceChangeGuardWorkspace }
 
+    var hasKnownWindowState: Bool {
+        !model.spaceBufferedWindows.isEmpty || model.logicalSpaceContexts.contains { context in
+            context.workspaces.contains { !$0.columns.isEmpty }
+                || !context.floatingWindows.isEmpty
+                || !context.fullscreenWindowStates.isEmpty
+                || !context.minimizedWindowPIDs.isEmpty
+        }
+    }
+
     func snapshot() -> WorkspaceModelSnapshot {
         let workspaces = model.activeContext.workspaces
         let activeIndex = min(max(model.activeContext.activeWorkspace, 0), max(workspaces.count - 1, 0))

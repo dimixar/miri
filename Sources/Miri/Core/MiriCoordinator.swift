@@ -159,6 +159,13 @@ extension Miri {
             } else if appPhase != .sessionRecovering {
                 appPhase = .running
             }
+        case .emptyModelRecoveryDue(let generation):
+            guard runtimeStarted,
+                  generation == sessionController.resumeGeneration,
+                  sessionController.recoveryStartedWithEmptyModel,
+                  !windowManagement.hasKnownWindowState
+            else { return }
+            requestSessionRecoveryImplementation(reason: "empty-model")
         case .recoveryReady(let generation, let reason):
             appPhase = .sessionRecovering
             completeSessionRecoveryImplementation(generation: generation, reason: reason)
@@ -540,6 +547,7 @@ private extension SessionEvent {
     var logName: String {
         switch self {
         case .stateChanged: return "session.state-changed"
+        case .emptyModelRecoveryDue: return "session.empty-model-recovery-due"
         case .recoveryReady: return "session.recovery-ready"
         }
     }

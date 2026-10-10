@@ -42,7 +42,7 @@ extension Miri {
         if transition.wasAvailable, !transition.isAvailable {
             pauseLayoutTrackingForSession()
         } else if !transition.wasAvailable, transition.isAvailable {
-            awaitManagedInteractionForSessionRecovery(reason: reason)
+            prepareForSessionRecovery(reason: reason)
         }
 
         logSessionState(
@@ -99,7 +99,7 @@ extension Miri {
         debugLog("layout tracking paused for unavailable session")
     }
 
-    private func awaitManagedInteractionForSessionRecovery(reason: String) {
+    private func prepareForSessionRecovery(reason: String) {
         guard sessionController.isAwaitingRecoveryInteraction else {
             return
         }
@@ -108,9 +108,11 @@ extension Miri {
         lastKnownFocusedElements.removeAll()
         windowManagement.observation.invalidateAsyncStateForSessionTransition()
         axOperations.resetHealthForSessionRecovery()
-        sessionController.prepareRecoveryInteraction()
         refreshSessionRecoveryInputTracking()
-        debugLog("layout tracking awaiting managed-window interaction reason=\(reason) generation=\(sessionController.resumeGeneration)")
+        sessionController.prepareRecoveryInteraction(
+            hasKnownWindowState: windowManagement.hasKnownWindowState
+        )
+        debugLog("layout tracking awaiting recovery reason=\(reason) emptyModel=\(sessionController.recoveryStartedWithEmptyModel) generation=\(sessionController.resumeGeneration)")
     }
 
     func afterSessionAXQuiescence(_ completion: @escaping () -> Void) {

@@ -10,11 +10,13 @@ final class SessionController {
     private var observerTokens: [NSObjectProtocol] = []
     private var recoveryEventTap: CFMachPort?
     private var recoveryEventTapSource: CFRunLoopSource?
+    private var emptyModelRecoveryTimer: Timer?
 
     private(set) var isScreenLocked = false
     private(set) var isWorkspaceSessionActive = true
     private(set) var isSystemSleeping = false
     private(set) var isAwaitingRecoveryInteraction = false
+    private(set) var recoveryStartedWithEmptyModel = false
     private var isRecoveryResumeScheduled = false
     private(set) var resumeGeneration: UInt64 = 0
 
@@ -118,10 +120,30 @@ final class SessionController {
         resumeGeneration &+= 1
         isAwaitingRecoveryInteraction = true
         isRecoveryResumeScheduled = false
+        emptyModelRecoveryTimer?.invalidate()
+        emptyModelRecoveryTimer = nil
+        recoveryStartedWithEmptyModel = false
     }
 
-    func prepareRecoveryInteraction() {
+    func prepareRecoveryInteraction(hasKnownWindowState: Bool) {
         isRecoveryResumeScheduled = false
+        emptyModelRecoveryTimer?.invalidate()
+        emptyModelRecoveryTimer = nil
+        recoveryStartedWithEmptyModel = isAvailable && isAwaitingRecoveryInteraction && !hasKnownWindowState
+        guard recoveryStartedWithEmptyModel else { return }
+
+        let generation = resumeGeneration
+        emptyModelRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.resumeGeneration == generation,
+                      self.isAvailable,
+                      self.isAwaitingRecoveryInteraction
+                else { return }
+                self.emit(.session(.emptyModelRecoveryDue(generation: generation)))
+            }
+        }
+        emit(.session(.emptyModelRecoveryDue(generation: generation)))
     }
 
     func scheduleRecoveryIfNeeded() -> UInt64? {
@@ -141,10 +163,15 @@ final class SessionController {
         }
         isRecoveryResumeScheduled = false
         isAwaitingRecoveryInteraction = false
+        emptyModelRecoveryTimer?.invalidate()
+        emptyModelRecoveryTimer = nil
         return true
     }
 
     func stop() {
+        emptyModelRecoveryTimer?.invalidate()
+        emptyModelRecoveryTimer = nil
+        recoveryStartedWithEmptyModel = false
         let distributed = DistributedNotificationCenter.default()
         let workspace = NSWorkspace.shared.notificationCenter
         for token in observerTokens {
