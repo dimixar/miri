@@ -169,6 +169,14 @@ managed window is focused.
 `keybindings` is merged with built-in defaults by action name. Set an action to
 `[]` to disable it. `excluded_keybindings` always wins when using `event_tap`.
 
+`toggle_workspace_fullscreen` defaults to `lalt+ctrl+f` and is editable under
+Settings → Shortcuts → Workspace fullscreen. It toggles a temporary full-workspace
+override for the focused tiled window, preserving normal ratios. Column navigation,
+width shortcuts, and drag-layout gestures are disabled while enabled. External
+focus changes transfer the override to the focused tiled window; toggling off
+restores normal tiling with that window focused. This is separate from native
+macOS fullscreen and does not create a macOS Space.
+
 Supported modifier names include `cmd`, `win`, `windows`, `super`, `meta`,
 `ctrl`, `shift`, `alt`, `option`, side-specific `lalt`/`ralt`, and `fn`/`globe`.
 Common aliases are supported for arrows, navigation keys, page keys, function

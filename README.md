@@ -164,6 +164,7 @@ unless configured otherwise.
 | `LAlt+Shift+J` / `LAlt+Shift+K` | Move column workspace down / up |
 | `LAlt+Shift+H` / `LAlt+Shift+L` | Move column left / right |
 | `LAlt+Shift+[` / `LAlt+Shift+]` | Move column to first / last |
+| `LAlt+Ctrl+F` | Toggle workspace fullscreen |
 | `LAlt+Ctrl+H` / `LAlt+Ctrl+L` | Cycle active column width preset |
 | `LAlt+Ctrl+-` / `LAlt+Ctrl+=` | Nudge active column width |
 | `LAlt+Ctrl+Shift+H` / `LAlt+Ctrl+Shift+L` | Cycle every tiled window width preset |
@@ -171,6 +172,15 @@ unless configured otherwise.
 
 Shortcut handling can use either a CG event tap or Carbon registered hot keys.
 See [Configuration](docs/configuration.md#shortcuts).
+
+Workspace fullscreen fills the usable workspace with the focused tiled window,
+without entering native macOS fullscreen or changing normal width ratios.
+Column-focus and resize shortcuts, plus drag-layout gestures, are disabled until
+you toggle back. Cmd-Tab, Cmd-grave, and Dock/window activation transfer the mode
+to the newly focused tiled window, including across Miri workspaces. Toggling
+back restores normal tiling around that window. Explicit workspace navigation
+keeps each workspace's mode in place. Unmanaged focus suspends the override;
+it resumes when a tiled window regains focus. The mode is not saved across restarts.
 
 ## Menu Bar And Settings
 
