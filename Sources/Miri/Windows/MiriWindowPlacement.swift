@@ -77,6 +77,9 @@ extension Miri {
     }
 
     func removeWindow(_ window: ManagedWindow, preferRightFocus: Bool = false) {
+        if mouseInteractionController.session?.window === window {
+            cancelMouseInteraction()
+        }
         let id = ObjectIdentifier(window)
         layoutController.removeTracking(for: window)
         windowManagement.clearPendingFullscreenTransition(for: id)

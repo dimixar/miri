@@ -121,6 +121,8 @@ struct ReconciliationIntent {
 
 enum InputEvent {
     case command(Command, animateWorkspace: Bool)
+    case pointer(MousePointerEvent)
+    case pointerTapDisabled
     case sessionRecoveryRequested(reason: String, command: Command?)
     case userInteraction
     case focusedWindowProbeRequested(reason: String)
@@ -157,6 +159,7 @@ enum WindowEvent {
 
 enum TimerEvent {
     case manualResizeEnded(element: AXUIElement)
+    case mouseInteractionTick(generation: UInt64)
     case reconciliationDrain(generation: UInt64)
 }
 

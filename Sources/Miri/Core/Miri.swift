@@ -67,6 +67,7 @@ final class Miri: NSObject, NSApplicationDelegate {
     var pendingTransientWindowRefreshCompletions: [() -> Void] = []
     var focusStateGeneration: UInt64 = 0
     var focusedWindowAdoptionGeneration: UInt64 = 0
+    var mouseInteractionLayoutViewport: CGRect?
     var lastKnownFocusedElements: [pid_t: AXUIElement] = [:]
     var authoredPhysicalFocusElement: AXUIElement?
     var authoredPhysicalFocusUntil: CFAbsoluteTime = 0
@@ -92,6 +93,11 @@ final class Miri: NSObject, NSApplicationDelegate {
         sameWindow: { [weak self] lhs, rhs in self?.sameWindow(lhs, rhs) ?? false },
         emitEnded: { [weak self] element in self?.enqueue(.timer(.manualResizeEnded(element: element))) }
     )
+
+    lazy var mouseInteractionController = MouseInteractionController { [weak self] generation in
+        self?.enqueue(.timer(.mouseInteractionTick(generation: generation)))
+    }
+    lazy var mouseInteractionOverlayController = MouseInteractionOverlayController()
 
     lazy var sessionController = SessionController { [weak self] event in
         self?.enqueue(event)
@@ -137,6 +143,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         persistenceController.start()
         inputController.configure(configStore.effectiveConfig)
         inputController.install(backend: keyboardShortcutBackend)
+        inputController.installPointerMonitor()
         inputController.installFocusedWindowMonitor()
         syncSessionRecoveryInputTracking()
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier

@@ -119,6 +119,7 @@ final class LayoutController {
     private var pendingSubmission: LayoutSubmission?
     private var deferredSubmissionGeneration: UInt64 = 0
     private var sessionPauseGeneration: UInt64 = 0
+    private(set) var userInteractionWindow: ManagedWindow?
 
     var floatingRaiseGeneration: UInt64 = 0
     var focusRequestGeneration: UInt64 = 0
@@ -177,7 +178,10 @@ final class LayoutController {
         emit(.externallyResized(windowID: window.windowID))
     }
 
-    func projectItems(viewport: CGRect, state: LayoutState, parkHidden: Bool) -> [LayoutItem] {
+    func projectItems(
+        viewport: CGRect, state: LayoutState, parkHidden: Bool,
+        interactiveCameraOffset: CGFloat? = nil
+    ) -> [LayoutItem] {
         let scale = max((dependencies.screenContaining(viewport) ?? NSScreen.main)?.backingScaleFactor ?? 1, 1)
         let modelSnapshot = dependencies.modelSnapshot()
         let workspaces = modelSnapshot.workspaces.map { workspace in
@@ -204,9 +208,61 @@ final class LayoutController {
                     parkedSliverWidth: dependencies.settings().parkedSliverWidth,
                     physicalPixelScale: scale
                 ),
-                parkHidden: parkHidden
+                parkHidden: parkHidden,
+                interactiveCameraOffset: interactiveCameraOffset
             )
         )
+    }
+
+    func beginUserInteraction(_ window: ManagedWindow) {
+        userInteractionWindow = window
+        axOperations.suspendFrameWrites(for: AXElementHandle(
+            element: window.element, pid: window.pid, windowID: window.windowID
+        ))
+        let id = ObjectIdentifier(window)
+        frameRetryGenerations[id, default: 0] &+= 1
+        requestedFrames.removeValue(forKey: id)
+        authoredFrameWriteGenerations.removeValue(forKey: id)
+        authoredFrameNotificationUntil.removeValue(forKey: id)
+        focusRequestGeneration &+= 1
+        floatingRaiseGeneration &+= 1
+        cancel(reason: "mouse-interaction")
+    }
+
+    func endUserInteraction() {
+        guard let window = userInteractionWindow else { return }
+        userInteractionWindow = nil
+        axOperations.resumeFrameWrites(for: AXElementHandle(
+            element: window.element, pid: window.pid, windowID: window.windowID
+        ))
+    }
+
+    func stopInteractiveScroll() {
+        guard userInteractionWindow != nil else { return }
+        for window in dependencies.modelSnapshot().tiledWindows where window !== userInteractionWindow {
+            let handle = AXElementHandle(element: window.element, pid: window.pid, windowID: window.windowID)
+            axOperations.suspendFrameWrites(for: handle)
+            axOperations.resumeFrameWrites(for: handle)
+            let id = ObjectIdentifier(window)
+            frameRetryGenerations[id, default: 0] &+= 1
+            requestedFrames.removeValue(forKey: id)
+            authoredFrameWriteGenerations.removeValue(forKey: id)
+        }
+    }
+
+    func applyInteractiveLayout(viewport: CGRect, state: LayoutState, cameraOffset: CGFloat) {
+        guard userInteractionWindow != nil, dependencies.isLayoutTrackingAllowed() else { return }
+        let items = projectItems(
+            viewport: viewport, state: state, parkHidden: true,
+            interactiveCameraOffset: cameraOffset
+        )
+        // Do not focus or run snapshot animations while the native gesture owns a window.
+        for item in items where item.window !== userInteractionWindow {
+            let id = ObjectIdentifier(item.window)
+            if requestedFrames[id] != item.frame || appliedVisibility[id] != item.visible {
+                apply(item)
+            }
+        }
     }
 
     func submit(
@@ -217,6 +273,7 @@ final class LayoutController {
         animated: Bool,
         lockDelay: TimeInterval
     ) {
+        guard userInteractionWindow == nil else { return }
         let submission = LayoutSubmission(
             token: allocateRequestToken(),
             previousState: previousState,
@@ -537,6 +594,7 @@ final class LayoutController {
         forceFrame: Bool = false,
         completion: @escaping () -> Void = {}
     ) {
+        guard item.window !== userInteractionWindow else { completion(); return }
         let id = ObjectIdentifier(item.window)
         let wasVisible = appliedVisibility[id]
         let requestedFrame = requestedFrames[id]
@@ -578,6 +636,7 @@ final class LayoutController {
     }
 
     func resetCompositorTransform(for window: ManagedWindow) {
+        guard window !== userInteractionWindow else { return }
         guard let windowID = window.windowID, let original = originalWindowTransforms[windowID] else { return }
         if windowSystem.setTransform(original, for: windowID) {
             originalWindowTransforms.removeValue(forKey: windowID)
@@ -596,7 +655,8 @@ final class LayoutController {
     }
 
     func applyCompositorParkingCorrection(to targetFrame: CGRect, for window: ManagedWindow) {
-        guard let windowID = window.windowID,
+        guard window !== userInteractionWindow,
+              let windowID = window.windowID,
               let observedFrame = windowServerFrame(for: windowID)
         else { return }
         let viewport = dependencies.currentViewport()
@@ -642,6 +702,13 @@ final class LayoutController {
         correctParking: Bool = false,
         completion: @escaping (AXOperationResult<CGRect>) -> Void = { _ in }
     ) {
+        guard window !== userInteractionWindow else {
+            completion(AXOperationResult(
+                value: nil, error: .success, disposition: .superseded,
+                queueWait: 0, elapsed: 0, budgetExhausted: false, retryAfter: nil
+            ))
+            return
+        }
         let id = ObjectIdentifier(window)
         requestedFrames[id] = frame
         frameRetryGenerations[id, default: 0] &+= 1
@@ -660,7 +727,9 @@ final class LayoutController {
         ) { [weak self, weak window] result in
             completion(result)
             guard let self, let window,
-                  self.frameWriteEpoch == writeEpoch else { return }
+                  self.frameWriteEpoch == writeEpoch,
+                  self.frameRetryGenerations[id] == retryGeneration,
+                  window !== self.userInteractionWindow else { return }
             if self.authoredFrameWriteGenerations[id] == retryGeneration {
                 self.authoredFrameWriteGenerations.removeValue(forKey: id)
                 self.authoredFrameNotificationUntil[id] = CFAbsoluteTimeGetCurrent() + 0.3
@@ -689,6 +758,7 @@ final class LayoutController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak window] in
                     guard let self, let window,
                           self.frameWriteEpoch == writeEpoch,
+                          self.frameRetryGenerations[id] == retryGeneration,
                           self.requestedFrames[id] == frame else { return }
                     self.applyCompositorParkingCorrection(to: frame, for: window)
                 }

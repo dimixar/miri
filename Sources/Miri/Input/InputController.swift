@@ -4,6 +4,13 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 
+struct MousePointerEvent {
+    enum Kind { case down, dragged, up }
+    let kind: Kind
+    let location: CGPoint
+    let windowID: UInt32?
+}
+
 private let inputHotKeySignature = OSType(
     (UInt32(UInt8(ascii: "M")) << 24)
         | (UInt32(UInt8(ascii: "I")) << 16)
@@ -20,6 +27,8 @@ final class InputController {
 
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
+    private var pointerTap: CFMachPort?
+    private var pointerTapSource: CFRunLoopSource?
     private var carbonHotKeys: [EventHotKeyRef] = []
     private var carbonEventHandler: EventHandlerRef?
     private var carbonCommandByID: [UInt32: Command] = [:]
@@ -85,6 +94,60 @@ final class InputController {
         guard let focusedWindowInputMonitor else { return }
         NSEvent.removeMonitor(focusedWindowInputMonitor)
         self.focusedWindowInputMonitor = nil
+    }
+
+    func installPointerMonitor() {
+        guard pointerTap == nil else { return }
+        let mask = [CGEventType.leftMouseDown, .leftMouseDragged, .leftMouseUp].reduce(CGEventMask(0)) {
+            $0 | CGEventMask(1 << $1.rawValue)
+        }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+            eventsOfInterest: mask, callback: pointerEventTapCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            fputs("miri: unable to observe mouse gestures. Check Input Monitoring permissions.\n", stderr)
+            return
+        }
+        pointerTap = tap
+        pointerTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    func reenablePointerMonitor() {
+        if let pointerTap { CGEvent.tapEnable(tap: pointerTap, enable: true) }
+    }
+
+    func uninstallPointerMonitor() {
+        if let pointerTap {
+            CGEvent.tapEnable(tap: pointerTap, enable: false)
+            CFMachPortInvalidate(pointerTap)
+        }
+        if let pointerTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), pointerTapSource, .commonModes)
+        }
+        pointerTap = nil
+        pointerTapSource = nil
+    }
+
+    fileprivate func handlePointerEvent(_ event: CGEvent, type: CGEventType) {
+        let kind: MousePointerEvent.Kind
+        switch type {
+        case .leftMouseDown: kind = .down
+        case .leftMouseDragged: kind = .dragged
+        case .leftMouseUp: kind = .up
+        default: return
+        }
+        let handlingID = event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent)
+        let pointedID = event.getIntegerValueField(.mouseEventWindowUnderMousePointer)
+        let rawID = handlingID > 0 ? handlingID : pointedID
+        let windowID = rawID > 0 && rawID <= Int64(UInt32.max) ? UInt32(rawID) : nil
+        emit(.input(.pointer(MousePointerEvent(kind: kind, location: event.location, windowID: windowID))))
+    }
+
+    fileprivate func pointerMonitorDisabled() {
+        emit(.input(.pointerTapDisabled))
     }
 
     func reenableEventTap() {
@@ -241,6 +304,23 @@ final class InputController {
         }
         print("miri: registered \(carbonHotKeys.count) shortcuts with macOS")
     }
+}
+
+private func pointerEventTapCallback(
+    _ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
+    _ refcon: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let refcon else { return Unmanaged.passUnretained(event) }
+    let controller = Unmanaged<InputController>.fromOpaque(refcon).takeUnretainedValue()
+    let payload = MainRunLoopCallbackValue(value: event)
+    MainActor.assumeIsolated {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            controller.pointerMonitorDisabled()
+        } else {
+            controller.handlePointerEvent(payload.value, type: type)
+        }
+    }
+    return Unmanaged.passUnretained(event)
 }
 
 private func inputEventTapCallback(

@@ -399,6 +399,19 @@ final class WindowManagement {
         return true
     }
 
+    @discardableResult
+    func swapWindows(_ source: ManagedWindow, with target: ManagedWindow, in workspace: Workspace) -> Bool {
+        guard model.activeContext.workspaces.contains(where: { $0 === workspace }),
+              source !== target,
+              let sourceIndex = workspace.columns.firstIndex(where: { $0 === source }),
+              let targetIndex = workspace.columns.firstIndex(where: { $0 === target })
+        else { return false }
+        workspace.columns.swapAt(sourceIndex, targetIndex)
+        workspace.activeColumn = targetIndex
+        assertInvariants()
+        return true
+    }
+
     func focusColumn(at requestedIndex: Int) -> (changed: Bool, source: Int, target: Int) {
         guard let workspace = activeWorkspaceObject(), !workspace.columns.isEmpty else {
             return (false, 0, 0)

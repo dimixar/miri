@@ -123,6 +123,10 @@ extension Miri {
         switch event {
         case .command(let command, let animateWorkspace):
             admitCommand(command, animateWorkspace: animateWorkspace)
+        case .pointer(let pointer):
+            handleMousePointer(pointer)
+        case .pointerTapDisabled:
+            inputController.reenablePointerMonitor()
         case .sessionRecoveryRequested(let reason, let command):
             requestSessionRecoveryImplementation(reason: reason, command: command)
         case .userInteraction:
@@ -191,6 +195,8 @@ extension Miri {
         switch event {
         case .manualResizeEnded(let element):
             handleManualResizeEnded(element: element)
+        case .mouseInteractionTick(let generation):
+            handleMouseInteractionTick(generation: generation)
         case .reconciliationDrain(let generation):
             guard generation == reconciliationDrainGeneration else {
                 debugLog("reconciliation drain ignored generation=\(generation) current=\(reconciliationDrainGeneration)")
@@ -294,7 +300,7 @@ extension Miri {
     }
 
     @MainActor private var reconciliationAdmissionClosed: Bool {
-        layoutController.isActive
+        layoutController.isActive || mouseInteractionController.isActive
     }
 
     @MainActor private func coalescePendingReconciliation(_ intent: ReconciliationIntent, reason: String) {
@@ -411,6 +417,10 @@ extension Miri {
     }
 
     @MainActor private func admitCommand(_ command: Command, animateWorkspace: Bool = false) {
+        guard !mouseInteractionController.isActive else {
+            pendingFocusCommands.append(command)
+            return
+        }
         guard appPhase == .running, sessionController.isLayoutTrackingAllowed else {
             pendingFocusCommands.append(command)
             debugLog(
@@ -464,6 +474,7 @@ extension Miri {
         focusStateGeneration &+= 1
         activeRescanInputGeneration &+= 1
         lastKnownFocusedElements.removeAll()
+        cancelMouseInteraction()
         manualResizeController.cancel()
         windowManagement.observation.invalidateAsyncStateForSessionTransition()
         cancelTransientSystemWindowRefreshForSessionTransition()
@@ -472,6 +483,7 @@ extension Miri {
         // and quiesced them; removing a running lane here could orphan a late
         // physical frame write and let it race final restoration.
         windowManagement.observation.stop(removeAXLanes: false)
+        inputController.uninstallPointerMonitor()
         inputController.uninstallFocusedWindowMonitor()
         sessionController.stop()
         inputController.uninstallEventTap()
@@ -542,6 +554,8 @@ private extension InputEvent {
     var logName: String {
         switch self {
         case .command: return "input.command"
+        case .pointer: return "input.pointer"
+        case .pointerTapDisabled: return "input.pointer-tap-disabled"
         case .sessionRecoveryRequested: return "input.session-recovery"
         case .userInteraction: return "input.interaction"
         case .focusedWindowProbeRequested: return "input.focused-window-probe-requested"
@@ -589,6 +603,7 @@ private extension TimerEvent {
     var logName: String {
         switch self {
         case .manualResizeEnded: return "timer.manual-resize-ended"
+        case .mouseInteractionTick: return "timer.mouse-interaction"
         case .reconciliationDrain: return "timer.reconciliation-drain"
         }
     }

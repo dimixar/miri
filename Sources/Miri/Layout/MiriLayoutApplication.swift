@@ -9,6 +9,10 @@ extension Miri {
         from previousState: LayoutState? = nil,
         layoutLockDelay: TimeInterval = 0.08
     ) {
+        if mouseInteractionController.isActive {
+            requestReconciliation(.all(adoptFocused: false, source: .accessibility, reason: "mouse-layout-deferred"))
+            return
+        }
         guard sessionController.isLayoutTrackingAllowed else {
             debugLog("layout skipped because user session is unavailable")
             return

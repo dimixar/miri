@@ -182,6 +182,9 @@ extension Miri {
     }
 
     func applicationTerminatedImplementation(_ app: NSRunningApplication) {
+        if mouseInteractionController.session?.window.pid == app.processIdentifier {
+            cancelMouseInteraction()
+        }
         pendingSessionRecoveryLaunchedPIDs.remove(app.processIdentifier)
         finishAppLaunchSettling(
             pid: app.processIdentifier,
@@ -204,6 +207,7 @@ extension Miri {
     }
 
     func activeSpaceChangedImplementation() {
+        cancelMouseInteraction()
         // A full scan started for the previous macOS Space must never apply
         // after the active-Space event. PID-local lifecycle events are handled
         // independently and do not invalidate healthy peers.
@@ -247,7 +251,7 @@ extension Miri {
         guard sessionController.isLayoutTrackingAllowed else {
             return
         }
-        guard !layoutController.isActive else {
+        guard !axReconciliationShouldDefer else {
             requestReconciliation(
                 .application(
                     pid: app.processIdentifier,
@@ -283,6 +287,7 @@ extension Miri {
         startObservingApp(pid: app.processIdentifier)
         let pid = app.processIdentifier
         let stateGeneration = windowManagement.observation.stateGeneration(for: pid)
+        let interactionGeneration = mouseInteractionController.generation
         let supplementalHandles = allWindows().filter { $0.pid == pid }.map {
             AXElementHandle(element: $0.element, pid: $0.pid, windowID: $0.windowID)
         }
@@ -297,7 +302,8 @@ extension Miri {
                   self.sessionController.isLayoutTrackingAllowed,
                   NSRunningApplication(processIdentifier: pid) != nil
             else { return }
-            guard stateGeneration == self.windowManagement.observation.stateGeneration(for: pid) else {
+            guard stateGeneration == self.windowManagement.observation.stateGeneration(for: pid),
+                  self.mouseInteractionController.generation == interactionGeneration else {
                 self.debugLog("reconcile result discarded reason=stale-state pid=\(pid)")
                 self.requestReconciliation(.application(
                     pid: pid,
@@ -309,7 +315,7 @@ extension Miri {
             }
             let mayAdoptFocused = adoptFocused
                 && NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-            guard !self.layoutController.isActive else {
+            guard !self.axReconciliationShouldDefer else {
                 self.requestReconciliation(.application(
                     pid: pid,
                     adoptFocused: mayAdoptFocused,
@@ -519,7 +525,7 @@ extension Miri {
             completion(false)
             return
         }
-        guard !layoutController.isActive else {
+        guard !axReconciliationShouldDefer else {
             requestReconciliation(
                 .all(adoptFocused: adoptFocused, source: .periodicTimer, reason: "rescan-gate")
             )

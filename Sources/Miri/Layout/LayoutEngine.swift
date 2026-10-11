@@ -26,6 +26,7 @@ struct LayoutEngineInput {
     var viewport: CGRect
     var settings: LayoutEngineSettings
     var parkHidden: Bool
+    var interactiveCameraOffset: CGFloat? = nil
 }
 
 /// Pure geometry and projection. The engine receives a complete immutable view
@@ -52,7 +53,8 @@ enum LayoutEngine {
                 viewport: input.viewport,
                 activeColumn: activeColumn,
                 preferredScrollOffset: scrollOffset,
-                settings: input.settings
+                settings: input.settings,
+                interactiveCameraOffset: workspaceIndex == activeWorkspace ? input.interactiveCameraOffset : nil
             )
             let rowOffset = CGFloat(workspaceIndex - activeWorkspace) * input.viewport.height
 
@@ -103,11 +105,12 @@ enum LayoutEngine {
         viewport: CGRect,
         activeColumn: Int,
         preferredScrollOffset: CGFloat?,
-        settings: LayoutEngineSettings
+        settings: LayoutEngineSettings,
+        interactiveCameraOffset: CGFloat? = nil
     ) -> [CGRect] {
         guard !workspace.columns.isEmpty else { return [] }
         let metrics = stripMetrics(workspace: workspace, viewport: viewport)
-        let offset = resolveScrollOffset(
+        let offset = interactiveCameraOffset ?? resolveScrollOffset(
             metrics: metrics,
             activeColumn: activeColumn,
             viewport: viewport,

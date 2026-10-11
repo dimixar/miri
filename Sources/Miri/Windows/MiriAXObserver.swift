@@ -5,7 +5,7 @@ import Foundation
 
 extension Miri {
     var axReconciliationShouldDefer: Bool {
-        layoutController.isActive
+        layoutController.isActive || mouseInteractionController.isActive
     }
 
     func deferAXReconciliation(
@@ -225,6 +225,10 @@ extension Miri {
         reason: String = "focus-adoption"
     ) -> Bool {
         lastKnownFocusedElements[pid] = focusedElement
+        if mouseInteractionController.isActive {
+            deferAXReconciliation(pid: pid, adoptFocused: true, reason: "mouse-focus-deferred")
+            return false
+        }
         guard !activeEmptyWorkspaceHasFocusAuthority else {
             debugLog("focus adoption suppressed reason=explicit-empty-workspace pid=\(pid) workspace=\(windowManagement.activeWorkspace + 1)")
             return false
@@ -344,7 +348,16 @@ extension Miri {
         if debugLogging {
             debugLog("ax notification name=\(name) pid=\(notificationPID)")
         }
+        if let interaction = mouseInteractionController.session,
+           name == kAXUIElementDestroyedNotification || name == kAXWindowMiniaturizedNotification
+                || name == kAXApplicationHiddenNotification {
+            if sameWindow(interaction.window.element, element)
+                || (name == kAXApplicationHiddenNotification && interaction.window.pid == notificationPID) {
+                cancelMouseInteraction()
+            }
+        }
         if windowManagement.observation.transientWindowActive {
+            cancelMouseInteraction()
             return
         }
 
@@ -438,6 +451,14 @@ extension Miri {
         case kAXWindowResizedNotification, kAXWindowMovedNotification:
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
+            if let interaction = mouseInteractionController.session,
+               sameWindow(interaction.window.element, element) {
+                if !interaction.ending {
+                    observeMouseWindowFrame()
+                    refreshMouseInteraction()
+                }
+                return
+            }
             guard !axReconciliationShouldDefer else {
                 guard tiledWindow(for: element) != nil else {
                     debugLog("ax notification ignored during snapshot reason=\(name) pid=\(pid) tracked=false")
@@ -457,11 +478,13 @@ extension Miri {
                 windowID: knownWindowID
             )
             let sessionGeneration = sessionController.resumeGeneration
+            let interactionGeneration = mouseInteractionController.generation
             axOperations.readWindow(handle: handle) { [weak self] result in
                 guard let self,
                       self.appPhase == .running,
                       self.sessionController.isLayoutTrackingAllowed,
                       self.sessionController.resumeGeneration == sessionGeneration,
+                      self.mouseInteractionController.generation == interactionGeneration,
                       result.disposition == .completed,
                       let snapshot = result.value
                 else { return }
@@ -488,6 +511,7 @@ extension Miri {
             layoutController.restoreFloatingVisibility()
             return
         }
+        if mouseInteractionController.isActive { return }
         if layoutController.shouldIgnoreAuthoredFrameNotification(for: window) {
             if let frame = snapshot.frame {
                 layoutController.recordPresentationFrame(frame, for: window)

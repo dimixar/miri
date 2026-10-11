@@ -18,6 +18,7 @@ extension Miri {
 
     func drainPendingFocusCommands() {
         guard !pendingFocusCommands.isEmpty,
+              !mouseInteractionController.isActive,
               !layoutController.isActive
         else {
             return
