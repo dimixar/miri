@@ -15,6 +15,7 @@ struct SettingsDraft: Equatable {
     var newWindowPosition: NewWindowPosition
     var minimumWorkspaceCount: Int
     var workspaceAutoBackAndForth: Bool
+    var dragScrollSpeedPercent: Int
     var innerGap: CGFloat
     var outerGap: CGFloat
     var parkedSliverWidth: CGFloat
@@ -63,6 +64,7 @@ struct SettingsDraft: Equatable {
         newWindowPosition = config.newWindowPosition ?? fallback.newWindowPosition ?? .afterActive
         minimumWorkspaceCount = config.minimumWorkspaceCount ?? fallback.minimumWorkspaceCount ?? 1
         workspaceAutoBackAndForth = config.workspaceAutoBackAndForth ?? fallback.workspaceAutoBackAndForth ?? false
+        dragScrollSpeedPercent = config.dragScrollSpeedPercent ?? fallback.dragScrollSpeedPercent ?? 100
         innerGap = config.innerGap ?? fallback.innerGap ?? 0
         outerGap = config.outerGap ?? fallback.outerGap ?? 0
         parkedSliverWidth = config.parkedSliverWidth ?? fallback.parkedSliverWidth ?? 1
@@ -114,6 +116,7 @@ struct SettingsDraft: Equatable {
         config.newWindowPosition = newWindowPosition
         config.minimumWorkspaceCount = minimumWorkspaceCount
         config.workspaceAutoBackAndForth = workspaceAutoBackAndForth
+        config.dragScrollSpeedPercent = dragScrollSpeedPercent
         config.innerGap = innerGap
         config.outerGap = outerGap
         config.parkedSliverWidth = parkedSliverWidth

@@ -9,6 +9,7 @@
   "minimum_workspace_count": 1,
   "focus_alignment": "default",
   "new_window_position": "after_active",
+  "drag_scroll_speed_percent": 100,
   "inner_gap": 0,
   "outer_gap": 0,
   "parked_sliver_width": 1,

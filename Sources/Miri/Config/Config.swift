@@ -139,6 +139,7 @@ struct MiriConfig: Codable {
     var minimumWorkspaceCount: Int?
     var focusAlignment: FocusAlignment?
     var newWindowPosition: NewWindowPosition?
+    var dragScrollSpeedPercent: Int?
     var innerGap: CGFloat?
     var outerGap: CGFloat?
     var parkedSliverWidth: CGFloat?
@@ -185,6 +186,7 @@ struct MiriConfig: Codable {
         minimumWorkspaceCount: 1,
         focusAlignment: .default,
         newWindowPosition: .afterActive,
+        dragScrollSpeedPercent: 100,
         innerGap: 0,
         outerGap: 0,
         parkedSliverWidth: 1,
@@ -280,6 +282,7 @@ struct MiriConfig: Codable {
         config.animationFPS = config.animationFPS.map { min(max($0, 1), 120) }
         config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
         config.minimumWorkspaceCount = config.minimumWorkspaceCount.map { min(max($0, 1), 9) }
+        config.dragScrollSpeedPercent = config.dragScrollSpeedPercent.map { min(max($0, 25), 500) }
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
@@ -394,6 +397,7 @@ struct MiriConfig: Codable {
         case minimumWorkspaceCount = "minimum_workspace_count"
         case focusAlignment = "focus_alignment"
         case newWindowPosition = "new_window_position"
+        case dragScrollSpeedPercent = "drag_scroll_speed_percent"
         case innerGap = "inner_gap"
         case outerGap = "outer_gap"
         case parkedSliverWidth = "parked_sliver_width"

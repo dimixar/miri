@@ -59,7 +59,8 @@ extension Miri {
         updateMouseInteraction(at: pointer)
         guard let viewport = mouseInteractionLayoutViewport,
               let offset = mouseInteractionController.advanceScroll(
-                viewport: mouseEdgeViewport(viewport), bounds: mouseScrollBounds(viewport)
+                viewport: mouseEdgeViewport(viewport), bounds: mouseScrollBounds(viewport),
+                speedPercent: dragScrollSpeedPercent
               ) else { return }
         windowManagement.setScrollOffset(offset, in: session.workspace)
         layoutController.applyInteractiveLayout(

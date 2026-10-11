@@ -9,6 +9,7 @@ final class SettingsDraftTests: XCTestCase {
         config.animationStrategy = nil
         config.workspaceBarVisibleIconCount = nil
         config.activeRescanBundleIDs = nil
+        config.dragScrollSpeedPercent = nil
 
         let draft = SettingsDraft(config: config)
 
@@ -17,6 +18,7 @@ final class SettingsDraftTests: XCTestCase {
         XCTAssertEqual(draft.animationStrategy, MiriConfig.fallback.animationStrategy)
         XCTAssertEqual(draft.workspaceBarVisibleIconCount, MiriConfig.fallback.workspaceBarVisibleIconCount)
         XCTAssertEqual(draft.activeRescanBundleIDs, MiriConfig.fallback.activeRescanBundleIDs)
+        XCTAssertEqual(draft.dragScrollSpeedPercent, 100)
     }
 
     func testApplyingDraftPreservesUnexposedConfiguration() {
@@ -39,19 +41,38 @@ final class SettingsDraftTests: XCTestCase {
         XCTAssertEqual(result.statePath, "/tmp/miri-state.json")
     }
 
-    func testDraftRoundTripsAllEditableValues() {
+    func testDraftRoundTripsAllEditableValues() throws {
         var original = SettingsDraft(config: MiriConfig.fallback)
         original.focusAlignment = .centeredSmart
         original.outerGap = 14
+        original.dragScrollSpeedPercent = 500
         original.animationStrategy = .off
         original.workspaceBarCenterStyle = .border
         original.activeRescanBundleIDs = ["com.example.One", "com.example.Two"]
         original.rules.append(WindowRule(appName: "Example", behavior: .float, workspace: 3))
 
         let saved = original.applying(to: MiriConfig.fallback)
-        let restored = SettingsDraft(config: saved)
+        let encoded = try JSONEncoder().encode(saved)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["drag_scroll_speed_percent"] as? Int, 500)
+        let restored = SettingsDraft(config: try JSONDecoder().decode(MiriConfig.self, from: encoded))
 
         XCTAssertEqual(restored, original)
+    }
+
+    func testDragScrollSpeedCompatibilityAndLimits() throws {
+        let legacy = try JSONDecoder().decode(
+            MiriConfig.self,
+            from: Data(#"{"default_width_ratio":0.67,"rules":[]}"#.utf8)
+        )
+        XCTAssertEqual(legacy.resolved().dragScrollSpeedPercent, 100)
+        XCTAssertEqual(SettingsDraft(config: legacy).dragScrollSpeedPercent, 100)
+
+        for (requested, expected) in [(-1, 25), (25, 25), (175, 175), (300, 300), (301, 301), (500, 500), (501, 500)] {
+            var draft = SettingsDraft(config: legacy)
+            draft.dragScrollSpeedPercent = requested
+            XCTAssertEqual(draft.applying(to: legacy).dragScrollSpeedPercent, expected)
+        }
     }
 
     func testDuplicateKeybindingsAreRejectedCaseInsensitively() {
@@ -86,21 +107,26 @@ final class SettingsStoreTests: XCTestCase {
 
         XCTAssertFalse(store.isDirty)
         store.draft.outerGap = 22
+        store.draft.dragScrollSpeedPercent = 50
         XCTAssertTrue(store.isDirty)
         XCTAssertEqual(store.feedbackText, "Unsaved changes")
 
         store.revert()
         XCTAssertFalse(store.isDirty)
         XCTAssertEqual(store.draft.outerGap, MiriConfig.fallback.outerGap)
+        XCTAssertEqual(store.draft.dragScrollSpeedPercent, 100)
 
         store.draft.outerGap = 24
+        store.draft.dragScrollSpeedPercent = 200
         XCTAssertTrue(store.submit(closeOnSuccess: false))
         XCTAssertEqual(submittedConfig?.outerGap, 24)
+        XCTAssertEqual(submittedConfig?.dragScrollSpeedPercent, 200)
         XCTAssertEqual(shouldClose, false)
         XCTAssertEqual(store.feedback, .saving)
 
         store.presentSaveSuccess()
         XCTAssertFalse(store.isDirty)
+        XCTAssertEqual(store.draft.dragScrollSpeedPercent, 200)
         XCTAssertEqual(store.feedback, .saved)
     }
 

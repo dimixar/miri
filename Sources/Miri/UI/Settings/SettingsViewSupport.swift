@@ -100,6 +100,7 @@ struct MiriIntegerSliderRow: View {
     let detail: String?
     @Binding var value: Int
     let range: ClosedRange<Int>
+    let step: Int
     var suffix = ""
 
     init(
@@ -107,12 +108,14 @@ struct MiriIntegerSliderRow: View {
         detail: String? = nil,
         value: Binding<Int>,
         range: ClosedRange<Int>,
+        step: Int = 1,
         suffix: String = ""
     ) {
         self.title = title
         self.detail = detail
         _value = value
         self.range = range
+        self.step = step
         self.suffix = suffix
     }
 
@@ -124,7 +127,7 @@ struct MiriIntegerSliderRow: View {
                     set: { value = Int($0.rounded()) }
                 ),
                 range: Double(range.lowerBound)...Double(range.upperBound),
-                step: 1,
+                step: Double(step),
                 valueText: { "\(Int($0.rounded()))\(suffix)" }
             )
         }

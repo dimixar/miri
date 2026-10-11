@@ -132,6 +132,7 @@ final class MouseInteractionController {
 
     func advanceScroll(
         viewport: CGRect, bounds: ClosedRange<CGFloat>,
+        speedPercent: Int = 100,
         now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     ) -> CGFloat? {
         guard let current = session, current.phase == .dragging, !current.ending,
@@ -146,8 +147,8 @@ final class MouseInteractionController {
         guard now > start else { return nil }
         let distance = direction == .left
             ? current.pointer.x - viewport.minX : viewport.maxX - current.pointer.x
-        // 120–720 points per second, increasing toward the physical edge.
-        let speed = 120 + 600 * (1 - min(max(distance / 32, 0), 1))
+        // At 100%: 120–720 points per second, increasing toward the physical edge.
+        let speed = (120 + 600 * (1 - min(max(distance / 32, 0), 1))) * CGFloat(speedPercent) / 100
         let delta = speed * CGFloat(now - start) * (direction == .left ? -1 : 1)
         let offset = min(max(current.scrollOffset + delta, bounds.lowerBound), bounds.upperBound)
         guard offset != current.scrollOffset else { return nil }

@@ -94,6 +94,37 @@ final class MouseInteractionTests: XCTestCase {
         }
     }
 
+    func testScrollSpeedScalesBothDirectionsAndChangesDuringHeldDrag() throws {
+        for direction in [MouseScrollDirection.left, .right] {
+            let controller = fixture(scrollOffset: 0)
+            defer { controller.cancel() }
+            let sign: CGFloat = direction == .left ? -1 : 1
+            controller.updatePointer(CGPoint(x: direction == .left ? 16 : 984, y: 200))
+            controller.observeFrame(frame.offsetBy(dx: 10, dy: 0))
+            let bounds: ClosedRange<CGFloat> = -400...400
+            _ = controller.updatePreview(items: [], viewport: viewport, scrollBounds: bounds, now: 10)
+            XCTAssertNil(controller.advanceScroll(viewport: viewport, bounds: bounds, speedPercent: 50, now: 10.24))
+            let slow = try XCTUnwrap(controller.advanceScroll(
+                viewport: viewport, bounds: bounds, speedPercent: 50, now: 10.35
+            ))
+            // Halfway through the edge zone: 420 pt/s × 50% × 0.1s.
+            XCTAssertEqual(slow, sign * 21, accuracy: 0.001)
+            let faster = try XCTUnwrap(controller.advanceScroll(
+                viewport: viewport, bounds: bounds, speedPercent: 175, now: 10.45
+            ))
+            XCTAssertEqual(faster, sign * 94.5, accuracy: 0.001)
+            let maximumSpeed = try XCTUnwrap(controller.advanceScroll(
+                viewport: viewport, bounds: bounds, speedPercent: 500, now: 10.55
+            ))
+            XCTAssertEqual(maximumSpeed, sign * 304.5, accuracy: 0.001)
+            XCTAssertEqual(controller.advanceScroll(
+                viewport: viewport, bounds: bounds, speedPercent: 500, now: 10.65
+            ), sign * 400)
+            controller.updatePointer(CGPoint(x: 500, y: 200))
+            XCTAssertNil(controller.advanceScroll(viewport: viewport, bounds: bounds, speedPercent: 500, now: 11))
+        }
+    }
+
     func testFinishCancelAndNewSessionUseIncreasingGeneration() throws {
         let controller = fixture()
         let first = try XCTUnwrap(controller.session?.generation)

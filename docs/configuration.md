@@ -82,6 +82,12 @@ The repository includes a complete default config at
   Strict centering can leave empty space at the display edge when the first or
   last column is narrower than the viewport.
 - `new_window_position`: `before_active`, `after_active`, or `end`.
+- `drag_scroll_speed_percent`: speed of edge scrolling while dragging a tiled
+  window, clamped to `25...500`. Defaults to `100` (120–720 points per second,
+  increasing as the pointer approaches the edge). `50` halves the speed; `200`
+  doubles it. Settings → Layout → Window dragging exposes the same control.
+  Apply or Save takes effect without restarting; the edge zone and dwell delay
+  remain unchanged.
 - `minimum_workspace_count`: number of empty-or-occupied numbered workspaces
   Miri always keeps available, clamped to `1...9`. Moving a column or applying
   a window rule to a higher workspace creates every numbered slot through that

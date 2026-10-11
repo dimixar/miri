@@ -64,6 +64,19 @@ struct LayoutSettingsView: View {
                 }
             }
 
+            MiriSection(title: "Window dragging") {
+                MiriSettingGroup {
+                    MiriIntegerSliderRow(
+                        title: "Edge-scroll speed",
+                        detail: "Scroll the layout while holding a window at the screen edge. 100% is the default speed.",
+                        value: $store.draft.dragScrollSpeedPercent,
+                        range: 25...500,
+                        step: 25,
+                        suffix: "%"
+                    )
+                }
+            }
+
             MiriSection(title: "Spacing and workspaces") {
                 MiriSettingGroup {
                     MiriIntegerSliderRow(

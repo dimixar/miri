@@ -42,6 +42,10 @@ extension Miri {
         configStore.effectiveConfig.newWindowPosition ?? MiriConfig.fallback.newWindowPosition ?? .afterActive
     }
 
+    var dragScrollSpeedPercent: Int {
+        configStore.effectiveConfig.dragScrollSpeedPercent ?? MiriConfig.fallback.dragScrollSpeedPercent ?? 100
+    }
+
     var innerGap: CGFloat {
         configStore.effectiveConfig.innerGap ?? MiriConfig.fallback.innerGap ?? 0
     }
