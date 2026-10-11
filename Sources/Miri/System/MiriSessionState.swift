@@ -59,6 +59,7 @@ extension Miri {
         windowManagement.observation.configureActiveRescanTimer(pids: [])
         cancelAppLaunchSettlingForUnavailableSession()
         cancelMouseInteraction()
+        workspaceFullscreenFeedbackController.hide()
         manualResizeController.cancel()
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil

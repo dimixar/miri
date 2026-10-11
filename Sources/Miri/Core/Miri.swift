@@ -98,6 +98,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         self?.enqueue(.timer(.mouseInteractionTick(generation: generation)))
     }
     lazy var mouseInteractionOverlayController = MouseInteractionOverlayController()
+    lazy var workspaceFullscreenFeedbackController = WorkspaceFullscreenFeedbackController()
 
     lazy var sessionController = SessionController { [weak self] event in
         self?.enqueue(event)

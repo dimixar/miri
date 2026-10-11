@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -44,22 +45,29 @@ extension Miri {
         }
     }
 
-    func workspaceFullscreenBlocks(_ command: Command) -> Bool {
+    func consumeCommandBlockedByWorkspaceFullscreen(_ command: Command) -> Bool {
         guard let workspace = activeWorkspaceObject(), workspace.fullscreenState != .off else { return false }
+        let message: String
         switch command {
-        case .columnLeft, .columnRight, .columnFirst, .columnLast,
-             .cycleWidthPresetBackward, .cycleWidthPresetForward,
+        case .columnLeft, .columnRight, .columnFirst, .columnLast:
+            message = "Exit workspace fullscreen to change focus"
+        case .cycleWidthPresetBackward, .cycleWidthPresetForward,
              .nudgeWidthNarrower, .nudgeWidthWider,
              .cycleAllWidthPresetsBackward, .cycleAllWidthPresetsForward,
              .nudgeAllWidthsNarrower, .nudgeAllWidthsWider:
-            return true
+            message = "Exit workspace fullscreen to resize"
         default:
             return false
         }
+        if appPhase == .running, sessionController.isLayoutTrackingAllowed, let screen = NSScreen.main {
+            workspaceFullscreenFeedbackController.show(message, on: screen)
+        }
+        return true
     }
 
     func perform(_ command: Command, animateWorkspace: Bool = false) {
-        guard !workspaceFullscreenBlocks(command) else { return }
+        guard !consumeCommandBlockedByWorkspaceFullscreen(command) else { return }
+        workspaceFullscreenFeedbackController.hide()
         focusStateGeneration &+= 1
         let previousState = captureLayoutState()
         var animated = false

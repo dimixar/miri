@@ -417,7 +417,7 @@ extension Miri {
     }
 
     @MainActor private func admitCommand(_ command: Command, animateWorkspace: Bool = false) {
-        guard !workspaceFullscreenBlocks(command) else { return }
+        guard !consumeCommandBlockedByWorkspaceFullscreen(command) else { return }
         guard !mouseInteractionController.isActive else {
             pendingFocusCommands.append(command)
             return
@@ -459,6 +459,7 @@ extension Miri {
         terminationPrepared = true
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
+        workspaceFullscreenFeedbackController.hide()
         guard runtimeStarted else {
             terminationCompleted = true
             appPhase = .terminated

@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Darwin
@@ -53,22 +54,49 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
-    func testWorkspaceFullscreenConsumesColumnNavigationAndResizeWithoutBlockingExternalFocus() throws {
+    func testWorkspaceFullscreenConsumesColumnNavigationAndResizeWithoutBlockingExternalFocus() async throws {
+        _ = NSApplication.shared
+        let screen = try XCTUnwrap(NSScreen.main)
         let (miri, workspace) = try fixture(
             alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
         )
+        defer { miri.workspaceFullscreenFeedbackController.hide() }
         XCTAssertTrue(miri.windowManagement.toggleWorkspaceFullscreen())
         let state = miri.captureLayoutState()
         miri.appPhase = .running
 
-        for command: Command in [
+        func feedbackPanel() -> NSWindow? {
+            NSApp.windows.first {
+                $0.identifier?.rawValue == "miri.workspace-fullscreen-feedback" && $0.isVisible
+            }
+        }
+        func displayedText(in view: NSView) -> [String] {
+            if let label = view as? NSTextField { return [label.stringValue] }
+            return view.subviews.flatMap { displayedText(in: $0) }
+        }
+
+        let commands: [Command] = [
             .columnLeft, .columnRight, .columnFirst, .columnLast,
             .cycleWidthPresetBackward, .cycleWidthPresetForward, .nudgeWidthNarrower, .nudgeWidthWider,
             .cycleAllWidthPresetsBackward, .cycleAllWidthPresetsForward, .nudgeAllWidthsNarrower, .nudgeAllWidthsWider,
-        ] {
+        ]
+        var panel: NSWindow?
+        for (index, command) in commands.enumerated() {
             miri.submit(command)
             XCTAssertEqual(miri.captureLayoutState(), state)
             XCTAssertEqual(workspace.columns.map(\.manualWidthRatio), [0.28, 0.67, 0.4])
+            let notice = try XCTUnwrap(feedbackPanel())
+            if let panel { XCTAssertTrue(notice === panel, "Repeated shortcuts must reuse the notice") }
+            panel = notice
+            let message = index < 4
+                ? "Exit workspace fullscreen to change focus"
+                : "Exit workspace fullscreen to resize"
+            XCTAssertEqual(displayedText(in: try XCTUnwrap(notice.contentView)), [message])
+            XCTAssertTrue(notice.ignoresMouseEvents)
+            XCTAssertFalse(notice.canBecomeKey)
+            XCTAssertFalse(notice.canBecomeMain)
+            XCTAssertEqual(notice.frame.midX, screen.visibleFrame.midX, accuracy: 1)
+            XCTAssertLessThan(notice.frame.maxY, screen.visibleFrame.maxY)
         }
 
         // A rejected focus command must not grant keyboard focus authority and
@@ -77,6 +105,26 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
         XCTAssertEqual(workspace.activeColumn, 0)
         XCTAssertEqual(projectedFrames(miri)[0], viewport)
+
+        try await Task.sleep(for: .milliseconds(800))
+        // Also cover a command reaching execution after fullscreen was enabled.
+        miri.perform(.columnRight)
+        try await Task.sleep(for: .milliseconds(900))
+        XCTAssertNotNil(feedbackPanel(), "A repeated shortcut restarts the dismissal interval")
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertNil(feedbackPanel(), "The notice must disappear without more input")
+
+        miri.perform(.columnLeft)
+        XCTAssertNotNil(feedbackPanel())
+        miri.sessionController.pauseForUnavailableSession()
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertNil(feedbackPanel(), "Exiting fullscreen dismisses stale feedback immediately")
+        miri.perform(.columnRight)
+        XCTAssertEqual(workspace.activeColumn, 1)
+        XCTAssertNil(feedbackPanel(), "Normal focus commands do not show fullscreen feedback")
+        miri.perform(.toggleWorkspaceFullscreen)
+        miri.perform(.nudgeWidthWider)
+        XCTAssertNil(feedbackPanel(), "Unavailable sessions must not show feedback")
     }
 
     func testWorkspaceFullscreenTransfersAcrossWorkspacesAndClearsWhenLastWindowCloses() throws {
