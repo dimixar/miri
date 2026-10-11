@@ -286,7 +286,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let useCustomColors = config.workspaceBarUseCustomColors
             ?? MiriConfig.fallback.workspaceBarUseCustomColors
             ?? false
-        let systemAccentColor = adaptiveSystemAccentColor(for: appearance)
+        let systemAccentColor = MiriTheme.Palette.adaptiveSystemAccentColor(for: appearance)
         let delimiterColor = useCustomColors
             ? highlightColor(config.workspaceBarDelimiterColor ?? MiriConfig.fallback.workspaceBarDelimiterColor)
             : systemAccentColor
@@ -664,60 +664,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         default:
             return .systemYellow
         }
-    }
-
-    private func adaptiveSystemAccentColor(for appearance: NSAppearance) -> NSColor {
-        guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else {
-            return NSColor.controlAccentColor
-        }
-
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let targetLuminance: CGFloat = isDark ? 0.52 : 0.24
-        let accentLuminance = relativeLuminance(of: accent)
-        if isDark ? accentLuminance >= targetLuminance : accentLuminance <= targetLuminance {
-            return accent
-        }
-
-        let fallbackEndpoint = isDark ? NSColor.white : NSColor.black
-        let endpoint = NSColor.labelColor.usingColorSpace(.sRGB)
-            ?? fallbackEndpoint.usingColorSpace(.sRGB)
-            ?? fallbackEndpoint
-        var lowerFraction: CGFloat = 0
-        var upperFraction: CGFloat = 1
-
-        for _ in 0..<12 {
-            let fraction = (lowerFraction + upperFraction) / 2
-            guard let candidate = accent.blended(withFraction: fraction, of: endpoint)?.usingColorSpace(.sRGB) else {
-                break
-            }
-            let candidateLuminance = relativeLuminance(of: candidate)
-            let reachedTarget = isDark
-                ? candidateLuminance >= targetLuminance
-                : candidateLuminance <= targetLuminance
-            if reachedTarget {
-                upperFraction = fraction
-            } else {
-                lowerFraction = fraction
-            }
-        }
-
-        return accent.blended(withFraction: upperFraction, of: endpoint) ?? accent
-    }
-
-    private func relativeLuminance(of color: NSColor) -> CGFloat {
-        guard let rgb = color.usingColorSpace(.sRGB) else {
-            return 0
-        }
-
-        func linearized(_ component: CGFloat) -> CGFloat {
-            component <= 0.04045
-                ? component / 12.92
-                : pow((component + 0.055) / 1.055, 2.4)
-        }
-
-        return 0.2126 * linearized(rgb.redComponent)
-            + 0.7152 * linearized(rgb.greenComponent)
-            + 0.0722 * linearized(rgb.blueComponent)
     }
 
     private func centerFillColor(_ color: NSColor) -> NSColor {

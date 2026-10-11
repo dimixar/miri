@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Semantic visual tokens shared by onboarding and Settings.
+/// Semantic visual tokens shared across Miri's UI.
 enum MiriTheme {
     enum Palette {
         static let orange = NSColor(srgbRed: 1.00, green: 0.28, blue: 0.12, alpha: 1)
@@ -17,6 +17,63 @@ enum MiriTheme {
         static var success: SwiftUI.Color { SwiftUI.Color(nsColor: green) }
         static var separator: SwiftUI.Color { SwiftUI.Color(nsColor: .separatorColor).opacity(0.35) }
         static var panel: SwiftUI.Color { SwiftUI.Color(nsColor: .controlBackgroundColor).opacity(0.58) }
+
+        @MainActor
+        static func adaptiveSystemAccentColor(for appearance: NSAppearance) -> NSColor {
+            var adjusted = NSColor.controlAccentColor
+            appearance.performAsCurrentDrawingAppearance {
+                adjusted = NSColor.controlAccentColor
+                guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return }
+
+                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                let targetLuminance: CGFloat = isDark ? 0.52 : 0.24
+                let accentLuminance = relativeLuminance(of: accent)
+                if isDark ? accentLuminance >= targetLuminance : accentLuminance <= targetLuminance {
+                    adjusted = accent
+                    return
+                }
+
+                let fallbackEndpoint = isDark ? NSColor.white : NSColor.black
+                let endpoint = NSColor.labelColor.usingColorSpace(.sRGB)
+                    ?? fallbackEndpoint.usingColorSpace(.sRGB)
+                    ?? fallbackEndpoint
+                var lowerFraction: CGFloat = 0
+                var upperFraction: CGFloat = 1
+
+                for _ in 0..<12 {
+                    let fraction = (lowerFraction + upperFraction) / 2
+                    guard let candidate = accent.blended(withFraction: fraction, of: endpoint)?.usingColorSpace(.sRGB) else {
+                        break
+                    }
+                    let candidateLuminance = relativeLuminance(of: candidate)
+                    let reachedTarget = isDark
+                        ? candidateLuminance >= targetLuminance
+                        : candidateLuminance <= targetLuminance
+                    if reachedTarget {
+                        upperFraction = fraction
+                    } else {
+                        lowerFraction = fraction
+                    }
+                }
+
+                adjusted = accent.blended(withFraction: upperFraction, of: endpoint) ?? accent
+            }
+            return adjusted
+        }
+
+        private static func relativeLuminance(of color: NSColor) -> CGFloat {
+            guard let rgb = color.usingColorSpace(.sRGB) else { return 0 }
+
+            func linearized(_ component: CGFloat) -> CGFloat {
+                component <= 0.04045
+                    ? component / 12.92
+                    : pow((component + 0.055) / 1.055, 2.4)
+            }
+
+            return 0.2126 * linearized(rgb.redComponent)
+                + 0.7152 * linearized(rgb.greenComponent)
+                + 0.0722 * linearized(rgb.blueComponent)
+        }
     }
 
     enum Spacing {
