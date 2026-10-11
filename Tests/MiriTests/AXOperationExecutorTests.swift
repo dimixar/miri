@@ -226,6 +226,49 @@ final class AXOperationExecutorTests: XCTestCase {
     }
 
     @MainActor
+    func testCancellingWindowWritePreservesOtherWorkOnTheSamePID() {
+        let executor = AXOperationExecutor()
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let blocked = expectation(description: "running read completed")
+        let cancelled = expectation(description: "window write cancelled")
+        let neighbor = expectation(description: "neighbor write completed")
+        let resumed = expectation(description: "new window write completed")
+        let written = LockedValues<String>()
+        executor.submit(pid: 101, key: "read", generation: 1, priority: .interactive, operation: {
+            started.signal()
+            release.wait()
+            return (true, AXError.success)
+        }, completion: AXCallback { _ in blocked.fulfill() })
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
+        executor.submit(pid: 101, key: "set-frame:source", generation: 2, priority: .interactive, operation: {
+            written.append("old source")
+            return (true, AXError.success)
+        }, completion: AXCallback { result in
+            XCTAssertEqual(result.disposition, .superseded)
+            cancelled.fulfill()
+        })
+        executor.submit(pid: 101, key: "set-frame:neighbor", generation: 3, priority: .interactive, operation: {
+            written.append("neighbor")
+            return (true, AXError.success)
+        }, completion: AXCallback { result in
+            XCTAssertEqual(result.disposition, .completed)
+            neighbor.fulfill()
+        })
+        executor.cancel(pid: 101, key: "set-frame:source")
+        executor.submit(pid: 101, key: "set-frame:source", generation: 4, priority: .interactive, operation: {
+            written.append("new source")
+            return (true, AXError.success)
+        }, completion: AXCallback { result in
+            XCTAssertEqual(result.disposition, .completed)
+            resumed.fulfill()
+        })
+        release.signal()
+        wait(for: [blocked, cancelled, neighbor, resumed], timeout: 1)
+        XCTAssertEqual(written.values, ["neighbor", "new source"])
+    }
+
+    @MainActor
     func testNewerGenerationSupersedesQueuedJobExactlyOnce() {
         let executor = AXOperationExecutor()
         let blockerStarted = DispatchSemaphore(value: 0)

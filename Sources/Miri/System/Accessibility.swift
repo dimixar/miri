@@ -16,13 +16,19 @@ func configureAXMessagingTimeout() -> AXError {
 }
 
 @discardableResult
-func setAXFrame(_ frame: CGRect, for element: AXUIElement) -> AXError {
+func setAXFrame(
+    _ frame: CGRect, for element: AXUIElement,
+    shouldContinue: () -> Bool = { true }
+) -> AXError {
+    guard shouldContinue() else { return .success }
     let initialSizeError = setAXSize(frame.size, for: element)
     guard initialSizeError != .cannotComplete else { return initialSizeError }
 
+    guard shouldContinue() else { return .success }
     let positionError = setAXPosition(frame.origin, for: element)
     guard positionError != .cannotComplete else { return positionError }
 
+    guard shouldContinue() else { return .success }
     let finalSizeError = setAXSize(frame.size, for: element)
     guard finalSizeError == .success else { return finalSizeError }
     return positionError

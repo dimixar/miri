@@ -235,6 +235,14 @@ final class AXProcessLane: @unchecked Sendable {
         }
     }
 
+    func cancel(key: String) {
+        let jobs = lock.withLock {
+            latestGenerations.removeValue(forKey: key)
+            return removeQueuedJobs(matching: key)
+        }
+        for job in jobs { job.cancel() }
+    }
+
     func notifyWhenQuiescent(_ completion: @escaping @Sendable () -> Void) {
         queue.async(execute: completion)
     }
@@ -310,6 +318,10 @@ final class AXOperationExecutor: @unchecked Sendable {
     func remove(pid: pid_t) {
         let lane = lock.withLock { lanes.removeValue(forKey: pid) }
         lane?.removeAll()
+    }
+
+    func cancel(pid: pid_t, key: String) {
+        lane(for: pid).cancel(key: key)
     }
 
     func quiesceAllAndResetHealth(completion: @escaping @Sendable () -> Void) {
@@ -466,6 +478,14 @@ final class AXTerminationRestoreSession {
     }
 }
 
+/// A suspended write stays invalid even after a later gesture resumes admission.
+private final class AXFrameWritePermit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var valid = true
+    var isValid: Bool { lock.withLock { valid } }
+    func invalidate() { lock.withLock { valid = false } }
+}
+
 @MainActor
 final class AXOperationController {
     typealias Logger = (String) -> Void
@@ -477,6 +497,8 @@ final class AXOperationController {
     private var terminationRestoreSession: AXTerminationRestoreSession?
     private var applicationReadOffsets: [AXApplicationReadCursorKey: Int] = [:]
     private var activeApplicationReads: [AXApplicationReadCursorKey: AXApplicationReadPipeline] = [:]
+    private var frameWritePermits: [String: AXFrameWritePermit] = [:]
+    private var suspendedFrameWrites = Set<String>()
 
     init(log: @escaping Logger) {
         self.log = log
@@ -487,6 +509,11 @@ final class AXOperationController {
     }
 
     func remove(pid: pid_t) {
+        let prefix = "\(pid):"
+        for key in frameWritePermits.keys.filter({ $0.hasPrefix(prefix) }) {
+            frameWritePermits.removeValue(forKey: key)?.invalidate()
+        }
+        suspendedFrameWrites = suspendedFrameWrites.filter { !$0.hasPrefix(prefix) }
         applicationReadOffsets = applicationReadOffsets.filter { $0.key.pid != pid }
         let reads = activeApplicationReads.values.filter { $0.pid == pid }
         for read in reads where !read.finished {
@@ -577,6 +604,21 @@ final class AXOperationController {
         }
     }
 
+    private func frameWriteKey(_ handle: AXElementHandle) -> String {
+        "\(handle.pid):\(handle.operationKey)"
+    }
+
+    func suspendFrameWrites(for handle: AXElementHandle) {
+        let key = frameWriteKey(handle)
+        suspendedFrameWrites.insert(key)
+        frameWritePermits.removeValue(forKey: key)?.invalidate()
+        executor.cancel(pid: handle.pid, key: "set-frame:\(handle.operationKey)")
+    }
+
+    func resumeFrameWrites(for handle: AXElementHandle) {
+        suspendedFrameWrites.remove(frameWriteKey(handle))
+    }
+
     func setFrame(
         _ frame: CGRect,
         handle: AXElementHandle,
@@ -584,6 +626,16 @@ final class AXOperationController {
         priority: AXOperationPriority = .interactive,
         completion: @escaping @MainActor (AXOperationResult<CGRect>) -> Void
     ) {
+        let key = frameWriteKey(handle)
+        guard !suspendedFrameWrites.contains(key) else {
+            completion(AXOperationResult(
+                value: nil, error: .success, disposition: .superseded,
+                queueWait: 0, elapsed: 0, budgetExhausted: false, retryAfter: nil
+            ))
+            return
+        }
+        let permit = frameWritePermits[key] ?? AXFrameWritePermit()
+        frameWritePermits[key] = permit
         submit(
             pid: handle.pid,
             key: "set-frame:\(handle.operationKey)",
@@ -591,13 +643,14 @@ final class AXOperationController {
             operationName: "set-frame",
             callCountEstimate: disableEnhancedUserInterface ? 6 : 3,
             operation: {
+                guard permit.isValid else { return (nil, .success) }
                 let error: AXError
                 if disableEnhancedUserInterface {
                     error = withDisabledEnhancedUserInterface(for: handle.pid) {
-                        setAXFrame(frame, for: handle.element)
+                        setAXFrame(frame, for: handle.element, shouldContinue: { permit.isValid })
                     }
                 } else {
-                    error = setAXFrame(frame, for: handle.element)
+                    error = setAXFrame(frame, for: handle.element, shouldContinue: { permit.isValid })
                 }
                 return (error == .success ? frame : nil, error)
             },
