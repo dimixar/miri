@@ -48,7 +48,18 @@ enum LayoutEngine {
             let scrollOffset = input.state.scrollOffsets.indices.contains(workspaceIndex)
                 ? input.state.scrollOffsets[workspaceIndex]
                 : workspace.scrollOffset
-            let strip = stripFrames(
+            let fullscreen = input.state.fullscreenWorkspaces.indices.contains(workspaceIndex)
+                && input.state.fullscreenWorkspaces[workspaceIndex]
+            let strip = fullscreen ? workspace.columns.enumerated().map { index, column in
+                if index == activeColumn { return input.viewport }
+                let width = input.viewport.width * column.widthRatio
+                return CGRect(
+                    x: index < activeColumn ? input.viewport.minX - width : input.viewport.maxX,
+                    y: input.viewport.minY,
+                    width: width,
+                    height: input.viewport.height
+                )
+            } : stripFrames(
                 workspace: workspace,
                 viewport: input.viewport,
                 activeColumn: activeColumn,

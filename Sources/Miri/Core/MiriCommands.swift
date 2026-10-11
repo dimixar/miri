@@ -44,13 +44,37 @@ extension Miri {
         }
     }
 
+    func workspaceFullscreenBlocks(_ command: Command) -> Bool {
+        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState != .off else { return false }
+        switch command {
+        case .columnLeft, .columnRight, .columnFirst, .columnLast,
+             .cycleWidthPresetBackward, .cycleWidthPresetForward,
+             .nudgeWidthNarrower, .nudgeWidthWider,
+             .cycleAllWidthPresetsBackward, .cycleAllWidthPresetsForward,
+             .nudgeAllWidthsNarrower, .nudgeAllWidthsWider:
+            return true
+        default:
+            return false
+        }
+    }
+
     func perform(_ command: Command, animateWorkspace: Bool = false) {
+        guard !workspaceFullscreenBlocks(command) else { return }
         focusStateGeneration &+= 1
         let previousState = captureLayoutState()
         var animated = false
         var frameAnimated = false
+        var focusRequested = true
 
         switch command {
+        case .toggleWorkspaceFullscreen:
+            guard let workspace = activeWorkspaceObject(), !workspace.isEmpty else { return }
+            focusRequested = workspace.fullscreenState != .suspended
+            seedPresentationFrames(from: previousState)
+            manualResizeController.cancel()
+            guard windowManagement.toggleWorkspaceFullscreen() else { return }
+            revealActiveColumnIfNeeded(in: workspace, viewport: currentViewport())
+            animated = true
         case .focusWorkspace(let oneBasedIndex):
             guard focusWorkspace(oneBasedIndex) else {
                 return
@@ -173,12 +197,15 @@ extension Miri {
             frameAnimated = true
         }
 
+        if focusRequested, let workspace = activeWorkspaceObject() {
+            windowManagement.resumeWorkspaceFullscreen(in: workspace)
+        }
         let newState = captureLayoutState()
         applyModelChange(
             ModelChange(
                 previousLayout: previousState,
                 layoutRequired: true,
-                focusRequested: true,
+                focusRequested: focusRequested,
                 persistenceChanged: previousState != newState || frameAnimated,
                 statusChanged: true
             ),
@@ -267,6 +294,7 @@ extension Miri {
     }
 
     func focusColumn(by delta: Int, in workspace: Workspace, viewport: CGRect) {
+        guard workspace.fullscreenState == .off else { return }
         // Resolve the old camera before changing focus, including an implicit
         // offset, so an already-visible target does not realign the strip.
         let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
@@ -276,6 +304,7 @@ extension Miri {
     }
 
     func focusColumn(at requestedIndex: Int) -> Bool {
+        guard activeWorkspaceObject()?.fullscreenState == .off else { return false }
         let result = windowManagement.focusColumn(at: requestedIndex)
         if result.target < result.source {
             lastHorizontalFocusDirection = -1

@@ -417,6 +417,7 @@ extension Miri {
     }
 
     @MainActor private func admitCommand(_ command: Command, animateWorkspace: Bool = false) {
+        guard !workspaceFullscreenBlocks(command) else { return }
         guard !mouseInteractionController.isActive else {
             pendingFocusCommands.append(command)
             return

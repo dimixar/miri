@@ -89,6 +89,7 @@ enum KeyCode {
 }
 
 enum Command {
+    case toggleWorkspaceFullscreen
     case focusWorkspace(Int)
     case focusPreviousWorkspace
     case workspaceDown

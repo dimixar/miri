@@ -87,6 +87,33 @@ final class SettingsDraftTests: XCTestCase {
             "Keybinding 'LALT+1' is assigned to both 'first' and 'second'."
         )
     }
+
+    func testWorkspaceFullscreenShortcutIsInheritedAndExplicitOverridesRoundTrip() {
+        var legacy = MiriConfig.fallback
+        legacy.keybindings = ["column_left": ["lalt+x"]]
+        let draft = SettingsDraft(config: legacy)
+        XCTAssertEqual(draft.keybindings["toggle_workspace_fullscreen"], ["lalt+ctrl+f"])
+        XCTAssertEqual(draft.keybindings["column_left"], ["lalt+x"])
+        XCTAssertNil(draft.validationMessage())
+
+        let command = KeybindingResolver.commandForKeyEvent(
+            modifiers: CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskControl.rawValue | 0x20),
+            keyCode: KeyCode.f,
+            keyText: "ƒ",
+            commandByKeybinding: KeybindingResolver.makeCommandByKeybinding(config: legacy)
+        )
+        guard case .toggleWorkspaceFullscreen? = command else {
+            return XCTFail("The inherited default must resolve to the fullscreen toggle")
+        }
+
+        for bindings in [["lalt+ctrl+g"], []] {
+            legacy.keybindings?["toggle_workspace_fullscreen"] = bindings
+            let overridden = SettingsDraft(config: legacy)
+            XCTAssertEqual(overridden.keybindings["toggle_workspace_fullscreen"], bindings)
+            XCTAssertEqual(overridden.applying(to: legacy).keybindings?["toggle_workspace_fullscreen"], bindings)
+            XCTAssertNil(KeybindingResolver.makeCommandByKeybinding(config: overridden.applying(to: legacy))["ctrl+lalt+f"])
+        }
+    }
 }
 
 @MainActor

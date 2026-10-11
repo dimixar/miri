@@ -13,7 +13,7 @@ struct ShortcutSettingsView: View {
         CommandGroup(
             title: "Workspace navigation",
             detail: "Focus and move between Miri workspaces.",
-            includes: { $0.contains("workspace") && !$0.hasPrefix("move_column") }
+            includes: { $0.contains("workspace") && !$0.hasPrefix("move_column") && $0 != "toggle_workspace_fullscreen" }
         ),
         CommandGroup(
             title: "Column navigation",
@@ -24,6 +24,11 @@ struct ShortcutSettingsView: View {
             title: "Move columns",
             detail: "Reorder columns or send them to another workspace.",
             includes: { $0.hasPrefix("move_column") }
+        ),
+        CommandGroup(
+            title: "Workspace fullscreen",
+            detail: "Fill the workspace with the focused window. Toggle back to restore tiling and column navigation.",
+            includes: { $0 == "toggle_workspace_fullscreen" }
         ),
         CommandGroup(
             title: "Resize columns",

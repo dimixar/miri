@@ -166,6 +166,7 @@ extension Miri {
         observedFrame frame: CGRect?
     ) -> Bool {
         guard let location = tiledWindowLocation(for: element),
+              location.workspace.fullscreenState == .off,
               let frame
         else {
             return false

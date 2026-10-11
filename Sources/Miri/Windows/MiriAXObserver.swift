@@ -200,6 +200,9 @@ extension Miri {
                 focusedElement = nil
             }
             guard let focusedElement else {
+                if result.disposition == .completed {
+                    self.suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
+                }
                 completion(false)
                 return
             }
@@ -212,6 +215,12 @@ extension Miri {
                 reason: reason
             )
             completion(adopted)
+        }
+    }
+
+    func suspendWorkspaceFullscreenForExternalFocus(applyLayout: Bool) {
+        if windowManagement.suspendWorkspaceFullscreen(), applyLayout {
+            projectLayout(focusActiveWindow: false)
         }
     }
 
@@ -234,18 +243,21 @@ extension Miri {
             return false
         }
         if fullscreenSpaceChangeGuardIsActive() {
+            suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
             debugLog("suppressing focus adoption during fullscreen space guard")
             return false
         }
         if let fullscreenState = windowManagement.fullscreenWindowStates.values.first(where: {
             $0.pid == pid && sameWindow($0.element, focusedElement)
         }) {
+            suspendWorkspaceFullscreenForExternalFocus(applyLayout: false)
             enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
             debugLog("suppressing focus adoption while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")'")
             return false
         }
 
         if windowManagement.floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
+            suspendWorkspaceFullscreenForExternalFocus(applyLayout: false)
             if applyLayout {
                 projectLayout(focusActiveWindow: false)
             }
@@ -289,12 +301,13 @@ extension Miri {
             let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
             let viewport = currentViewport()
             let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
+            let fullscreenChanged = windowManagement.resumeWorkspaceFullscreen(in: workspace)
             setActiveWorkspace(loc.workspace)
             windowManagement.setActiveColumn(loc.column, in: workspace)
-            if changedFocus {
+            if changedFocus || fullscreenChanged {
                 focusStateGeneration &+= 1
             }
-            let shouldProject = changedFocus || forceLayoutIfAlreadyFocused
+            let shouldProject = changedFocus || fullscreenChanged || forceLayoutIfAlreadyFocused
             if shouldProject {
                 // Preserve an implicit camera just as keyboard focus does.
                 windowManagement.setScrollOffset(scrollOffset, in: workspace)
@@ -315,6 +328,7 @@ extension Miri {
             return true
         }
 
+        suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
         return false
     }
 
@@ -520,6 +534,11 @@ extension Miri {
         }
         guard !manualResizeController.notificationsSuppressed else { return }
 
+        if tiledWindowLocation(for: element)?.workspace.fullscreenState != .off {
+            guard !layoutController.isActive else { return }
+            projectLayout(focusActiveWindow: false)
+            return
+        }
         if manualResizeController.isTracking {
             guard isManualResizeElement(element) else { return }
             beginOrContinueManualResize(for: element, observedFrame: snapshot.frame)

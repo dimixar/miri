@@ -9,6 +9,126 @@ final class FocusScrollingTests: XCTestCase {
     private let viewport = CGRect(x: 0, y: 0, width: 1200, height: 800)
     private let minimalRevealModes: [FocusAlignment] = [.default, .centeredSmart]
 
+    func testWorkspaceFullscreenFollowsExternalFocusAndRestoresEachNormalWidth() throws {
+        for alignment: FocusAlignment in [.default, .centered, .centeredSmart] {
+            let (miri, workspace) = try fixture(
+                alignment: alignment, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+            )
+            // Exercise commands and projection without writing frames to real apps.
+            miri.sessionController.pauseForUnavailableSession()
+            let viewport = miri.currentViewport()
+            let normalState = miri.captureLayoutState()
+            let normalFrames = miri.layoutController.projectItems(
+                viewport: viewport, state: normalState, parkHidden: false
+            ).map(\.frame)
+
+            miri.perform(.toggleWorkspaceFullscreen)
+
+            XCTAssertEqual(projectedFrames(miri, viewport: viewport)[1], viewport)
+            XCTAssertEqual(projectedFrames(miri, viewport: viewport, innerGap: 12, physicalPixelScale: 2)[1], viewport)
+            let parked = miri.layoutController.projectItems(
+                viewport: viewport, state: miri.captureLayoutState(), parkHidden: true
+            )
+            XCTAssertEqual(parked.filter(\.visible).map(\.window.title), ["Window 1"])
+            XCTAssertEqual(
+                miri.layoutController.projectItems(viewport: viewport, state: normalState, parkHidden: false).map(\.frame),
+                normalFrames
+            )
+
+            let target = workspace.columns[2]
+            XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+            XCTAssertEqual(projectedFrames(miri, viewport: viewport)[2], viewport)
+            XCTAssertEqual(workspace.columns.map(\.manualWidthRatio), [0.28, 0.67, 0.4])
+            XCTAssertFalse(miri.updateManualWidthRatio(for: target.element, observedFrame: viewport))
+
+            miri.perform(.toggleWorkspaceFullscreen)
+
+            let restored = projectedFrames(miri, viewport: viewport)
+            XCTAssertEqual(workspace.activeColumn, 2)
+            XCTAssertTrue(viewport.contains(restored[2]))
+            for (frame, ratio) in zip(restored, [CGFloat(0.28), 0.67, 0.4]) {
+                XCTAssertEqual(frame.width, viewport.width * ratio, accuracy: 1)
+            }
+            XCTAssertTrue(miri.focusColumn(at: 0))
+        }
+    }
+
+    func testWorkspaceFullscreenConsumesColumnNavigationAndResizeWithoutBlockingExternalFocus() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+        )
+        XCTAssertTrue(miri.windowManagement.toggleWorkspaceFullscreen())
+        let state = miri.captureLayoutState()
+        miri.appPhase = .running
+
+        for command: Command in [
+            .columnLeft, .columnRight, .columnFirst, .columnLast,
+            .cycleWidthPresetBackward, .cycleWidthPresetForward, .nudgeWidthNarrower, .nudgeWidthWider,
+            .cycleAllWidthPresetsBackward, .cycleAllWidthPresetsForward, .nudgeAllWidthsNarrower, .nudgeAllWidthsWider,
+        ] {
+            miri.submit(command)
+            XCTAssertEqual(miri.captureLayoutState(), state)
+            XCTAssertEqual(workspace.columns.map(\.manualWidthRatio), [0.28, 0.67, 0.4])
+        }
+
+        // A rejected focus command must not grant keyboard focus authority and
+        // suppress the subsequent macOS focus notification.
+        let target = workspace.columns[0]
+        XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+        XCTAssertEqual(workspace.activeColumn, 0)
+        XCTAssertEqual(projectedFrames(miri)[0], viewport)
+    }
+
+    func testWorkspaceFullscreenTransfersAcrossWorkspacesAndClearsWhenLastWindowCloses() throws {
+        let (miri, source) = try fixture(
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        miri.windowManagement.ensureWorkspaceExists(1)
+        let destination = miri.windowManagement.workspaces[1]
+        let target = source.columns[2]
+        _ = miri.windowManagement.insert(target, in: destination, at: 0, focus: false)
+        miri.perform(.toggleWorkspaceFullscreen)
+
+        XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+        XCTAssertEqual(miri.windowManagement.activeWorkspace, 1)
+        XCTAssertEqual(source.fullscreenState, .off)
+        XCTAssertEqual(destination.fullscreenState, .active)
+        XCTAssertEqual(projectedFrames(miri)[2], viewport)
+
+        // Explicit workspace navigation leaves each workspace's mode in place.
+        XCTAssertTrue(miri.focusWorkspace(1))
+        XCTAssertEqual(source.fullscreenState, .off)
+        XCTAssertEqual(destination.fullscreenState, .active)
+        XCTAssertTrue(miri.focusWorkspace(2))
+        miri.windowManagement.remove(target)
+        XCTAssertEqual(destination.fullscreenState, .off)
+        XCTAssertFalse(miri.windowManagement.toggleWorkspaceFullscreen())
+    }
+
+    func testWorkspaceFullscreenSuspendsForUnmanagedFocusAndFollowsReplacementWindow() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        miri.perform(.toggleWorkspaceFullscreen)
+        let unmanaged = AXUIElementCreateApplication(9000)
+
+        XCTAssertFalse(miri.adoptFocusedElement(unmanaged, pid: 9000, applyLayout: false))
+        XCTAssertEqual(workspace.fullscreenState, .suspended)
+        XCTAssertEqual(projectedFrames(miri)[1].width, 804)
+        XCTAssertFalse(miri.focusColumn(at: 0))
+
+        let target = workspace.columns[1]
+        XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+        XCTAssertEqual(projectedFrames(miri)[1], viewport)
+        miri.windowManagement.remove(target, preferRightFocus: true)
+        XCTAssertEqual(miri.activeWindow()?.title, "Window 2")
+        XCTAssertEqual(projectedFrames(miri)[1], viewport)
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertEqual(projectedFrames(miri)[1].width, 480)
+    }
+
     func testFocusBetweenTwoVisibleWindowsKeepsFramesStationary() throws {
         for alignment in minimalRevealModes {
             let (miri, workspace) = try fixture(

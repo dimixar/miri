@@ -11,6 +11,7 @@ extension Miri {
             cancelMouseInteraction()
             guard !windowManagement.observation.transientWindowActive,
                   let workspace = activeWorkspaceObject(),
+                  workspace.fullscreenState == .off,
                   let windowID = event.windowID ?? sessionRecoveryFrontmostWindowID(at: event.location),
                   let window = workspace.columns.first(where: { $0.windowID == windowID }),
                   let frame = layoutController.windowServerFrame(for: windowID)

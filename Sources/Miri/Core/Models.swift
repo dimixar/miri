@@ -25,11 +25,18 @@ final class ManagedWindow {
     }
 }
 
+enum WorkspaceFullscreenState {
+    case off
+    case active
+    case suspended
+}
+
 @MainActor
 final class Workspace {
     var columns: [ManagedWindow] = []
     var activeColumn: Int = 0
     var scrollOffset: CGFloat?
+    var fullscreenState: WorkspaceFullscreenState = .off
 
     var isEmpty: Bool {
         columns.isEmpty
@@ -39,6 +46,7 @@ final class Workspace {
         if columns.isEmpty {
             activeColumn = 0
             scrollOffset = nil
+            fullscreenState = .off
         } else {
             activeColumn = min(max(activeColumn, 0), columns.count - 1)
         }
@@ -207,6 +215,7 @@ struct LayoutState: Equatable {
     var activeWorkspace: Int
     var activeColumns: [Int]
     var scrollOffsets: [CGFloat?]
+    var fullscreenWorkspaces: [Bool] = []
 }
 
 struct LayoutItem {

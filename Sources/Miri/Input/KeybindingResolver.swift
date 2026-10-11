@@ -173,6 +173,7 @@ struct KeybindingResolver {
         }
 
         switch name {
+        case "toggle_workspace_fullscreen": return .toggleWorkspaceFullscreen
         case "focus_previous_workspace": return .focusPreviousWorkspace
         case "workspace_down": return .workspaceDown
         case "workspace_up": return .workspaceUp

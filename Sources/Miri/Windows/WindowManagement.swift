@@ -7,6 +7,7 @@ struct WorkspaceModelSnapshot {
         let columns: [ManagedWindow]
         let activeColumn: Int
         let scrollOffset: CGFloat?
+        let fullscreenState: WorkspaceFullscreenState
     }
 
     let workspaces: [WorkspaceSnapshot]
@@ -17,7 +18,8 @@ struct WorkspaceModelSnapshot {
         LayoutState(
             activeWorkspace: activeWorkspace,
             activeColumns: workspaces.map(\.activeColumn),
-            scrollOffsets: workspaces.map(\.scrollOffset)
+            scrollOffsets: workspaces.map(\.scrollOffset),
+            fullscreenWorkspaces: workspaces.map { $0.fullscreenState == .active }
         )
     }
 
@@ -134,7 +136,8 @@ final class WindowManagement {
                 WorkspaceModelSnapshot.WorkspaceSnapshot(
                     columns: $0.columns,
                     activeColumn: $0.activeColumn,
-                    scrollOffset: $0.scrollOffset
+                    scrollOffset: $0.scrollOffset,
+                    fullscreenState: $0.fullscreenState
                 )
             },
             floatingWindows: model.activeContext.floatingWindows,
@@ -184,6 +187,7 @@ final class WindowManagement {
         projection.columns = source.columns
         projection.activeColumn = source.activeColumn
         projection.scrollOffset = source.scrollOffset
+        projection.fullscreenState = source.fullscreenState
         return projection
     }
 
@@ -442,6 +446,35 @@ final class WindowManagement {
 
     func setScrollOffset(_ offset: CGFloat?, in workspace: Workspace) {
         workspace.scrollOffset = offset
+    }
+
+    @discardableResult
+    func toggleWorkspaceFullscreen() -> Bool {
+        guard let workspace = activeWorkspaceObject(), !workspace.isEmpty else { return false }
+        workspace.fullscreenState = workspace.fullscreenState == .off ? .active : .off
+        return true
+    }
+
+    @discardableResult
+    func suspendWorkspaceFullscreen() -> Bool {
+        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .active else { return false }
+        workspace.fullscreenState = .suspended
+        return true
+    }
+
+    @discardableResult
+    func resumeWorkspaceFullscreen(in target: Workspace) -> Bool {
+        let source = activeWorkspaceObject()
+        let previousState = target.fullscreenState
+        if let source, source !== target, source.fullscreenState != .off {
+            source.fullscreenState = .off
+            target.fullscreenState = .active
+            return true
+        }
+        if target.fullscreenState == .suspended {
+            target.fullscreenState = .active
+        }
+        return previousState != target.fullscreenState
     }
 
     func removeWindowID(_ windowID: UInt32, from context: LogicalSpaceContext) {
