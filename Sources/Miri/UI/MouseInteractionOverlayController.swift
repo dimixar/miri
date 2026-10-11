@@ -164,8 +164,8 @@ final class MouseInteractionOverlayView: NSView {
 
     @objc private func refreshColors() {
         let accentColor = MiriTheme.Palette.adaptiveSystemAccentColor(for: effectiveAppearance)
-        swapGlass.tintColor = accentColor.withAlphaComponent(0.20)
-        capsule.tintColor = accentColor.withAlphaComponent(capsuleChrome.canScroll ? 0.24 : 0.08)
+        swapGlass.tintColor = accentColor.withAlphaComponent(0.10)
+        capsule.tintColor = accentColor.withAlphaComponent(capsuleChrome.canScroll ? 0.12 : 0.04)
         capsuleChrome.accentColor = accentColor
         capsuleChrome.needsDisplay = true
     }
