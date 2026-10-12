@@ -25,6 +25,7 @@ struct StatusMenuViewState {
 struct MiriWorkspaceSummary: Equatable {
     let workspace: Int
     let isActive: Bool
+    let isWorkspaceFullscreen: Bool
     let lastFocusedWindow: MiriWorkspaceBarWindow?
     let appNames: [String]
 }

@@ -143,14 +143,23 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertEqual(source.fullscreenState, .off)
         XCTAssertEqual(destination.fullscreenState, .active)
         XCTAssertEqual(projectedFrames(miri)[2], viewport)
+        var summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
+        XCTAssertFalse(summaries[0].isWorkspaceFullscreen)
+        XCTAssertTrue(summaries[1].isWorkspaceFullscreen)
+        XCTAssertEqual(summaries[1].lastFocusedWindow?.title, target.title)
 
         // Explicit workspace navigation leaves each workspace's mode in place.
         XCTAssertTrue(miri.focusWorkspace(1))
         XCTAssertEqual(source.fullscreenState, .off)
         XCTAssertEqual(destination.fullscreenState, .active)
+        summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
+        XCTAssertFalse(summaries[1].isActive)
+        XCTAssertTrue(summaries[1].isWorkspaceFullscreen)
+        XCTAssertEqual(summaries[1].lastFocusedWindow?.title, target.title)
         XCTAssertTrue(miri.focusWorkspace(2))
         miri.windowManagement.remove(target)
         XCTAssertEqual(destination.fullscreenState, .off)
+        XCTAssertFalse(miri.currentWorkspaceBarStatus().workspaceSummaries[1].isWorkspaceFullscreen)
         XCTAssertFalse(miri.windowManagement.toggleWorkspaceFullscreen())
     }
 
@@ -222,6 +231,8 @@ final class FocusScrollingTests: XCTestCase {
             XCTAssertFalse(workspace.columns.contains { $0 === target })
             XCTAssertEqual(miri.windowManagement.floatingWindows.contains { $0 === target }, behavior == .float)
             XCTAssertEqual(miri.allWindows().contains { $0 === target }, behavior == .float)
+            XCTAssertTrue(miri.currentWorkspaceBarStatus().workspaceSummaries[0].isWorkspaceFullscreen)
+            XCTAssertEqual(miri.currentWorkspaceBarStatus().workspaceSummaries[0].lastFocusedWindow?.title, previous.title)
 
             if behavior == .float {
                 // A window that stops matching its floating rule is eligible

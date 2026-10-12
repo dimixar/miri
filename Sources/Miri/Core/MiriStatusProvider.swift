@@ -65,6 +65,7 @@ extension Miri {
             return MiriWorkspaceSummary(
                 workspace: index + 1,
                 isActive: index == snapshot.activeWorkspace,
+                isWorkspaceFullscreen: workspace.fullscreenState != .off,
                 lastFocusedWindow: focusedWindow,
                 appNames: appNames
             )

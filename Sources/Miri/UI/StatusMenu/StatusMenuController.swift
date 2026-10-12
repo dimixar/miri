@@ -277,6 +277,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let centerBorderThickness = CGFloat(config.workspaceBarCenterBorderThickness ?? MiriConfig.fallback.workspaceBarCenterBorderThickness ?? 1)
         let height: CGFloat = 22 + verticalOutset * 2
         let paddingX: CGFloat = 5
+        let fullscreenPadding: CGFloat = 5
         let textGap: CGFloat = 5
         let font = Self.workspaceLabelFont(weight: .semibold)
         let textAttrs: [NSAttributedString.Key: Any] = [
@@ -335,8 +336,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             return ceil((run.text as NSString).size(withAttributes: run.attributes).width)
         }
 
-        func workspaceLabelWidth(_ run: WorkspaceLabelRun, style: WorkspaceBarActiveStyle, isActive: Bool) -> CGFloat {
-            let borderPadding: CGFloat = isActive && style.hasBorder ? 4 + configuredBorderOutset : 0
+        func workspaceLabelWidth(_ run: WorkspaceLabelRun, summary: MiriWorkspaceSummary) -> CGFloat {
+            let borderPadding: CGFloat = summary.isWorkspaceFullscreen
+                ? fullscreenPadding
+                : (summary.isActive && activeStyle.hasBorder ? 4 + configuredBorderOutset : 0)
             return runWidth(run) + borderPadding * 2
         }
 
@@ -347,7 +350,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             + (range.isEmpty ? 0 : textGap + centerStripWidth)
             + (rightText == nil ? 0 : textGap + textWidth(rightText))
         let workspaceStripWidth = workspaceSummaries.reduce(CGFloat(0)) { total, summary in
-            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
+            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive && !summary.isWorkspaceFullscreen, style: activeStyle)
             let contentWidth: CGFloat
             if summary.isActive {
                 contentWidth = activeExpansionWidth
@@ -356,7 +359,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             }
             return total
                 + (total == 0 ? 0 : textGap)
-                + workspaceLabelWidth(label, style: activeStyle, isActive: summary.isActive)
+                + workspaceLabelWidth(label, summary: summary)
                 + contentWidth
         }
         let fullscreenStripWidth = fullscreenGroups.reduce(CGFloat(0)) { total, group in
@@ -383,18 +386,30 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         for summary in workspaceSummaries {
             if !firstWorkspace { x += textGap }
             firstWorkspace = false
-            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive, style: activeStyle)
-            drawWorkspaceLabel(
-                label,
-                at: &x,
-                yText: yText,
-                yIconBox: yIconBox,
-                style: activeStyle,
-                isActive: summary.isActive,
-                borderOutset: configuredBorderOutset,
-                borderThickness: centerBorderThickness,
-                color: delimiterColor
-            )
+            let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive && !summary.isWorkspaceFullscreen, style: activeStyle)
+            if summary.isWorkspaceFullscreen {
+                let enclosedIconWidth: CGFloat = !summary.isActive && summary.lastFocusedWindow != nil ? iconBox : 0
+                drawWorkspaceFullscreenFrame(
+                    in: NSRect(x: x, y: yIconBox, width: workspaceLabelWidth(label, summary: summary) + enclosedIconWidth, height: iconBox),
+                    color: delimiterColor
+                )
+                x += fullscreenPadding
+                (label.text as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: label.attributes)
+                x += runWidth(label)
+                if enclosedIconWidth == 0 { x += fullscreenPadding }
+            } else {
+                drawWorkspaceLabel(
+                    label,
+                    at: &x,
+                    yText: yText,
+                    yIconBox: yIconBox,
+                    style: activeStyle,
+                    isActive: summary.isActive,
+                    borderOutset: configuredBorderOutset,
+                    borderThickness: centerBorderThickness,
+                    color: delimiterColor
+                )
+            }
 
             if !summary.isActive, let window = summary.lastFocusedWindow {
                 icon(for: window).draw(
@@ -404,6 +419,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                     fraction: 1
                 )
                 x += iconBox
+                if summary.isWorkspaceFullscreen { x += fullscreenPadding }
                 continue
             }
             guard summary.isActive else {
@@ -550,6 +566,28 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private static func workspaceLabelFont(weight: NSFont.Weight) -> NSFont {
         NSFont.monospacedDigitSystemFont(ofSize: 14, weight: weight)
+    }
+
+    private func drawWorkspaceFullscreenFrame(in rect: NSRect, color: NSColor) {
+        let strokeWidth: CGFloat = 1.5
+        let rect = rect.insetBy(dx: strokeWidth / 2, dy: strokeWidth / 2)
+        let corners: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (rect.minX, rect.minY, 1, 1),
+            (rect.maxX, rect.minY, -1, 1),
+            (rect.minX, rect.maxY, 1, -1),
+            (rect.maxX, rect.maxY, -1, -1),
+        ]
+        let path = NSBezierPath()
+        for (x, y, dx, dy) in corners {
+            path.move(to: NSPoint(x: x + dx * 4, y: y))
+            path.line(to: NSPoint(x: x, y: y))
+            path.line(to: NSPoint(x: x, y: y + dy * 4))
+        }
+        path.lineWidth = strokeWidth
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        color.setStroke()
+        path.stroke()
     }
 
     private func drawWorkspaceLabel(
