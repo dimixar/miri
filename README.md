@@ -12,84 +12,53 @@ _Niri-ish, keyboard-first window management for macOS._
 
 </div>
 
-miri is a standalone macOS window manager inspired by
-[Niri](https://github.com/YaLTeR/niri) and by the previously forked, now archived
-[`maria-rcks/miri`](https://github.com/maria-rcks/miri) project. This repository
-is maintained independently and is no longer presented as a fork.
+miri arranges app windows in horizontally scrolling columns. Navigate by
+keyboard, group windows into stacked rows, and switch between virtual
+workspaces without entering native macOS fullscreen.
 
-It tiles normal app windows through macOS Accessibility APIs, keeps a virtual
-workspace/column model, and adds macOS-specific recovery for app hiding,
-minimize, native fullscreen, Space switching, session lock/sleep, and
-process/window churn.
+Inspired by [Niri](https://github.com/YaLTeR/niri) and the archived
+[`maria-rcks/miri`](https://github.com/maria-rcks/miri), this project is maintained
+independently and is no longer a fork.
 
 ## Status
 
-miri is source-first software for users who are comfortable building and running
-Swift tools locally. GitHub Releases are not part of the current project flow;
-use the Swift commands or local packaging scripts below.
+miri is **source-first**: build with Swift or package a local app using the
+commands below. GitHub Releases are not currently provided.
 
-miri is designed and tested for a single-display setup, specifically a MacBook
-using only its built-in display. Its purpose is to provide a Niri-style workflow
-on that laptop screen. Multi-display configurations are outside the project's
-current scope and have not been tested.
+It is designed and tested for **one MacBook built-in display**. External and
+multi-display configurations are outside the current scope and untested.
 
 ## Features
 
-- **Niri-like columns.** A keyboard-first horizontal column layout for macOS.
-- **Optional stacked rows.** Up to three windows per column, with independent
-  height presets and shared width. New windows still open in separate columns.
-  Row-edge workspace navigation requires a configurable hold, with glass pill
-  feedback and cancellation on release.
-- **Configurable focus alignment.** Choose how the layout responds to focus changes:
+- **Scrolling columns and optional stacks.** Resize columns and independently
+  adjust the heights of up to three windows in each column.
+- **Focus alignment.** Reveal the focused window with minimal scrolling, always
+  center it, or use Smart Centered to keep visible windows stationary and fit a
+  neighbor when possible. See [alignment rules](docs/configuration.md#layout).
+- **Virtual workspaces.** Each keeps its own focus and scroll position, with
+  separate state for inferred native macOS Spaces.
+- **Floating and workspace fullscreen.** Untile an individual window or let it
+  fill the usable workspace without creating a macOS Space.
+- **Persistent layouts.** Restore column order, widths, and focus across restarts,
+  with window restoration on quit and crash cleanup.
+- **Optional snapshot animations.** Animate movement and resizing using captured
+  window images, not live video.
+- **Window rules.** Match apps or window titles to control tiling, placement,
+  and width.
+- **Recovery and app isolation.** Handle lock/sleep and window lifecycle changes;
+  an unresponsive app does not block window management for healthy apps.
 
-  - **Default:** Keep the current view and scroll only enough to fully reveal
-    the focused window.
-  - **Centered:** Always center the focused window.
-  - **Smart Centered:** Keep the layout stationary when focus moves to a fully
-    visible window. For partially visible or offscreen targets:
+## How The Layout Works
 
-    - Below 50% of the viewport width, scroll only enough to fully reveal the window.
-    - At 50% or wider, fit the smallest eligible adjacent neighbor alongside
-      the focused window. If neither neighbor fits, center the focused window.
+![A horizontal workspace: two columns on screen, two stacked windows in the second column, and a third column offscreen to the right.](assets/repo/layout.svg)
 
-    A workspace's only window is always centered.
+New windows open in separate columns. Moving focus to an offscreen column
+scrolls the view to reveal it. Miri workspaces are virtual layouts, distinct
+from native macOS Spaces.
 
-- **Virtual workspaces.** Independent Miri workspaces with per-workspace focus
-  and scroll state.
-- **Logical Space contexts.** Separate Miri state per inferred macOS Space,
-  without depending on private Space IDs.
-- **Event-driven discovery with bounded launch settling.** Startup does a full
-  scan, and each observed regular-app launch receives targeted per-PID scans for
-  30 seconds while its Accessibility windows and metadata settle. Normal
-  updates then remain driven by NSWorkspace and AX events with a long safety
-  reconciliation timer.
-- **Reliable focus tracking.** Focus and main-window AX notifications are
-  backed by lightweight probes after mouse clicks and macOS Command-based
-  window switching. Cmd-Tab activation re-reveals the focused managed column
-  even when it was already Miri's logical focus.
-- **Hung-app isolation.** Accessibility IPC runs on independent per-process
-  lanes with a short process-wide timeout, whole-read budgets, and shared
-  adaptive PID circuits, so one beachballing app cannot block focus, layout,
-  discovery, or exit restoration for healthy apps.
-- **Active stale-window recovery.** Known problematic apps can be targeted for
-  extra rescans while tiled, improving UX when they miss Accessibility events.
-  This is a mitigation for broken app behavior, not a guarantee that those apps
-  will tile predictably.
-- **Session-aware recovery.** Layout tracking pauses while the screen is locked,
-  the login session is inactive, or the Mac is asleep. After the session becomes
-  available, tracking resumes only after input targets a relevant managed
-  window, avoiding lock-screen input and premature layout reconciliation.
-- **Persistent layout state.** Saved column positions, manual widths, focus, and
-  logical Space state across restarts. A versioned, continuously refreshed exit
-  snapshot supports bounded cleanup after abrupt termination.
-- **Snapshot transitions.** Window movement and resizing animations using
-  asynchronously captured ScreenCaptureKit images and final Accessibility
-  placement. Images are reused during retargeting, not continuously streamed.
-- **Precise window rules.** Rule matching and behavior overrides for apps and
-  individual window titles.
-- **Small private and undocumented API surface.** Core window management stays
-  Accessibility-led, with private or undocumented behavior reserved for narrow
-  macOS gaps.
+Stacking is off by default. Enable two or three rows in **Settings → Layout →
+Stacked columns**, then use `LAlt+Shift+H` / `LAlt+Shift+L` to join windows.
+Stacked windows share a column width but can have different heights.
 
 ## Requirements
 
@@ -101,15 +70,13 @@ current scope and have not been tested.
   backend and for detecting managed-window interaction after session recovery.
 - Screen Recording permission is needed for snapshot animations.
 
-On first launch, miri presents an onboarding window and does not discover or
-tile windows until setup is complete. It checks Accessibility access in place,
-then lets you choose focus alignment, outer margin, and optional snapshot
-animations. If animations are enabled, onboarding requests Screen Recording
-access and resumes on the same step after the required restart. On later
-launches, missing Accessibility access is recoverable from the menu bar.
+First-run onboarding checks permissions and lets you choose alignment, margins,
+and animations before tiling starts. If Screen Recording access requires a
+restart, setup resumes at the same step.
 
 If you run miri from a terminal, macOS may request permissions for that terminal
-app rather than for a packaged `Miri.app`.
+app rather than for a packaged `Miri.app`. See
+[permission troubleshooting](docs/troubleshooting.md#permissions).
 
 ## Install And Run
 
@@ -126,13 +93,6 @@ Build an optimized binary:
 ```bash
 swift build -c release
 .build/release/miri
-```
-
-For development:
-
-```bash
-swift build
-swift run miri
 ```
 
 ## Packaging Locally
@@ -179,108 +139,35 @@ unless configured otherwise.
 Shortcut handling can use either a CG event tap or Carbon registered hot keys.
 See [Configuration](docs/configuration.md#shortcuts).
 
-Stacking is disabled by default. Choose two or three rows under Settings →
-Layout → Stacked columns, then use LAlt+Shift+H/L to join windows. Boundary holds
-default to 750ms; release cancels, and each crossing requires a fresh press.
-Explicit older bindings are preserved rather than replaced with new defaults.
-
-Workspace fullscreen fills the usable workspace with the focused tiled window,
-without entering native macOS fullscreen or changing normal width ratios.
-Column-focus and resize shortcuts, plus drag-layout gestures, are disabled until
-you toggle back. Cmd-Tab, Cmd-grave, and Dock/window activation transfer the mode
-to the newly focused tiled window, including across Miri workspaces. Toggling
-back restores normal tiling around that window. Explicit workspace navigation
-keeps each workspace's mode in place. Unmanaged focus suspends the override;
-it resumes when a tiled window regains focus. The mode is not saved across restarts.
-
-The floating toggle affects only the actual focused managed window, not other
-windows from the same app. Its live-window override wins over behavior rules
-through rescans, title changes, hide/minimize, and session recovery; it clears
-when the window closes or Miri restarts. Retiling restores its former workspace,
-neighbor position, and width when possible. Floating a workspace-fullscreen
-window exits that mode without focusing a different column. Ignored/unmanaged
-windows are left alone.
-
-Only manually floated windows receive a click-through, accent-tinted glass
-outline that follows the window's reported corner radius. Rule-floated and ignored
-windows do not. Settings → Layout → Floating windows can disable outlines or set
-their thickness from 1–10pt (default 2pt) without changing floating state.
-Settings → Shortcuts can change or disable either toggle's binding.
+Workspace boundary holds default to **750ms**. Release cancels; each crossing
+requires a fresh press. Explicit older bindings are preserved. Change or disable
+bindings in **Settings → Shortcuts**; the reference covers
+[stacking, fullscreen, floating, and legacy bindings](docs/configuration.md#shortcuts).
 
 ## Menu Bar And Settings
 
-The menu bar item shows every configured or dynamically existing workspace.
-The active workspace expands in place to show its window icons; inactive
-workspaces contract to their number and last-focused icon. Its text and default
-accents adapt to the menu bar appearance and the current macOS system accent
-color. System accents are lightened in dark appearance and darkened in light
-appearance when needed for contrast. Optional custom workspace-bar colors are
-available in Settings. It also exposes:
+<img src="assets/repo/menu-bar.png" alt="Miri menu bar: workspace 1 is active and expanded into stacked app icons; workspace 2 shows its last-focused app and workspace 3 is empty." width="284">
 
-- current workspace, focused window, and active width;
-- empty and occupied workspace summaries with app names/icons;
-- fullscreen app indicators grouped by source workspace;
-- **Settings...** for the GUI config editor;
-- an Accessibility permission or restart action when setup is incomplete;
-- **Open Config**, **Reload Config**, and **Rescan Windows**;
-- **Quit Miri**, which performs normal window restoration.
+The active workspace expands into app icons; inactive workspaces show their
+number and last-focused app, if any. Appearance and colors are
+[configurable](docs/configuration.md#menu-bar).
 
-The settings editor writes to the active JSON config and reloads miri in place.
-It covers pre-created workspace count, explicit back-and-forth behavior, layout,
-animation, fullscreen/Space recovery, logical Space autosave, active rescans for
-problematic apps, window rules, excluded shortcuts, and command keybindings.
+Open **Settings…** from the menu bar to edit the active JSON config and reload
+in place. The menu also offers config access, window rescanning, permission
+recovery, and **Quit Miri** with window restoration.
 
-Settings → General → Startup includes an opt-in **Launch at login** toggle for
-the packaged, code-signed `Miri.app`, available after onboarding completes.
-It changes the native macOS login item immediately, independently of Apply/Save
-or the JSON config. If macOS requires approval, Settings shows an **Open Login
-Items** button. Returning to Settings refreshes the actual macOS status; Miri
-does not automatically override changes made in System Settings.
-
-Only one Miri instance can run per user, including simultaneous login/manual
-launches or a command-line launch alongside the app. Extra instances exit before
-onboarding, window discovery, or shortcuts start. The lock is released by macOS
-on exit or crash; cleanup watchers are exempt so window restoration still works.
+For a packaged, code-signed app, enable **Settings → General → Startup → Launch
+at login** after onboarding. This native macOS preference applies immediately,
+independently of saving the config. Only one Miri instance runs per user.
 
 ## Session Lock And Sleep Recovery
 
-miri pauses window discovery, Accessibility handling, layout projection,
-animations, and reconciliation timers when macOS reports that the screen is
-locked, the console session is inactive, or the system is sleeping. An unlock,
-login, or wake notification alone does not bypass the session and transient-window
-guards because the login UI and the user's desktop can overlap briefly during
-that transition.
-
-Once the desktop session is available, miri waits for a layout-relevant action
-if it already knows windows in any workspace or macOS Space:
-
-- a mouse-button press or scroll event targeting an on-screen managed window;
-- a key press delivered to the focused managed window; or
-- a registered Miri Carbon hot key while a managed window is focused.
-
-Input aimed at the lock/login UI does not release the guard. Target AX checks
-run on isolated per-app lanes rather than the main event loop. Regular apps
-launched while miri is waiting are remembered so their first valid
-managed-window interaction can also resume tracking. Recovery first quiesces
-pre-lock AX work, clears stale frame/focus caches, refreshes current focus, and
-completes one full rescan. Only then does miri return to running, restart safety
-timers, and run a triggering command if one was queued.
-
-If the whole runtime window model is empty, miri instead attempts recovery
-automatically and retries every half-second while the session/transient guards
-block it. Floating, fullscreen, minimized, and Space-buffered windows count as
-known state; saved layout metadata alone does not. Startup and successful
-empty-model recovery also open a 30-second discovery settling period, requesting
-full rescans every second without superseding a full scan still in progress.
-This captures apps and windows restored after the first scan. An empty scan does
-not re-enable the interaction requirement. Lock, sleep, or termination cancels
-the settling work; afterward, normal observation and periodic rescans take over.
-
-Some applications expose transiently malformed Accessibility state during a
-session transition. In particular, an `AXWindows` query may return an
-`AXApplication` root instead of only window elements. miri treats that response
-as unreliable and retains its known windows until a valid enumeration arrives,
-preserving layout order and manual width state.
+miri pauses while locked, asleep, or outside the active desktop session. After
+unlock or wake, click, scroll, or type in a managed window to resume tracking;
+a registered Miri hot key with a managed window focused also works. If no
+windows are known, recovery starts automatically. See
+[recovery troubleshooting](docs/troubleshooting.md#miri-appears-paused-after-unlock-or-wake)
+and the [recovery sequence](docs/architecture.md#session-availability-flow).
 
 ## Configuration
 
@@ -299,109 +186,25 @@ See [Configuration](docs/configuration.md) for setting descriptions, focus
 alignment modes, shortcut backend tradeoffs, active-rescan reliability settings,
 rule syntax, and menu bar options.
 
-## Architecture
+## Notes And Limitations
 
-The code is split by domain:
-
-```text
-Sources/Miri/Core/          coordinator, commands, status providers
-Sources/Miri/Config/        config model and effective settings
-Sources/Miri/Input/         event tap, Carbon hot keys, recovery input, keybindings
-Sources/Miri/Layout/        projection, geometry, application, animations
-Sources/Miri/Windows/       discovery, focus tracking, placement, lookup, transient windows
-Sources/Miri/Persistence/   layout persistence and exit/crash restoration
-Sources/Miri/UI/            settings window and status menu
-Sources/Miri/Debug/         debug logging
-Sources/Miri/System/        session state, Accessibility and SkyLight wrappers
-```
-
-Read the current architecture notes in [Architecture](docs/architecture.md).
+- Native macOS Space handling is inferred from visible windows. If two Spaces
+  expose indistinguishable window sets, miri may not be able to tell them apart.
+- Apps with incomplete Accessibility support can behave unpredictably. Active
+  rescans help with missed events but cannot fix incorrect window data; use
+  [ignore rules](docs/configuration.md#window-rules) for persistently problematic
+  apps. Disabling active rescans can reduce idle CPU and battery use.
+- Mission Control and native fullscreen transitions may need a later rescan.
+- Window control is primarily Accessibility-based, but miri uses private APIs
+  and undocumented macOS contracts for narrow gaps. These may change between
+  macOS releases. See the [API scope and fallbacks](docs/architecture.md#private-and-undocumented-api-scope).
+- Keep verbose debug logging disabled outside investigation sessions.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md)
-- [Architecture](docs/architecture.md)
-- [Window discovery and reconciliation](docs/window-discovery-and-reconciliation.md)
-- [Snapshot animation](docs/snapshot-animation.md)
-- [Troubleshooting](docs/troubleshooting.md)
-
-Historical notes and research:
-
-- [macOS window management investigation](docs/macos-window-management-investigation.md)
-- [Niri behavior notes](docs/niri-mvp-behavior-notes.md)
-- [Feature branch change log](docs/feature-local-branch-changes.md)
-- [Animation revamp branch changes](docs/animation-revamp-branch-changes.md)
-- [Intelligent width resize report](docs/intelligent-width-resize-report.md)
-- [Refactoring summary](docs/miri-refactoring-summary.md)
-
-## Private And Undocumented API Usage
-
-miri's core window management is Accessibility-based. Moving, resizing,
-focusing, discovering, and observing normal app windows are done through public
-macOS Accessibility/AppKit APIs where possible.
-
-The project dynamically resolves these private symbols at runtime:
-
-- `_AXUIElementGetWindow`: maps an `AXUIElement` to a `CGWindowID` for more
-  reliable matching, persistence, logical Space recovery, debugging, and exit
-  restoration. Mapping is optional and runs only on an isolated PID worker,
-  never in a main-run-loop AX notification callback.
-- `SLSMainConnectionID`, `SLSSetWindowLevel`, `SLSTransactionCreate`,
-  `SLSTransactionMoveWindowWithGroup`, `SLSTransactionCommit`,
-  `SLSGetWindowShadowAndRimParameters`, `SLSMoveWindow`, and
-  `SLSGetWindowTransform`/`SLSSetWindowTransform`: maintain true
-  floating-window levels and correct parked-window positions and shadow
-  outsets when Accessibility placement is constrained.
-
-It also relies on a few undocumented macOS contracts that are not private
-function calls but are absent from the public SDK documentation:
-
-- `com.apple.screenIsLocked` and `com.apple.screenIsUnlocked`: distributed
-  notifications used to pause and arm recovery around screen locking.
-- `IOConsoleLocked`: an IORegistry root property used to check the current lock
-  state at startup, wake, login activation, and before accepting recovery input.
-- `AXFullScreen`: an Accessibility attribute used to identify native fullscreen
-  windows and protect workspace state across fullscreen transitions.
-- `AXEnhancedUserInterface`: an application-level Accessibility attribute that
-  is temporarily disabled, only when it was already enabled and readable, while
-  applying window frames; its previous value is restored immediately afterward.
-
-The implementation checks availability where possible. If the private
-AX-to-window-ID mapping is absent, identity matching and recovery use weaker
-fallbacks. If the SkyLight functions are absent, floating windows fall back to
-normal raise/focus behavior and parking falls back to Accessibility placement.
-Undocumented lock and Accessibility contracts may change between macOS
-releases.
-
-`CGSessionCopyCurrentDictionary`, `kCGSessionOnConsoleKey`, NSWorkspace
-session/sleep notifications, CG event taps and event fields, CoreGraphics
-window-list metadata functions, and ScreenCaptureKit screenshot capture are
-public SDK APIs; they are not part of the private list above.
-
-## Notes And Limitations
-
-- Only a single active display is currently supported and tested. Behavior with
-  external or multiple displays—including viewport selection, window placement,
-  native Space inference, and session recovery—is not guaranteed.
-- Native macOS Space handling is inferred from visible windows. If two Spaces
-  contain indistinguishable sets of windows, miri may not be able to tell them
-  apart without private Space IDs.
-- Snapshot animations need Screen Recording permission because they capture
-  window images.
-- Mission Control-style transitions, fullscreen enter/exit, and unusual
-  app-specific AX behavior may still need a later reconciliation pass.
-- AX IPC runs on isolated per-process lanes. A beachballing application opens
-  an adaptive circuit for only its PID; focus/layout for healthy apps remains
-  responsive, and superseded frame/focus requests are coalesced. Normal quit
-  closes AX admission, quiesces prior work, and restores each PID independently
-  behind a global deadline. Failed restoration is left to the cleanup watcher.
-- Active rescans are enabled by default for known problematic apps such as
-  Notion. They help recover stale windows when apps miss Accessibility events,
-  but apps that report stale/contradictory AX frames can still behave
-  unpredictably while tiled, especially during rapid focus movement or multiple
-  window changes.
-- Disabling active rescans can reduce idle CPU and battery use. Apps that keep
-  missing events or reporting bad AX frames should usually be added to window
-  rules with `behavior: "ignore"` instead of being tiled.
-- Debug logging is verbose and should usually stay disabled outside
-  investigation sessions.
+- [Configuration](docs/configuration.md): layout, rules, shortcuts, and appearance.
+- [Troubleshooting](docs/troubleshooting.md): permissions, recovery, and app issues.
+- [Architecture](docs/architecture.md): code structure, event flow, and API usage.
+- [Window discovery and reconciliation](docs/window-discovery-and-reconciliation.md).
+- [Snapshot animation](docs/snapshot-animation.md).
+- [Documentation index and historical research](docs/README.md).
