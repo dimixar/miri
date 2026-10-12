@@ -88,7 +88,10 @@ enum KeyCode {
     static let upArrow = Int64(kVK_UpArrow)
 }
 
-enum Command {
+enum Command: Equatable {
+    case rowDown, rowUp
+    case moveWindowDown, moveWindowUp, moveWindowLeft, moveWindowRight
+    case cycleHeightPresetBackward, cycleHeightPresetForward
     case toggleWorkspaceFullscreen
     case toggleWindowFloating
     case focusWorkspace(Int)

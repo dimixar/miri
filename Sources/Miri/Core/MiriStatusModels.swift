@@ -69,4 +69,5 @@ struct FullscreenWindowState {
     let rightNeighbor: PersistentWindowIdentity?
     let widthRatio: CGFloat
     let wasActive: Bool
+    var standaloneWidthRatio: CGFloat? = nil
 }

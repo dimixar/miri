@@ -13,11 +13,10 @@ struct KeybindingResolver {
     static func configuredKeybindings(config: MiriConfig) -> [String: [String]] {
         let explicit = config.keybindings ?? [:]
         var configured = MiriConfig.defaultKeybindings.merging(explicit) { _, value in value }
-        // An older config may explicitly bind fullscreen to the new floating
-        // default. Never let an inherited new command steal an existing shortcut.
-        if explicit["toggle_window_floating"] == nil {
-            let assigned = Set(explicit.values.flatMap { $0 }.compactMap(normalizedKeybinding))
-            configured["toggle_window_floating"] = configured["toggle_window_floating"]?.filter {
+        // Explicit bindings always take priority over inherited defaults.
+        let assigned = Set(explicit.values.flatMap { $0 }.compactMap(normalizedKeybinding))
+        for name in configured.keys where explicit[name] == nil {
+            configured[name] = configured[name]?.filter {
                 normalizedKeybinding($0).map { !assigned.contains($0) } ?? false
             }
         }
@@ -40,7 +39,8 @@ struct KeybindingResolver {
                     continue
                 }
                 if commands[normalized] != nil {
-                    fputs("miri: keybinding '\(binding)' is assigned more than once; using '\(name)'\n", stderr)
+                    fputs("miri: keybinding '\(binding)' is assigned more than once; ignoring '\(name)'\n", stderr)
+                    continue
                 }
                 commands[normalized] = command
             }
@@ -183,6 +183,14 @@ struct KeybindingResolver {
         }
 
         switch name {
+        case "row_down": return .rowDown
+        case "row_up": return .rowUp
+        case "move_window_down": return .moveWindowDown
+        case "move_window_up": return .moveWindowUp
+        case "move_window_left": return .moveWindowLeft
+        case "move_window_right": return .moveWindowRight
+        case "cycle_height_preset_backward": return .cycleHeightPresetBackward
+        case "cycle_height_preset_forward": return .cycleHeightPresetForward
         case "toggle_workspace_fullscreen": return .toggleWorkspaceFullscreen
         case "toggle_window_floating": return .toggleWindowFloating
         case "focus_previous_workspace": return .focusPreviousWorkspace

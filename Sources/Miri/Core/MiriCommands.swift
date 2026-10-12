@@ -38,7 +38,7 @@ extension Miri {
 
     func shouldQueueFocusCommand(_ command: Command) -> Bool {
         switch command {
-        case .columnLeft, .columnRight, .columnFirst, .columnLast:
+        case .columnLeft, .columnRight, .columnFirst, .columnLast, .rowDown, .rowUp:
             return true
         default:
             return false
@@ -49,12 +49,12 @@ extension Miri {
         guard let workspace = activeWorkspaceObject(), workspace.fullscreenState != .off else { return false }
         let message: String
         switch command {
-        case .columnLeft, .columnRight, .columnFirst, .columnLast:
+        case .columnLeft, .columnRight, .columnFirst, .columnLast, .rowDown, .rowUp:
             message = "Exit workspace fullscreen to change focus"
         case .cycleWidthPresetBackward, .cycleWidthPresetForward,
              .nudgeWidthNarrower, .nudgeWidthWider,
              .cycleAllWidthPresetsBackward, .cycleAllWidthPresetsForward,
-             .nudgeAllWidthsNarrower, .nudgeAllWidthsWider:
+             .nudgeAllWidthsNarrower, .nudgeAllWidthsWider, .cycleHeightPresetBackward, .cycleHeightPresetForward:
             message = "Exit workspace fullscreen to resize"
         default:
             return false
@@ -78,6 +78,33 @@ extension Miri {
         case .toggleWindowFloating:
             requestFocusedWindowFloatingToggle()
             return
+        case .rowDown, .rowUp:
+            guard windowManagement.focusRow(by: command == .rowDown ? 1 : -1) else { return }
+            frameAnimated = true
+        case .moveWindowDown, .moveWindowUp:
+            seedPresentationFrames(from: previousState)
+            guard windowManagement.moveActiveRow(by: command == .moveWindowDown ? 1 : -1) else { return }
+            animated = true
+            frameAnimated = true
+        case .moveWindowLeft, .moveWindowRight:
+            seedPresentationFrames(from: previousState)
+            if let workspace = activeWorkspaceObject() {
+                let neighbor = workspace.activeColumn + (command == .moveWindowLeft ? -1 : 1)
+                if workspace.columns.indices.contains(neighbor) {
+                    let column = workspace.columns[neighbor]
+                    if column.widthRatio == nil, let window = column.windows.first {
+                        column.widthRatio = standaloneWidthRatio(for: window)
+                    }
+                }
+            }
+            guard windowManagement.moveActiveWindowHorizontally(by: command == .moveWindowLeft ? -1 : 1, capacity: configStore.effectiveConfig.rowsPerColumn ?? 1) else { return }
+            animated = true
+            frameAnimated = true
+        case .cycleHeightPresetBackward, .cycleHeightPresetForward:
+            seedPresentationFrames(from: previousState)
+            guard cycleActiveHeightPreset(direction: command == .cycleHeightPresetForward ? 1 : -1) else { return }
+            animated = true
+            frameAnimated = true
         case .toggleWorkspaceFullscreen:
             guard let workspace = activeWorkspaceObject(), !workspace.isEmpty else { return }
             focusRequested = workspace.fullscreenState != .suspended
@@ -394,7 +421,7 @@ extension Miri {
 
     func nudgeAllWidths(by delta: CGFloat) -> Bool {
         var changed = false
-        for window in tiledWindows() {
+        for window in windowManagement.workspaces.flatMap(\.columns).compactMap(\.activeWindow) {
             changed = setWidthRatio(widthRatio(for: window) + delta, for: window) || changed
         }
 
@@ -414,7 +441,7 @@ extension Miri {
         }
 
         workspace.clampFocus()
-        let window = workspace.columns[workspace.activeColumn]
+        guard let window = workspace.activeWindow else { return false }
         let oldRatio = widthRatio(for: window)
         let oldScrollOffset = horizontalCameraOffset(for: workspace, viewport: currentViewport())
         guard setWidthRatio(ratio, for: window) else {
@@ -532,7 +559,7 @@ extension Miri {
 
     func setAllWindowWidthRatios(_ ratio: CGFloat) -> Bool {
         var changed = false
-        for window in tiledWindows() {
+        for window in windowManagement.workspaces.flatMap(\.columns).compactMap(\.activeWindow) {
             changed = setWidthRatio(ratio, for: window) || changed
         }
 
@@ -542,6 +569,21 @@ extension Miri {
 
         windowManagement.resetAllScrollOffsets()
         return true
+    }
+
+    func cycleActiveHeightPreset(direction: Int) -> Bool {
+        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .off,
+              workspace.columns.indices.contains(workspace.activeColumn) else { return false }
+        let column = workspace.columns[workspace.activeColumn]
+        guard column.windows.count > 1 else { return false }
+        let current = column.heightRatios[column.activeRow]
+        let presets = configStore.effectiveConfig.heightPresetRatios ?? [0.25, 1 / 3, 0.5, 2 / 3, 0.75]
+        let target = direction > 0 ? presets.first { $0 > current + 0.005 } : presets.last { $0 < current - 0.005 }
+        guard let target else { return false }
+        let viewport = currentViewport()
+        let gap = points(forPhysicalPixels: innerGap, in: viewport)
+        let usable = max(1, viewport.height - gap * CGFloat(column.windows.count - 1))
+        return column.setHeightRatio(target, row: column.activeRow, minimums: column.windows.map { $0.minimumHeight / usable })
     }
 
     func setWidthRatio(_ ratio: CGFloat, for window: ManagedWindow) -> Bool {

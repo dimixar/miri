@@ -42,8 +42,8 @@ extension Miri {
         let workspace = snapshot.workspaces[snapshot.activeWorkspace]
         return MiriWorkspaceBarStatus(
             workspace: snapshot.activeWorkspace + 1,
-            focusedIndex: workspace.columns.isEmpty ? nil : workspace.activeColumn,
-            windows: workspace.columns.map(workspaceBarWindow),
+            focusedIndex: workspace.columns.isEmpty ? nil : workspace.columns.prefix(workspace.activeColumn).reduce(0) { $0 + $1.windows.count } + workspace.columns[workspace.activeColumn].activeRow,
+            windows: workspace.windows.map(workspaceBarWindow),
             workspaceSummaries: workspaceSummaries(snapshot: snapshot),
             fullscreenWindows: fullscreenWorkspaceBarWindows()
         )
@@ -60,9 +60,9 @@ extension Miri {
                 focusedWindow = nil
             } else {
                 let focusedIndex = min(max(workspace.activeColumn, 0), workspace.columns.count - 1)
-                focusedWindow = workspaceBarWindow(workspace.columns[focusedIndex])
+                focusedWindow = workspace.columns[focusedIndex].activeWindow.map(workspaceBarWindow)
             }
-            let appNames = Array(NSOrderedSet(array: workspace.columns.map(\.appName))) as? [String] ?? workspace.columns.map(\.appName)
+            let appNames = Array(NSOrderedSet(array: workspace.windows.map(\.appName))) as? [String] ?? workspace.windows.map(\.appName)
             return MiriWorkspaceSummary(
                 workspace: index + 1,
                 isActive: index == snapshot.activeWorkspace,
@@ -123,7 +123,7 @@ extension Miri {
                 widthPercent: nil
             )
         }
-        let window = workspace.columns[workspace.activeColumn]
+        guard let window = workspace.columns[workspace.activeColumn].activeWindow else { return MiriStatus(workspace: snapshot.activeWorkspace + 1, workspaceCount: workspaceCount, focusedWindow: "None", widthPercent: nil) }
 
         let title = window.title.isEmpty ? window.appName : "\(window.appName) — \(window.title)"
         return MiriStatus(
@@ -372,6 +372,7 @@ extension Miri {
         // persistence policy/timers, reconciliation timers, and finally model
         // discovery plus layout projection.
         reconcileWorkspaceCapacity()
+        windowManagement.enforceRowCapacity(configStore.effectiveConfig.rowsPerColumn ?? 1)
         inputController.configure(configStore.effectiveConfig)
         inputController.install(backend: keyboardShortcutBackend)
         persistenceController.reconfigure(PersistenceConfiguration(config: configStore.effectiveConfig))

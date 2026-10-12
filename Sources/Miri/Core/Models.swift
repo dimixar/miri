@@ -14,6 +14,8 @@ final class ManagedWindow {
     var isMinimized = false
     var isFullscreen = false
     var manualWidthRatio: CGFloat?
+    // Learned from frame readback when an app refuses a smaller stacked row.
+    var minimumHeight: CGFloat = 64
 
     init(element: AXUIElement, pid: pid_t, windowID: UInt32?, bundleID: String?, appName: String, title: String) {
         self.element = element
@@ -32,14 +34,104 @@ enum WorkspaceFullscreenState {
 }
 
 @MainActor
+final class Column {
+    let id: UUID
+    var windows: [ManagedWindow]
+    var activeRow: Int
+    var widthRatio: CGFloat?
+    var heightRatios: [CGFloat]
+
+    init(windows: [ManagedWindow], activeRow: Int = 0, widthRatio: CGFloat? = nil, heightRatios: [CGFloat] = [], id: UUID = UUID()) {
+        self.id = id
+        self.windows = windows
+        self.activeRow = activeRow
+        self.widthRatio = widthRatio ?? windows.first?.manualWidthRatio
+        self.heightRatios = heightRatios
+        normalize()
+    }
+
+    var activeWindow: ManagedWindow? {
+        windows.indices.contains(activeRow) ? windows[activeRow] : nil
+    }
+
+    func normalize() {
+        activeRow = min(max(activeRow, 0), max(0, windows.count - 1))
+        guard !windows.isEmpty else { heightRatios = []; return }
+        if heightRatios.count != windows.count { heightRatios = Array(repeating: 1, count: windows.count) }
+        heightRatios = heightRatios.map { $0.isFinite && $0 > 0 ? $0 : 1 }
+        let total = heightRatios.reduce(0, +)
+        heightRatios = heightRatios.map { $0 / total }
+    }
+
+    @discardableResult
+    func remove(_ window: ManagedWindow) -> Bool {
+        guard let row = windows.firstIndex(where: { $0 === window }) else { return false }
+        windows.remove(at: row)
+        heightRatios.remove(at: row)
+        if activeRow > row { activeRow -= 1 }
+        normalize()
+        return true
+    }
+
+    func append(_ window: ManagedWindow) {
+        let share = 1 / CGFloat(windows.count + 1)
+        heightRatios = heightRatios.map { $0 * (1 - share) } + [share]
+        windows.append(window)
+        activeRow = windows.count - 1
+        normalize()
+    }
+
+    @discardableResult
+    func setHeightRatio(_ ratio: CGFloat, row: Int, minimum: CGFloat = 0.05, minimums: [CGFloat]? = nil) -> Bool {
+        guard windows.count > 1, heightRatios.indices.contains(row) else { return false }
+        normalize()
+        let floor = min(max(minimum, 0), 1 / CGFloat(windows.count))
+        let floors = minimums ?? Array(repeating: floor, count: windows.count)
+        guard floors.count == windows.count, floors.reduce(0, +) <= 1 else { return false }
+        let target = min(max(ratio, floors[row]), 1 - floors.enumerated().filter { $0.offset != row }.reduce(0) { $0 + $1.element })
+        let old = heightRatios[row]
+        guard abs(old - target) > 0.0001 else { return false }
+        let peers = heightRatios.indices.filter { $0 != row }
+        redistributeHeights(indices: peers, remaining: 1 - target, minimums: floors)
+        heightRatios[row] = target
+        return true
+    }
+
+    func fitHeightRatios(minimums: [CGFloat]) {
+        redistributeHeights(indices: Array(heightRatios.indices), remaining: 1, minimums: minimums)
+    }
+
+    private func redistributeHeights(indices: [Int], remaining: CGFloat, minimums: [CGFloat]) {
+        // Preserve proportions, reserving each constrained row's minimum first.
+        var remaining = remaining
+        var pending = indices
+        while !pending.isEmpty {
+            let total = pending.reduce(CGFloat(0)) { $0 + heightRatios[$1] }
+            let constrained = pending.filter { remaining * heightRatios[$0] / total < minimums[$0] }
+            if constrained.isEmpty {
+                for index in pending { heightRatios[index] = remaining * heightRatios[index] / total }
+                break
+            }
+            for index in constrained { heightRatios[index] = minimums[index]; remaining -= minimums[index] }
+            pending.removeAll { constrained.contains($0) }
+        }
+    }
+}
+
+@MainActor
 final class Workspace {
-    var columns: [ManagedWindow] = []
+    var columns: [Column] = []
     var activeColumn: Int = 0
     var scrollOffset: CGFloat?
     var fullscreenState: WorkspaceFullscreenState = .off
 
     var isEmpty: Bool {
         columns.isEmpty
+    }
+
+    var windows: [ManagedWindow] { columns.flatMap(\.windows) }
+    var activeWindow: ManagedWindow? {
+        columns.indices.contains(activeColumn) ? columns[activeColumn].activeWindow : nil
     }
 
     func clampFocus() {
@@ -49,6 +141,7 @@ final class Workspace {
             fullscreenState = .off
         } else {
             activeColumn = min(max(activeColumn, 0), columns.count - 1)
+            columns.forEach { $0.normalize() }
         }
     }
 }
@@ -172,6 +265,11 @@ struct PersistentLogicalSpaceWindow: Codable {
     var workspace: Int
     var column: Int
     var manualWidthRatio: CGFloat?
+    var groupID: UUID? = nil
+    var row: Int? = nil
+    var heightRatio: CGFloat? = nil
+    var columnWidthRatio: CGFloat? = nil
+    var activeRow: Int? = nil
 }
 
 struct PersistentLogicalSpaceFloatingWindow: Codable {
@@ -185,6 +283,11 @@ struct PersistentWindowState: Codable {
     var workspace: Int
     var column: Int
     var manualWidthRatio: CGFloat?
+    var groupID: UUID? = nil
+    var row: Int? = nil
+    var heightRatio: CGFloat? = nil
+    var columnWidthRatio: CGFloat? = nil
+    var activeRow: Int? = nil
 }
 
 struct PersistentWindowIdentity: Codable, Hashable {
@@ -216,6 +319,7 @@ struct LayoutState: Equatable {
     var activeColumns: [Int]
     var scrollOffsets: [CGFloat?]
     var fullscreenWorkspaces: [Bool] = []
+    var activeRows: [[Int]] = []
 }
 
 struct LayoutItem {

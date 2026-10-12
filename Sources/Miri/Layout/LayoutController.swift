@@ -186,11 +186,15 @@ final class LayoutController {
         let modelSnapshot = dependencies.modelSnapshot()
         let workspaces = modelSnapshot.workspaces.map { workspace in
             LayoutEngineWorkspace(
-                columns: workspace.columns.map { window in
-                    LayoutEngineWindow(
+                columns: workspace.columns.compactMap { column in
+                    guard let window = column.windows.first else { return nil }
+                    return LayoutEngineWindow(
                         window: window,
-                        widthRatio: dependencies.widthRatio(window),
-                        renderedOutsets: dependencies.renderedOutsets(window)
+                        widthRatio: column.widthRatio ?? dependencies.widthRatio(window),
+                        renderedOutsets: dependencies.renderedOutsets(window),
+                        rows: column.windows.map { LayoutEngineWindow(window: $0, widthRatio: dependencies.widthRatio(window), renderedOutsets: dependencies.renderedOutsets($0)) },
+                        heightRatios: column.heightRatios,
+                        activeRow: column.activeRow
                     )
                 },
                 activeColumn: workspace.activeColumn,
@@ -398,7 +402,7 @@ final class LayoutController {
         let snapshot = dependencies.modelSnapshot()
         let activeIDs = workspaceWindowIDs(workspaceIndex: activeIndex)
         for (workspaceIndex, workspace) in snapshot.workspaces.enumerated() where workspaceIndex != activeIndex {
-            for window in workspace.columns {
+            for window in workspace.windows {
                 let id = ObjectIdentifier(window)
                 appliedVisibility[id] = false
                 hiddenWorkspaceWindowIDs.insert(id)
@@ -754,6 +758,30 @@ final class LayoutController {
                 return
             }
             self.appliedFrames[id] = frame
+            if !correctParking, frame.height < self.dependencies.currentViewport().height - 1,
+               let windowID = window.windowID {
+                // AX can accept a size while the app clamps it. Use stable
+                // WindowServer readback without adding target-process IPC.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, weak window] in
+                    guard let self, let window,
+                          self.frameWriteEpoch == writeEpoch,
+                          self.frameRetryGenerations[id] == retryGeneration,
+                          let observed = self.windowServerFrame(for: windowID),
+                          observed.height > frame.height + 1 else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, weak window] in
+                        guard let self, let window,
+                              self.frameWriteEpoch == writeEpoch,
+                              self.frameRetryGenerations[id] == retryGeneration,
+                              window !== self.userInteractionWindow,
+                              let settled = self.windowServerFrame(for: windowID),
+                              abs(settled.height - observed.height) < 1,
+                              self.dependencies.modelSnapshot().workspaces.flatMap(\.columns).contains(where: {
+                                  $0.windows.count > 1 && $0.windows.contains { $0 === window }
+                              }) else { return }
+                        self.emit(.minimumRowHeightObserved(window: window, height: settled.height))
+                    }
+                }
+            }
             if correctParking {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak window] in
                     guard let self, let window,
@@ -858,7 +886,7 @@ extension LayoutController {
     func workspaceWindowIDs(workspaceIndex: Int) -> Set<ObjectIdentifier> {
         let workspaces = dependencies.modelSnapshot().workspaces
         guard workspaces.indices.contains(workspaceIndex) else { return [] }
-        return Set(workspaces[workspaceIndex].columns.map(ObjectIdentifier.init))
+        return Set(workspaces[workspaceIndex].windows.map(ObjectIdentifier.init))
     }
 
     func workspaceProjection(at index: Int) -> Workspace? { dependencies.workspaceProjection(index) }

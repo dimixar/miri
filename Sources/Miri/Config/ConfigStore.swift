@@ -202,6 +202,8 @@ extension MiriConfig {
     func resolved(with fallback: MiriConfig = .fallback) -> MiriConfig {
         var value = self
         value.presetWidthRatios = presetWidthRatios ?? fallback.presetWidthRatios
+        value.rowsPerColumn = rowsPerColumn ?? fallback.rowsPerColumn
+        value.heightPresetRatios = Self.normalize(self).heightPresetRatios ?? fallback.heightPresetRatios
         value.animationDurationMS = animationDurationMS ?? fallback.animationDurationMS
         value.keyboardAnimationMS = keyboardAnimationMS ?? fallback.keyboardAnimationMS
         value.moveColumnAnimationMS = moveColumnAnimationMS ?? fallback.moveColumnAnimationMS

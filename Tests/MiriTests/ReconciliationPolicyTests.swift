@@ -112,10 +112,10 @@ final class ReconciliationPolicyTests: XCTestCase {
             }),
             ("another workspace", true, { management, _ in
                 management.ensureWorkspaceExists(1)
-                management.workspaces[1].columns = [window]
+                management.workspaces[1].columns = [Column(windows: [window])]
             }),
             ("another Space", true, { _, context in
-                context.workspaces[1].columns = [window]
+                context.workspaces[1].columns = [Column(windows: [window])]
             }),
             ("floating in another Space", true, { _, context in
                 context.floatingWindows = [window]

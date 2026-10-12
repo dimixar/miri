@@ -12,6 +12,9 @@ struct LayoutEngineWindow {
     var window: ManagedWindow
     var widthRatio: CGFloat
     var renderedOutsets: (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat)
+    var rows: [LayoutEngineWindow] = []
+    var heightRatios: [CGFloat] = []
+    var activeRow: Int = 0
 }
 
 struct LayoutEngineWorkspace {
@@ -70,25 +73,41 @@ enum LayoutEngine {
             let rowOffset = CGFloat(workspaceIndex - activeWorkspace) * input.viewport.height
 
             for (columnIndex, column) in workspace.columns.enumerated() {
-                var projected = strip[columnIndex]
-                projected.origin.y += rowOffset
-                projected = visualFrame(projected, viewport: input.viewport, settings: input.settings)
-                let visible = projected.intersects(input.viewport)
-                let frame: CGRect
-                if visible || !input.parkHidden {
-                    frame = projected
-                } else {
-                    let beforeActive = workspaceIndex == activeWorkspace
-                        ? columnIndex < activeColumn
-                        : workspaceIndex < activeWorkspace
-                    frame = parkedFrame(
-                        column: column,
-                        viewport: input.viewport,
-                        beforeActive: beforeActive,
-                        settings: input.settings
-                    )
+                let rows = column.rows.isEmpty ? [column] : column.rows
+                let gap = min(input.settings.innerGap / max(input.settings.physicalPixelScale, 1), input.viewport.height / CGFloat(max(rows.count, 1)))
+                let usableHeight = max(0, input.viewport.height - gap * CGFloat(rows.count - 1))
+                let shares = column.heightRatios.count == rows.count ? column.heightRatios : Array(repeating: 1 / CGFloat(rows.count), count: rows.count)
+                let activeRow = input.state.activeRows.indices.contains(workspaceIndex) && input.state.activeRows[workspaceIndex].indices.contains(columnIndex)
+                    ? input.state.activeRows[workspaceIndex][columnIndex] : column.activeRow
+                var y = input.viewport.minY
+                for (rowIndex, row) in rows.enumerated() {
+                    var projected = strip[columnIndex]
+                    if !fullscreen {
+                        projected.origin.y = y
+                        projected.size.height = usableHeight * shares[rowIndex]
+                        y += projected.height + gap
+                    } else if columnIndex == activeColumn && rowIndex != activeRow {
+                        projected.origin.x = input.viewport.maxX
+                    }
+                    projected.origin.y += rowOffset
+                    projected = visualFrame(projected, viewport: input.viewport, settings: input.settings)
+                    let visible = projected.intersects(input.viewport)
+                    let frame: CGRect
+                    if visible || !input.parkHidden {
+                        frame = projected
+                    } else {
+                        let beforeActive = workspaceIndex == activeWorkspace
+                            ? columnIndex < activeColumn
+                            : workspaceIndex < activeWorkspace
+                        frame = parkedFrame(
+                            column: row,
+                            viewport: input.viewport,
+                            beforeActive: beforeActive,
+                            settings: input.settings
+                        )
+                    }
+                    result.append(LayoutItem(window: row.window, frame: frame, visible: visible))
                 }
-                result.append(LayoutItem(window: column.window, frame: frame, visible: visible))
             }
         }
 

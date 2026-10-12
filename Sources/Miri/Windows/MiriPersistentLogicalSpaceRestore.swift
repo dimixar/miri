@@ -116,24 +116,28 @@ extension Miri {
         )
         let workspaces = (0..<workspaceCount).map { _ in Workspace() }
         var used = Set<ObjectIdentifier>()
+        var pendingRows = Set<PersistentWindowIdentity>()
 
         let sortedTiled = persisted.tiledWindows.sorted {
             if $0.workspace != $1.workspace {
                 return $0.workspace < $1.workspace
             }
-            return $0.column < $1.column
+            if $0.column != $1.column { return $0.column < $1.column }
+            return ($0.row ?? 0) < ($1.row ?? 0)
         }
         for state in sortedTiled {
             guard let window = bestDiscoveredWindow(for: state.windowID, identity: state.identity, discovered: discovered, used: used) else {
+                pendingRows.insert(state.identity)
                 continue
             }
             used.insert(ObjectIdentifier(window))
-            windowManagement.setWidthRatio(state.manualWidthRatio, for: window)
+            window.manualWidthRatio = state.manualWidthRatio
             let workspaceIndex = min(max(state.workspace, 0), workspaces.count - 1)
             let workspace = workspaces[workspaceIndex]
-            workspace.columns.insert(window, at: min(max(state.column, 0), workspace.columns.count))
+            restoreGroupedWindow(window, state: PersistentWindowState(identity: state.identity, workspace: state.workspace, column: state.column, manualWidthRatio: state.manualWidthRatio, groupID: state.groupID, row: state.row, heightRatio: state.heightRatio, columnWidthRatio: state.columnWidthRatio, activeRow: state.activeRow), in: workspace)
         }
 
+        windowManagement.registerPersistentRows(persisted, pending: pendingRows)
         let floating = persisted.floatingWindows.sorted { $0.index < $1.index }.compactMap { state -> ManagedWindow? in
             guard let window = bestDiscoveredWindow(for: state.windowID, identity: state.identity, discovered: discovered, used: used) else {
                 return nil
@@ -143,7 +147,7 @@ extension Miri {
         }
 
         for window in discovered where !used.contains(ObjectIdentifier(window)) {
-            workspaces[0].columns.append(window)
+            workspaces[0].columns.append(Column(windows: [window]))
         }
         for (index, workspace) in workspaces.enumerated() {
             if persisted.activeColumns.indices.contains(index) {

@@ -126,6 +126,8 @@ struct LoadedMiriConfig {
 struct MiriConfig: Codable {
     var defaultWidthRatio: CGFloat
     var presetWidthRatios: [CGFloat]?
+    var rowsPerColumn: Int?
+    var heightPresetRatios: [CGFloat]?
     var animationDurationMS: Int?
     var keyboardAnimationMS: Int?
     var moveColumnAnimationMS: Int?
@@ -175,6 +177,8 @@ struct MiriConfig: Codable {
     static let fallback = MiriConfig(
         defaultWidthRatio: 0.67,
         presetWidthRatios: [0.33, 0.5, 0.67, 1.0],
+        rowsPerColumn: 1,
+        heightPresetRatios: [0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75],
         animationDurationMS: nil,
         keyboardAnimationMS: nil,
         moveColumnAnimationMS: nil,
@@ -237,8 +241,16 @@ struct MiriConfig: Codable {
         "focus_workspace_8": ["lalt+8"],
         "focus_workspace_9": ["lalt+9"],
         "focus_previous_workspace": ["lalt+0"],
-        "workspace_down": ["lalt+j"],
-        "workspace_up": ["lalt+k"],
+        "workspace_down": [],
+        "workspace_up": [],
+        "row_down": ["lalt+j"],
+        "row_up": ["lalt+k"],
+        "move_window_down": ["lalt+shift+j"],
+        "move_window_up": ["lalt+shift+k"],
+        "move_window_left": ["lalt+shift+h"],
+        "move_window_right": ["lalt+shift+l"],
+        "cycle_height_preset_backward": ["lalt+ctrl+j"],
+        "cycle_height_preset_forward": ["lalt+ctrl+k"],
         "column_left": ["lalt+h"],
         "column_right": ["lalt+l"],
         "column_first": ["lalt+[", "lalt+home"],
@@ -252,10 +264,10 @@ struct MiriConfig: Codable {
         "move_column_to_workspace_7": ["lalt+shift+7"],
         "move_column_to_workspace_8": ["lalt+shift+8"],
         "move_column_to_workspace_9": ["lalt+shift+9"],
-        "move_column_down": ["lalt+shift+j"],
-        "move_column_up": ["lalt+shift+k"],
-        "move_column_left": ["lalt+shift+h"],
-        "move_column_right": ["lalt+shift+l"],
+        "move_column_down": [],
+        "move_column_up": [],
+        "move_column_left": [],
+        "move_column_right": [],
         "move_column_to_first": ["lalt+shift+[", "lalt+shift+home"],
         "move_column_to_last": ["lalt+shift+]", "lalt+shift+end"],
         "cycle_width_preset_backward": ["lalt+ctrl+h"],
@@ -280,6 +292,8 @@ struct MiriConfig: Codable {
         config.focusAlignment = config.focusAlignment ?? .default
         config.defaultWidthRatio = config.defaultWidthRatio.clampedWidthRatio
         config.presetWidthRatios = normalizeWidthPresets(config.presetWidthRatios)
+        config.rowsPerColumn = config.rowsPerColumn.map { min(max($0, 1), 3) }
+        config.heightPresetRatios = normalizeHeightPresets(config.heightPresetRatios)
         config.animationDurationMS = config.animationDurationMS.map { min(max($0, 0), 500) }
         config.keyboardAnimationMS = config.keyboardAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }
@@ -355,6 +369,19 @@ struct MiriConfig: Codable {
         return unique.isEmpty ? nil : unique
     }
 
+    private static func normalizeHeightPresets(_ presets: [CGFloat]?) -> [CGFloat]? {
+        guard let presets else {
+            return nil
+        }
+
+        let sorted = presets.filter { $0.isFinite && $0 > 0 && $0 < 1 }.sorted()
+        var unique: [CGFloat] = []
+        for preset in sorted where unique.last.map({ abs($0 - preset) >= 0.005 }) ?? true {
+            unique.append(preset)
+        }
+        return unique.isEmpty ? nil : unique
+    }
+
     static func normalizeBundleIDs(_ bundleIDs: [String]?) -> [String]? {
         guard let bundleIDs else {
             return nil
@@ -391,6 +418,8 @@ struct MiriConfig: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case defaultWidthRatio = "default_width_ratio"
         case presetWidthRatios = "preset_width_ratios"
+        case rowsPerColumn = "rows_per_column"
+        case heightPresetRatios = "height_preset_ratios"
         case animationDurationMS = "animation_duration_ms"
         case keyboardAnimationMS = "keyboard_animation_ms"
         case moveColumnAnimationMS = "move_column_animation_ms"

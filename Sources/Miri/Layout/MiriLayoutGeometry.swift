@@ -78,9 +78,9 @@ extension Miri {
         var origins: [CGFloat] = []
         var widths: [CGFloat] = []
 
-        for window in workspace.columns {
+        for column in workspace.columns {
             origins.append(virtualX)
-            let width = viewport.width * widthRatio(for: window)
+            let width = viewport.width * (column.widthRatio ?? column.windows.first.map { widthRatio(for: $0) } ?? 1)
             widths.append(width)
             virtualX += width
         }

@@ -52,6 +52,8 @@ final class SettingsDraftTests: XCTestCase {
         original.dragScrollSpeedPercent = 500
         original.manualFloatingOutlineEnabled = false
         original.manualFloatingOutlineThickness = 7
+        original.rowsPerColumn = 3
+        original.heightPresetRatios = [0.3, 0.6]
         original.animationStrategy = .off
         original.workspaceBarCenterStyle = .border
         original.activeRescanBundleIDs = ["com.example.One", "com.example.Two"]
@@ -63,9 +65,44 @@ final class SettingsDraftTests: XCTestCase {
         XCTAssertEqual(object["drag_scroll_speed_percent"] as? Int, 500)
         XCTAssertEqual(object["manual_floating_outline_enabled"] as? Bool, false)
         XCTAssertEqual(object["manual_floating_outline_thickness"] as? Int, 7)
+        XCTAssertEqual(object["rows_per_column"] as? Int, 3)
+        XCTAssertEqual(object["height_preset_ratios"] as? [Double], [0.3, 0.6])
         let restored = SettingsDraft(config: try JSONDecoder().decode(MiriConfig.self, from: encoded))
 
         XCTAssertEqual(restored, original)
+    }
+
+    func testStackedColumnCompatibilityAndNormalization() throws {
+        let legacy = try JSONDecoder().decode(
+            MiriConfig.self,
+            from: Data(#"{"default_width_ratio":0.67,"rules":[]}"#.utf8)
+        )
+        let draft = SettingsDraft(config: legacy)
+        XCTAssertEqual(draft.rowsPerColumn, 1)
+        XCTAssertEqual(draft.heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+        XCTAssertEqual(legacy.resolved().rowsPerColumn, 1)
+        XCTAssertEqual(legacy.resolved().heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+
+        for (requested, expected) in [(-1, 1), (1, 1), (2, 2), (3, 3), (4, 3)] {
+            var edited = draft
+            edited.rowsPerColumn = requested
+            XCTAssertEqual(edited.applying(to: legacy).rowsPerColumn, expected)
+        }
+
+        var config = legacy
+        config.heightPresetRatios = [0.75, .nan, .infinity, -.infinity, -0.2, 0, 1, 1.5, 0.25, 0.25, 0.251, 0.5]
+        XCTAssertEqual(MiriConfig.normalize(config).heightPresetRatios, [0.25, 0.5, 0.75])
+        XCTAssertEqual(SettingsDraft(config: config).heightPresetRatios, [0.25, 0.5, 0.75])
+        for invalid: [CGFloat] in [[], [.nan, .infinity, 0, 1, -1]] {
+            config.heightPresetRatios = invalid
+            XCTAssertNil(MiriConfig.normalize(config).heightPresetRatios)
+            XCTAssertEqual(config.resolved().heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+        }
+        for invalid: CGFloat in [.nan, .infinity, 0, 1, -1] {
+            var edited = draft
+            edited.heightPresetRatios = [invalid]
+            XCTAssertNotNil(edited.validationMessage())
+        }
     }
 
     func testFloatingOutlineThicknessCompatibilityAndLimits() throws {
@@ -211,6 +248,8 @@ final class SettingsStoreTests: XCTestCase {
         store.draft.outerGap = 22
         store.draft.dragScrollSpeedPercent = 50
         store.draft.manualFloatingOutlineThickness = 1
+        store.draft.rowsPerColumn = 3
+        store.draft.heightPresetRatios = [0.2, 0.4]
         XCTAssertTrue(store.isDirty)
         XCTAssertEqual(store.feedbackText, "Unsaved changes")
 
@@ -219,14 +258,20 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.draft.outerGap, MiriConfig.fallback.outerGap)
         XCTAssertEqual(store.draft.dragScrollSpeedPercent, 100)
         XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 2)
+        XCTAssertEqual(store.draft.rowsPerColumn, 1)
+        XCTAssertEqual(store.draft.heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
 
         store.draft.outerGap = 24
         store.draft.dragScrollSpeedPercent = 200
         store.draft.manualFloatingOutlineThickness = 10
+        store.draft.rowsPerColumn = 2
+        store.draft.heightPresetRatios = [0.3, 0.7]
         XCTAssertTrue(store.submit(closeOnSuccess: false))
         XCTAssertEqual(submittedConfig?.outerGap, 24)
         XCTAssertEqual(submittedConfig?.dragScrollSpeedPercent, 200)
         XCTAssertEqual(submittedConfig?.manualFloatingOutlineThickness, 10)
+        XCTAssertEqual(submittedConfig?.rowsPerColumn, 2)
+        XCTAssertEqual(submittedConfig?.heightPresetRatios, [0.3, 0.7])
         XCTAssertEqual(shouldClose, false)
         XCTAssertEqual(store.feedback, .saving)
 
@@ -234,6 +279,8 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.isDirty)
         XCTAssertEqual(store.draft.dragScrollSpeedPercent, 200)
         XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 10)
+        XCTAssertEqual(store.draft.rowsPerColumn, 2)
+        XCTAssertEqual(store.draft.heightPresetRatios, [0.3, 0.7])
         XCTAssertEqual(store.feedback, .saved)
     }
 

@@ -141,6 +141,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         guard !runtimeStarted else { return }
         runtimeStarted = true
         reconcileWorkspaceCapacity()
+        windowManagement.enforceRowCapacity(configStore.effectiveConfig.rowsPerColumn ?? 1)
         windowManagement.observation.startWorkspaceObservation()
         observeSessionState()
         persistenceController.start()

@@ -39,6 +39,7 @@ enum LayoutEvent {
     case cancelled(token: LayoutRequestToken)
     case captureFailed(token: LayoutRequestToken, reason: String)
     case externallyResized(windowID: UInt32?)
+    case minimumRowHeightObserved(window: ManagedWindow, height: CGFloat)
 }
 
 typealias LayoutSnapshot = LayoutState

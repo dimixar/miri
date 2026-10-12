@@ -21,8 +21,23 @@ struct ShortcutSettingsView: View {
             includes: { $0.hasPrefix("column_") }
         ),
         CommandGroup(
+            title: "Row navigation",
+            detail: "Focus a row; hold at the edge to change workspace.",
+            includes: { $0.hasPrefix("row_") }
+        ),
+        CommandGroup(
+            title: "Move focused window",
+            detail: "Move only the focused window, not its whole column. Hold at a row edge to send it to another workspace.",
+            includes: { $0.hasPrefix("move_window_") }
+        ),
+        CommandGroup(
+            title: "Resize focused window height",
+            detail: "Cycle height presets within the focused column.",
+            includes: { $0.contains("height") }
+        ),
+        CommandGroup(
             title: "Move columns",
-            detail: "Reorder columns or send them to another workspace.",
+            detail: "Move the whole column and every window in it, or send the whole column to another workspace.",
             includes: { $0.hasPrefix("move_column") }
         ),
         CommandGroup(

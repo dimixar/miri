@@ -16,6 +16,11 @@ extension Miri {
         applyLayout: Bool = true,
         focusNewWindow: Bool = false
     ) {
+        if windowManagement.restoreRemovedRow(window, focus: focusNewWindow, capacity: configStore.effectiveConfig.rowsPerColumn ?? 1)
+            || windowManagement.restorePendingPersistentRow(window, identity: persistentIdentity(for:), focus: focusNewWindow, capacity: configStore.effectiveConfig.rowsPerColumn ?? 1) {
+            if applyLayout { projectLayout(focusActiveWindow: focusNewWindow) }
+            return
+        }
         let workspace = activeWorkspaceObject() ?? targetWorkspace(for: window)
         workspace.clampFocus()
         let insertionIndex = workspace.columns.isEmpty ? 0 : min(workspace.activeColumn + 1, workspace.columns.count)
@@ -92,8 +97,8 @@ extension Miri {
             return
         }
         let workspace = location.workspace
-        let leftWindow = location.columnIndex > 0 ? workspace.columns[location.columnIndex - 1] : nil
-        let rightWindow = location.columnIndex + 1 < workspace.columns.count ? workspace.columns[location.columnIndex + 1] : nil
+        let leftWindow = location.columnIndex > 0 ? workspace.columns[location.columnIndex - 1].activeWindow : nil
+        let rightWindow = location.columnIndex + 1 < workspace.columns.count ? workspace.columns[location.columnIndex + 1].activeWindow : nil
         let left = leftWindow.map(persistentIdentity(for:))
         let right = rightWindow.map(persistentIdentity(for:))
         let identity = persistentIdentity(for: window)
@@ -113,7 +118,8 @@ extension Miri {
             rightNeighbor: right,
             widthRatio: widthRatio(for: window),
             wasActive: windowManagement.activeWorkspace == location.workspaceIndex
-                && workspace.activeColumn == location.columnIndex
+                && workspace.activeWindow === window,
+            standaloneWidthRatio: window.manualWidthRatio
         ))
     }
 
@@ -126,7 +132,7 @@ extension Miri {
             }) else {
                 continue
             }
-            windowManagement.setWidthRatio(state.widthRatio, for: found)
+            found.manualWidthRatio = state.standaloneWidthRatio
             insertRestoredFullscreenWindow(found, state: state)
             restored = true
         }
@@ -134,6 +140,7 @@ extension Miri {
     }
 
     func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {
+        if windowManagement.restoreRemovedRow(window, focus: state.wasActive, capacity: configStore.effectiveConfig.rowsPerColumn ?? 1) { return }
         windowManagement.ensureWorkspaceExists(state.workspace)
         let workspaces = windowManagement.workspaces
         let workspace = workspaces[min(max(state.workspace, 0), workspaces.count - 1)]
@@ -161,20 +168,20 @@ extension Miri {
 
     func neighborIndex(id: ObjectIdentifier?, identity: PersistentWindowIdentity?, in workspace: Workspace) -> Int? {
         if let id,
-           let index = workspace.columns.firstIndex(where: { ObjectIdentifier($0) == id }) {
+           let index = workspace.columns.firstIndex(where: { $0.windows.contains { ObjectIdentifier($0) == id } }) {
             return index
         }
         guard let identity else {
             return nil
         }
-        if let exact = workspace.columns.firstIndex(where: { persistentIdentity(for: $0) == identity }) {
+        if let exact = workspace.columns.firstIndex(where: { $0.windows.contains { persistentIdentity(for: $0) == identity } }) {
             return exact
         }
         if let bundleID = identity.bundleID,
-           let bundle = workspace.columns.firstIndex(where: { $0.bundleID == bundleID }) {
+           let bundle = workspace.columns.firstIndex(where: { $0.windows.contains { $0.bundleID == bundleID } }) {
             return bundle
         }
-        return workspace.columns.firstIndex { $0.appName.caseInsensitiveCompare(identity.appName) == .orderedSame }
+        return workspace.columns.firstIndex { $0.windows.contains { $0.appName.caseInsensitiveCompare(identity.appName) == .orderedSame } }
     }
 
     func rememberMinimizedWindowState(_ window: ManagedWindow) {
@@ -186,7 +193,7 @@ extension Miri {
                 identity: persistentIdentity(for: window),
                 workspace: location.workspaceIndex,
                 column: location.columnIndex,
-                manualWidthRatio: widthRatio(for: window)
+                manualWidthRatio: window.manualWidthRatio
             ),
             pid: window.pid
         )

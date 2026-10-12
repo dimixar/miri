@@ -218,6 +218,11 @@ extension Miri {
             drainPendingCoordinatorWorkIfPossibleImplementation()
         case .externallyResized(let windowID):
             debugLog("layout observed external resize window=\(windowID.map(String.init) ?? "unknown")")
+        case .minimumRowHeightObserved(let window, let height):
+            guard appPhase == .running, sessionController.isLayoutTrackingAllowed,
+                  tiledWindows().contains(where: { $0 === window }), height > window.minimumHeight + 1 else { return }
+            window.minimumHeight = height
+            projectLayout(focusActiveWindow: false)
         }
     }
 
@@ -650,6 +655,7 @@ private extension LayoutEvent {
         case .cancelled: return "layout.cancelled"
         case .captureFailed: return "layout.capture-failed"
         case .externallyResized: return "layout.externally-resized"
+        case .minimumRowHeightObserved: return "layout.minimum-row-height"
         }
     }
 }

@@ -42,7 +42,7 @@ final class MouseInteractionTests: XCTestCase {
         let hidden = window(2)
         let target = window(3)
         let workspace = try XCTUnwrap(controller.session?.workspace)
-        workspace.columns = [source, hidden, target]
+        workspace.columns = [source, hidden, target].map { Column(windows: [$0]) }
         let targetFrame = CGRect(x: 650, y: 0, width: 500, height: 800)
         let items = [
             LayoutItem(window: source, frame: targetFrame, visible: true),
@@ -56,8 +56,8 @@ final class MouseInteractionTests: XCTestCase {
         ) else { return XCTFail("Expected swap") }
         XCTAssertTrue(actual === target)
         XCTAssertEqual(highlight, targetFrame)
-        XCTAssertTrue(workspace.columns[0] === source)
-        XCTAssertTrue(workspace.columns[2] === target)
+        XCTAssertTrue(workspace.windows[0] === source)
+        XCTAssertTrue(workspace.windows[2] === target)
         XCTAssertNil(workspace.scrollOffset)
         controller.markEnding()
         assertNone(controller.updatePreview(items: items, viewport: viewport, scrollBounds: 0...500))
@@ -158,12 +158,12 @@ final class MouseInteractionTests: XCTestCase {
         let target = window(3)
         source.manualWidthRatio = 0.3
         target.manualWidthRatio = 0.7
-        workspace.columns = [source, middle, target]
+        workspace.columns = [source, middle, target].map { Column(windows: [$0]) }
         workspace.scrollOffset = 275
         XCTAssertTrue(management.swapWindows(source, with: target, in: workspace))
-        XCTAssertTrue(workspace.columns[0] === target)
-        XCTAssertTrue(workspace.columns[1] === middle)
-        XCTAssertTrue(workspace.columns[2] === source)
+        XCTAssertTrue(workspace.windows[0] === target)
+        XCTAssertTrue(workspace.windows[1] === middle)
+        XCTAssertTrue(workspace.windows[2] === source)
         XCTAssertEqual(workspace.activeColumn, 2)
         XCTAssertEqual(workspace.scrollOffset, 275)
         XCTAssertEqual(source.manualWidthRatio, 0.3)

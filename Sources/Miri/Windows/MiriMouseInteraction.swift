@@ -13,7 +13,7 @@ extension Miri {
                   let workspace = activeWorkspaceObject(),
                   workspace.fullscreenState == .off,
                   let windowID = event.windowID ?? sessionRecoveryFrontmostWindowID(at: event.location),
-                  let window = workspace.columns.first(where: { $0.windowID == windowID }),
+                  let window = workspace.windows.first(where: { $0.windowID == windowID }),
                   let frame = layoutController.windowServerFrame(for: windowID)
             else { return }
             let viewport = currentViewport()
@@ -43,7 +43,7 @@ extension Miri {
         return appPhase == .running && sessionController.isLayoutTrackingAllowed
             && session.logicalSpaceID == windowManagement.activeLogicalSpaceContextID
             && activeWorkspaceObject() === session.workspace
-            && session.workspace.columns.contains(where: { $0 === session.window })
+            && session.workspace.windows.contains(where: { $0 === session.window })
             && !session.window.isMinimized && !session.window.isFullscreen
     }
 
@@ -127,7 +127,7 @@ extension Miri {
         // not their requested future positions or offscreen parking locations.
         return windows.compactMap { info in
             guard let windowID = info[kCGWindowNumber as String] as? UInt32,
-                  let window = session.workspace.columns.first(where: { $0.windowID == windowID }),
+                  let window = session.workspace.windows.first(where: { $0.windowID == windowID }),
                   window !== session.window,
                   let bounds = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
             var frame = CGRect.zero
@@ -208,7 +208,8 @@ extension Miri {
             } else {
                 windowManagement.setScrollOffset(release.initialScrollOffset, in: release.workspace)
             }
-            if let index = release.workspace.columns.firstIndex(where: { $0 === release.window }) {
+            if let index = release.workspace.columns.firstIndex(where: { $0.windows.contains { $0 === release.window } }) {
+                release.workspace.columns[index].activeRow = release.workspace.columns[index].windows.firstIndex { $0 === release.window } ?? 0
                 windowManagement.setActiveColumn(index, in: release.workspace)
             }
         }

@@ -4,6 +4,14 @@ import Foundation
 
 extension Miri {
     func widthRatio(for window: ManagedWindow) -> CGFloat {
+        if let column = windowManagement.logicalSpaceContexts.flatMap(\.workspaces).flatMap(\.columns).first(where: { $0.windows.contains { $0 === window } }) {
+            if let shared = column.widthRatio { return shared.clampedManualWidthRatio }
+            return standaloneWidthRatio(for: column.windows.first ?? window)
+        }
+        return standaloneWidthRatio(for: window)
+    }
+
+    func standaloneWidthRatio(for window: ManagedWindow) -> CGFloat {
         if let manualWidthRatio = window.manualWidthRatio {
             return manualWidthRatio.clampedManualWidthRatio
         }

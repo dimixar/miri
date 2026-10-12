@@ -10,6 +10,8 @@ struct SettingsDraft: Equatable {
 
     var defaultWidthRatio: CGFloat
     var presetWidthRatios: [CGFloat]
+    var rowsPerColumn: Int
+    var heightPresetRatios: [CGFloat]
     var widthResizeMode: WidthResizeMode
     var focusAlignment: FocusAlignment
     var newWindowPosition: NewWindowPosition
@@ -61,6 +63,9 @@ struct SettingsDraft: Equatable {
 
         defaultWidthRatio = config.defaultWidthRatio
         presetWidthRatios = config.presetWidthRatios ?? fallback.presetWidthRatios ?? []
+        let stackedConfig = config.resolved()
+        rowsPerColumn = stackedConfig.rowsPerColumn ?? 1
+        heightPresetRatios = stackedConfig.heightPresetRatios ?? []
         widthResizeMode = config.widthResizeMode ?? fallback.widthResizeMode ?? .default
         focusAlignment = config.focusAlignment ?? fallback.focusAlignment ?? .default
         newWindowPosition = config.newWindowPosition ?? fallback.newWindowPosition ?? .afterActive
@@ -115,6 +120,8 @@ struct SettingsDraft: Equatable {
 
         config.defaultWidthRatio = defaultWidthRatio
         config.presetWidthRatios = presetWidthRatios
+        config.rowsPerColumn = rowsPerColumn
+        config.heightPresetRatios = heightPresetRatios
         config.widthResizeMode = widthResizeMode
         config.focusAlignment = focusAlignment
         config.newWindowPosition = newWindowPosition
@@ -173,6 +180,9 @@ struct SettingsDraft: Equatable {
         }
         if presetWidthRatios.contains(where: { !$0.isFinite }) {
             return "Every width preset must be a number separated by commas."
+        }
+        if heightPresetRatios.contains(where: { !$0.isFinite || $0 <= 0 || $0 >= 1 }) {
+            return "Every height preset must be a number greater than 0 and less than 1, separated by commas."
         }
 
         var seenBindings: [String: String] = [:]

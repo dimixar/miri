@@ -143,7 +143,7 @@ extension Miri {
         windowManagement.forgetManualBehavior(for: element)
         if let location = tiledWindowLocation(for: element) {
             let wasActiveWorkspace = windowManagement.activeWorkspace == location.workspaceIndex
-            let wasActiveWindow = wasActiveWorkspace && location.workspace.activeColumn == location.columnIndex
+            let wasActiveWindow = wasActiveWorkspace && location.workspace.activeWindow === location.window
             removeWindow(location.window, preferRightFocus: true)
             if wasActiveWindow {
                 projectLayout(focusActiveWindow: true, layoutLockDelay: 0.02)
@@ -179,8 +179,13 @@ extension Miri {
         }
 
         let ratio = (frame.width / viewport.width).clampedManualWidthRatio
-        let previousRatio = location.window.manualWidthRatio
+        let previousRatio = widthRatio(for: location.window)
         let oldScrollOffset = location.workspace.scrollOffset
+        let column = location.workspace.columns[location.columnIndex]
+        let row = column.windows.firstIndex { $0 === location.window } ?? 0
+        let gap = points(forPhysicalPixels: innerGap, in: viewport)
+        let usableHeight = max(1, viewport.height - gap * CGFloat(column.windows.count - 1))
+        let heightChanged = column.setHeightRatio(frame.height / usableHeight, row: row, minimums: column.windows.map { $0.minimumHeight / usableHeight })
         windowManagement.setWidthRatio(ratio, for: location.window)
 
         let metrics = stripMetrics(for: location.workspace, viewport: viewport)
@@ -200,10 +205,10 @@ extension Miri {
         windowManagement.setScrollOffset(resolvedScrollOffset, in: location.workspace)
         setActiveWorkspace(location.workspaceIndex)
         windowManagement.setActiveColumn(location.columnIndex, in: location.workspace)
+        location.workspace.columns[location.columnIndex].activeRow = location.workspace.columns[location.columnIndex].windows.firstIndex { $0 === location.window } ?? 0
         layoutController.recordPresentationFrame(frame, for: location.window)
 
-        if let previousRatio,
-           abs(previousRatio - ratio) < 0.005,
+        if !heightChanged, abs(previousRatio - ratio) < 0.005,
            let oldScrollOffset,
            abs(oldScrollOffset - resolvedScrollOffset) < 0.5
         {

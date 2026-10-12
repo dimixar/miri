@@ -309,12 +309,14 @@ extension Miri {
             let previousState = captureLayoutState()
             let previousWorkspace = windowManagement.activeWorkspace
             let workspace = windowManagement.workspaces[loc.workspace]
-            let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column
+            let row = workspace.columns[loc.column].windows.firstIndex { sameWindow($0.element, focusedElement) } ?? 0
+            let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column || workspace.columns[loc.column].activeRow != row
             let viewport = currentViewport()
             let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
             let fullscreenChanged = windowManagement.resumeWorkspaceFullscreen(in: workspace)
             setActiveWorkspace(loc.workspace)
             windowManagement.setActiveColumn(loc.column, in: workspace)
+            workspace.columns[loc.column].activeRow = row
             if changedFocus || fullscreenChanged {
                 focusStateGeneration &+= 1
             }

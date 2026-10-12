@@ -64,6 +64,25 @@ struct LayoutSettingsView: View {
                 }
             }
 
+            MiriSection(
+                title: "Stacked columns",
+                detail: "Capacity is a maximum, not an automatic stack. New windows always open in their own column; a lone window fills the height. Reducing capacity splits excess rows into new columns."
+            ) {
+                MiriSettingGroup {
+                    MiriPickerRow(
+                        title: "Maximum rows per column",
+                        options: [("1 row", 1), ("2 rows", 2), ("3 rows", 3)],
+                        selection: $store.draft.rowsPerColumn
+                    )
+                    MiriRowDivider()
+                    MiriTextFieldRow(
+                        title: "Height presets",
+                        detail: "Comma-separated ratios greater than 0 and less than 1 used by height cycling shortcuts.",
+                        text: SettingsTextBinding.decimalList($store.draft.heightPresetRatios)
+                    )
+                }
+            }
+
             MiriSection(title: "Window dragging") {
                 MiriSettingGroup {
                     MiriIntegerSliderRow(
@@ -114,7 +133,7 @@ struct LayoutSettingsView: View {
                     MiriRowDivider()
                     pointsRow(
                         title: "Inner gap",
-                        detail: "Physical pixels between adjacent columns.",
+                        detail: "Physical pixels between adjacent columns and stacked rows.",
                         value: $store.draft.innerGap
                     )
                     MiriRowDivider()

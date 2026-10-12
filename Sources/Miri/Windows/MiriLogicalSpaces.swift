@@ -15,6 +15,7 @@ extension Miri {
         windowManagement.activateContext(context)
         layoutController.resetTracking()
         reconcileWorkspaceCapacity()
+        windowManagement.enforceRowCapacity(configStore.effectiveConfig.rowsPerColumn ?? 1)
     }
 
     func currentLogicalSpaceSignature() -> Set<UInt32> {
