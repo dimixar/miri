@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Darwin
 import Foundation
@@ -101,6 +102,23 @@ final class WindowManagement {
     private let model = WorkspaceModel()
     let observation: WindowObservationController
 
+    private struct ManualTiledPlacement {
+        let contextID: Int
+        let workspaceIndex: Int
+        let columnIndex: Int
+        let leftNeighbor: AXUIElement?
+        let rightNeighbor: AXUIElement?
+    }
+
+    private struct ManualWindowOverride {
+        var window: ManagedWindow
+        var behavior: WindowBehavior
+        var tiledPlacement: ManualTiledPlacement?
+    }
+
+    // Live AX identity only: these overrides are never serialized or matched by title/app.
+    private var manualWindowOverrides: [ManualWindowOverride] = []
+
     init(
         axOperations: AXOperationController,
         emit: @escaping WindowObservationController.EventSink
@@ -159,6 +177,75 @@ final class WindowManagement {
 
     func allWindows() -> [ManagedWindow] { snapshot().allWindows }
     func tiledWindows() -> [ManagedWindow] { snapshot().tiledWindows }
+
+    func manualBehavior(for element: AXUIElement) -> WindowBehavior? {
+        manualWindowOverrides.first { CFEqual($0.window.element, element) }?.behavior
+    }
+
+    var manuallyFloatedWindows: [ManagedWindow] {
+        floatingWindows.filter { manualBehavior(for: $0.element) == .float }
+    }
+
+    func restoreManualWindowState(to window: ManagedWindow) {
+        guard let index = manualWindowOverrides.firstIndex(where: { CFEqual($0.window.element, window.element) }) else { return }
+        window.manualWidthRatio = manualWindowOverrides[index].window.manualWidthRatio
+        manualWindowOverrides[index].window = window
+    }
+
+    func forgetManualBehavior(for element: AXUIElement) {
+        manualWindowOverrides.removeAll { CFEqual($0.window.element, element) }
+    }
+
+    func discardClosedManualWindows(liveWindowIDs: Set<UInt32>) {
+        manualWindowOverrides.removeAll { override in
+            override.window.windowID.map { !liveWindowIDs.contains($0) } ?? false
+        }
+    }
+
+    @discardableResult
+    func toggleFloating(_ window: ManagedWindow) -> Bool {
+        let context = model.activeContext
+        let isFloating = context.floatingWindows.contains { $0 === window }
+        let source = context.workspaces.enumerated().first { $0.element.columns.contains { $0 === window } }
+        guard isFloating || source != nil else { return false }
+        var override = manualWindowOverrides.first { CFEqual($0.window.element, window.element) }
+            ?? ManualWindowOverride(window: window, behavior: .tile)
+        override.window = window
+
+        if let source, let column = source.element.columns.firstIndex(where: { $0 === window }) {
+            override.tiledPlacement = ManualTiledPlacement(
+                contextID: context.id,
+                workspaceIndex: source.offset,
+                columnIndex: column,
+                leftNeighbor: column > 0 ? source.element.columns[column - 1].element : nil,
+                rightNeighbor: column + 1 < source.element.columns.count ? source.element.columns[column + 1].element : nil
+            )
+            // Floating focus must not leave a different tiled window maximized.
+            source.element.fullscreenState = .off
+            override.behavior = .float
+            _ = insertFloating(window)
+        } else {
+            override.behavior = .tile
+            let placement = override.tiledPlacement.flatMap { $0.contextID == context.id ? $0 : nil }
+            let workspaceIndex = placement?.workspaceIndex ?? context.activeWorkspace
+            ensureWorkspaceExists(workspaceIndex)
+            let workspace = context.workspaces[workspaceIndex]
+            var column = placement?.columnIndex ?? (workspace.columns.isEmpty ? 0 : workspace.activeColumn + 1)
+            if let right = placement?.rightNeighbor,
+               let index = workspace.columns.firstIndex(where: { CFEqual($0.element, right) }) {
+                column = index
+            } else if let left = placement?.leftNeighbor,
+                      let index = workspace.columns.firstIndex(where: { CFEqual($0.element, left) }) {
+                column = index + 1
+            }
+            workspace.fullscreenState = .off
+            _ = insert(window, in: workspace, at: column, focus: true)
+        }
+
+        forgetManualBehavior(for: window.element)
+        manualWindowOverrides.append(override)
+        return true
+    }
 
     func classifyMissingWindow(_ facts: MissingWindowFacts) -> MissingWindowDisposition {
         if facts.axEnumerationUnavailable, facts.hasCGInfo { return .preserveCGVisible }
@@ -622,6 +709,7 @@ final class WindowManagement {
 
     @discardableResult
     func removeGlobally(pid: pid_t) -> GlobalWindowCleanupResult {
+        manualWindowOverrides.removeAll { $0.window.pid == pid }
         var removed: [ManagedWindow] = []
         var seen = Set<ObjectIdentifier>()
         var changed = false

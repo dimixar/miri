@@ -31,6 +31,11 @@ struct ShortcutSettingsView: View {
             includes: { $0 == "toggle_workspace_fullscreen" }
         ),
         CommandGroup(
+            title: "Floating windows",
+            detail: "Toggle only the focused window between floating and tiled. Other windows keep their rules.",
+            includes: { $0 == "toggle_window_floating" }
+        ),
+        CommandGroup(
             title: "Resize columns",
             detail: "Cycle presets or nudge one or every column.",
             includes: { $0.contains("width") }

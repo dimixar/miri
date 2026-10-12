@@ -75,6 +75,9 @@ extension Miri {
         var focusRequested = true
 
         switch command {
+        case .toggleWindowFloating:
+            requestFocusedWindowFloatingToggle()
+            return
         case .toggleWorkspaceFullscreen:
             guard let workspace = activeWorkspaceObject(), !workspace.isEmpty else { return }
             focusRequested = workspace.fullscreenState != .suspended

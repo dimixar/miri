@@ -435,7 +435,9 @@ extension Miri {
         let shouldSerialize = animationStrategy != .snapshot
             && shouldQueueFocusCommand(command)
             && reconciliationAdmissionClosed
-        guard shouldSerialize else {
+        let isFloatingToggle: Bool
+        if case .toggleWindowFloating = command { isFloatingToggle = true } else { isFloatingToggle = false }
+        guard shouldSerialize || (isFloatingToggle && reconciliationAdmissionClosed) else {
             perform(command, animateWorkspace: animateWorkspace)
             return
         }

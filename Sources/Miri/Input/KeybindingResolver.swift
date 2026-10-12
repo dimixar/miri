@@ -10,12 +10,22 @@ struct CarbonHotKey {
 }
 
 struct KeybindingResolver {
-    static func makeCommandByKeybinding(config: MiriConfig) -> [String: Command] {
-        var configured = MiriConfig.defaultKeybindings
-        for (name, bindings) in config.keybindings ?? [:] {
-            configured[name] = bindings
+    static func configuredKeybindings(config: MiriConfig) -> [String: [String]] {
+        let explicit = config.keybindings ?? [:]
+        var configured = MiriConfig.defaultKeybindings.merging(explicit) { _, value in value }
+        // An older config may explicitly bind fullscreen to the new floating
+        // default. Never let an inherited new command steal an existing shortcut.
+        if explicit["toggle_window_floating"] == nil {
+            let assigned = Set(explicit.values.flatMap { $0 }.compactMap(normalizedKeybinding))
+            configured["toggle_window_floating"] = configured["toggle_window_floating"]?.filter {
+                normalizedKeybinding($0).map { !assigned.contains($0) } ?? false
+            }
         }
+        return configured
+    }
 
+    static func makeCommandByKeybinding(config: MiriConfig) -> [String: Command] {
+        let configured = configuredKeybindings(config: config)
         var commands: [String: Command] = [:]
         for name in configured.keys.sorted() {
             let bindings = configured[name] ?? []
@@ -174,6 +184,7 @@ struct KeybindingResolver {
 
         switch name {
         case "toggle_workspace_fullscreen": return .toggleWorkspaceFullscreen
+        case "toggle_window_floating": return .toggleWindowFloating
         case "focus_previous_workspace": return .focusPreviousWorkspace
         case "workspace_down": return .workspaceDown
         case "workspace_up": return .workspaceUp

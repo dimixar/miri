@@ -491,6 +491,7 @@ extension Miri {
         }
 
         consumeBufferedWindowIfNeeded(found)
+        windowManagement.restoreManualWindowState(to: found)
         if behavior(for: found) == .float {
             insertFloatingWindow(found, applyLayout: false)
         } else {
@@ -541,6 +542,11 @@ extension Miri {
             return
         }
 
+        if let windows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+            windowManagement.discardClosedManualWindows(liveWindowIDs: Set(windows.compactMap {
+                ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            }))
+        }
         fullWindowScanGeneration &+= 1
         let generation = fullWindowScanGeneration
         activeFullWindowScanGeneration = generation

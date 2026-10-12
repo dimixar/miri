@@ -88,16 +88,17 @@ final class SettingsDraftTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFullscreenShortcutIsInheritedAndExplicitOverridesRoundTrip() {
+    func testFullscreenAndFloatingShortcutsAreInheritedAndExplicitOverridesRoundTrip() {
         var legacy = MiriConfig.fallback
         legacy.keybindings = ["column_left": ["lalt+x"]]
         let draft = SettingsDraft(config: legacy)
-        XCTAssertEqual(draft.keybindings["toggle_workspace_fullscreen"], ["lalt+ctrl+f"])
+        XCTAssertEqual(draft.keybindings["toggle_workspace_fullscreen"], ["lalt+shift+f"])
+        XCTAssertEqual(draft.keybindings["toggle_window_floating"], ["lalt+ctrl+f"])
         XCTAssertEqual(draft.keybindings["column_left"], ["lalt+x"])
         XCTAssertNil(draft.validationMessage())
 
         let command = KeybindingResolver.commandForKeyEvent(
-            modifiers: CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskControl.rawValue | 0x20),
+            modifiers: CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue | 0x20),
             keyCode: KeyCode.f,
             keyText: "ƒ",
             commandByKeybinding: KeybindingResolver.makeCommandByKeybinding(config: legacy)
@@ -106,12 +107,34 @@ final class SettingsDraftTests: XCTestCase {
             return XCTFail("The inherited default must resolve to the fullscreen toggle")
         }
 
-        for bindings in [["lalt+ctrl+g"], []] {
-            legacy.keybindings?["toggle_workspace_fullscreen"] = bindings
-            let overridden = SettingsDraft(config: legacy)
-            XCTAssertEqual(overridden.keybindings["toggle_workspace_fullscreen"], bindings)
-            XCTAssertEqual(overridden.applying(to: legacy).keybindings?["toggle_workspace_fullscreen"], bindings)
-            XCTAssertNil(KeybindingResolver.makeCommandByKeybinding(config: overridden.applying(to: legacy))["ctrl+lalt+f"])
+        let floatingCommand = KeybindingResolver.commandForKeyEvent(
+            modifiers: CGEventFlags(rawValue: CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskControl.rawValue | 0x20),
+            keyCode: KeyCode.f, keyText: "ƒ",
+            commandByKeybinding: KeybindingResolver.makeCommandByKeybinding(config: legacy)
+        )
+        guard case .toggleWindowFloating? = floatingCommand else {
+            return XCTFail("Control-Option-F must toggle only the focused window's floating state")
+        }
+
+        for action in ["toggle_workspace_fullscreen", "toggle_window_floating"] {
+            for bindings in [["lalt+ctrl+g"], []] {
+                var custom = legacy
+                custom.keybindings?[action] = bindings
+                let overridden = SettingsDraft(config: custom)
+                XCTAssertEqual(overridden.keybindings[action], bindings)
+                XCTAssertEqual(overridden.applying(to: custom).keybindings?[action], bindings)
+                XCTAssertNil(overridden.validationMessage())
+                let defaultBinding = action == "toggle_workspace_fullscreen" ? "shift+lalt+f" : "ctrl+lalt+f"
+                XCTAssertNil(KeybindingResolver.makeCommandByKeybinding(config: overridden.applying(to: custom))[defaultBinding])
+            }
+        }
+
+        legacy.keybindings?["toggle_workspace_fullscreen"] = ["leftoption+control+f"]
+        let preserved = SettingsDraft(config: legacy)
+        XCTAssertEqual(preserved.keybindings["toggle_workspace_fullscreen"], ["leftoption+control+f"])
+        XCTAssertEqual(preserved.keybindings["toggle_window_floating"], [])
+        guard case .toggleWorkspaceFullscreen? = KeybindingResolver.makeCommandByKeybinding(config: legacy)["ctrl+lalt+f"] else {
+            return XCTFail("The new floating default must not steal an explicitly configured fullscreen shortcut")
         }
     }
 }

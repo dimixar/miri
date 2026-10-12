@@ -10,6 +10,113 @@ final class FocusScrollingTests: XCTestCase {
     private let viewport = CGRect(x: 0, y: 0, width: 1200, height: 800)
     private let minimalRevealModes: [FocusAlignment] = [.default, .centeredSmart]
 
+    func testManualFloatingIsPerLiveWindowAndSurvivesReclassificationAndRediscovery() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45,
+            rules: [WindowRule(titleContains: "Rule float", behavior: .float)]
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        // Distinct AX identities, but identical app, PID, and title metadata.
+        workspace.columns = workspace.columns.map {
+            let window = ManagedWindow(element: $0.element, pid: 4242, windowID: nil,
+                                       bundleID: "com.example.editor", appName: "Editor", title: "Untitled")
+            window.manualWidthRatio = $0.manualWidthRatio
+            return window
+        }
+        let left = workspace.columns[0]
+        let target = workspace.columns[1]
+        let right = workspace.columns[2]
+        let ruleFloating = ManagedWindow(element: AXUIElementCreateApplication(2000), pid: 4242, windowID: nil,
+                                         bundleID: target.bundleID, appName: target.appName, title: "Rule float")
+        XCTAssertTrue(miri.upsertDiscoveredWindow(ruleFloating))
+
+        XCTAssertTrue(miri.toggleFloatingWindow(for: target.element))
+        XCTAssertEqual(workspace.columns.map(\.element), [left.element, right.element])
+        XCTAssertEqual(miri.windowManagement.manuallyFloatedWindows.map(\.element), [target.element])
+        XCTAssertEqual(miri.behavior(for: left), .tile)
+        XCTAssertEqual(miri.behavior(for: right), .tile)
+        XCTAssertEqual(miri.behavior(for: ruleFloating), .float)
+
+        // A reload changes the same app's rule; the manual choice must still win
+        // for this window, while all its peers adopt the new rule normally.
+        var changedConfig = miri.configStore.documentConfig
+        changedConfig.rules = [WindowRule(bundleID: target.bundleID, behavior: .ignore)]
+        let configDirectory = miri.configStore.destinationURL.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: configDirectory) }
+        guard case .saved = miri.configStore.save(changedConfig) else { return XCTFail("Config save failed") }
+        let renamed = ManagedWindow(element: target.element, pid: target.pid, windowID: nil,
+                                    bundleID: target.bundleID, appName: target.appName, title: "Renamed document")
+        _ = miri.upsertDiscoveredWindow(renamed)
+        XCTAssertEqual(miri.behavior(for: renamed), .float)
+        XCTAssertEqual(miri.behavior(for: left), .ignore)
+        XCTAssertEqual(miri.behavior(for: ruleFloating), .ignore)
+
+        // Hide/minimize/Space buffering removes the wrapper, not the live identity.
+        miri.removeWindow(target)
+        XCTAssertTrue(miri.upsertDiscoveredWindow(renamed))
+        XCTAssertEqual(renamed.manualWidthRatio, 0.67)
+        XCTAssertEqual(miri.windowManagement.manuallyFloatedWindows.map(\.element), [target.element])
+        miri.windowManagement.ensureWorkspaceExists(1)
+        XCTAssertTrue(miri.windowManagement.selectWorkspace(1))
+        XCTAssertTrue(miri.toggleFloatingWindow(for: renamed.element))
+        XCTAssertEqual(miri.windowManagement.activeWorkspace, 0)
+        XCTAssertEqual(workspace.columns.map(\.element), [left.element, target.element, right.element])
+        XCTAssertEqual(workspace.activeColumn, 1)
+        XCTAssertEqual(miri.behavior(for: renamed), .tile)
+        XCTAssertEqual(renamed.manualWidthRatio, 0.67)
+        XCTAssertTrue(miri.windowManagement.manuallyFloatedWindows.isEmpty)
+        _ = miri.upsertDiscoveredWindow(renamed)
+        XCTAssertTrue(workspace.columns[1] === renamed, "A rescan must not undo explicit tiling either")
+        XCTAssertFalse(miri.toggleFloatingWindow(for: AXUIElementCreateApplication(9999)), "An ignored/unmanaged focus cannot toggle the last tiled column")
+    }
+
+    func testRuleFloatingCanBeManuallyTiledAndCleanupDoesNotAffectSameAppPeers() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67], activeColumn: 0, scrollOffset: nil,
+            rules: [WindowRule(appName: "Test", behavior: .float)]
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        let target = workspace.columns[0]
+        let peer = workspace.columns[1]
+        _ = miri.upsertDiscoveredWindow(target)
+        _ = miri.upsertDiscoveredWindow(peer)
+        XCTAssertTrue(miri.windowManagement.manuallyFloatedWindows.isEmpty)
+        XCTAssertTrue(miri.toggleFloatingWindow(for: target.element))
+        XCTAssertEqual(miri.behavior(for: target), .tile)
+        XCTAssertEqual(miri.behavior(for: peer), .float)
+        XCTAssertTrue(miri.windowManagement.manuallyFloatedWindows.isEmpty)
+        XCTAssertTrue(miri.toggleFloatingWindow(for: target.element))
+        XCTAssertEqual(miri.windowManagement.manuallyFloatedWindows.map(\.element), [target.element])
+        XCTAssertTrue(miri.removeDestroyedWindowImmediately(target.element))
+        XCTAssertNil(miri.windowManagement.manualBehavior(for: target.element))
+        XCTAssertEqual(miri.windowManagement.floatingWindows.map(\.element), [peer.element])
+
+        XCTAssertTrue(miri.toggleFloatingWindow(for: peer.element))
+        miri.removeWindow(peer)
+        _ = miri.windowManagement.removeGlobally(pid: peer.pid)
+        XCTAssertNil(miri.windowManagement.manualBehavior(for: peer.element), "Termination also clears overrides of temporarily absent windows")
+    }
+
+    func testManualFloatingExitsWorkspaceFullscreenAndIsNotRestoredAfterRestart() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67], activeColumn: 1, scrollOffset: nil
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        let target = workspace.columns[1]
+        XCTAssertTrue(miri.windowManagement.toggleWorkspaceFullscreen())
+        XCTAssertTrue(miri.toggleFloatingWindow(for: target.element))
+        XCTAssertEqual(workspace.fullscreenState, .off)
+        let snapshot = try XCTUnwrap(miri.windowManagement.persistentLogicalSpaceSnapshot(identity: miri.persistentIdentity(for:)))
+        let (restarted, _) = try fixture(alignment: .default, widths: [], activeColumn: 0, scrollOffset: nil)
+        restarted.sessionController.pauseForUnavailableSession()
+        let restored = restarted.logicalSpaceContext(from: snapshot.contexts[0], discovered: miri.allWindows())
+        restarted.windowManagement.activateContext(restored)
+        _ = restarted.upsertDiscoveredWindow(target)
+        XCTAssertEqual(restarted.behavior(for: target), .tile)
+        XCTAssertTrue(restarted.windowManagement.floatingWindows.isEmpty)
+        XCTAssertTrue(restarted.windowManagement.manuallyFloatedWindows.isEmpty)
+    }
+
     func testWorkspaceFullscreenFollowsExternalFocusAndRestoresEachNormalWidth() throws {
         for alignment: FocusAlignment in [.default, .centered, .centeredSmart] {
             let (miri, workspace) = try fixture(

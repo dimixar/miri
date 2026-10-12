@@ -87,7 +87,7 @@ struct SettingsDraft: Equatable {
 
         keyboardShortcutBackend = config.keyboardShortcutBackend ?? fallback.keyboardShortcutBackend ?? .eventTap
         excludedKeybindings = config.excludedKeybindings ?? fallback.excludedKeybindings ?? []
-        keybindings = MiriConfig.defaultKeybindings.merging(config.keybindings ?? [:]) { _, configured in configured }
+        keybindings = KeybindingResolver.configuredKeybindings(config: config)
 
         windowReconciliationIntervalMS = config.windowReconciliationIntervalMS ?? fallback.windowReconciliationIntervalMS ?? 60_000
         axCreatedPlaceholderProbeCooldownMS = config.axCreatedPlaceholderProbeCooldownMS ?? fallback.axCreatedPlaceholderProbeCooldownMS ?? 1_000

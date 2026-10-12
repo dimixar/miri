@@ -140,6 +140,7 @@ extension Miri {
     }
 
     func removeDestroyedWindowImmediately(_ element: AXUIElement) -> Bool {
+        windowManagement.forgetManualBehavior(for: element)
         if let location = tiledWindowLocation(for: element) {
             let wasActiveWorkspace = windowManagement.activeWorkspace == location.workspaceIndex
             let wasActiveWindow = wasActiveWorkspace && location.workspace.activeColumn == location.columnIndex

@@ -17,6 +17,9 @@ extension Miri {
     }
 
     func behavior(for window: ManagedWindow) -> WindowBehavior {
+        if let manual = windowManagement.manualBehavior(for: window.element) {
+            return manual
+        }
         for rule in configStore.effectiveConfig.rules where rule.matches(window) {
             if let behavior = rule.behavior {
                 return behavior

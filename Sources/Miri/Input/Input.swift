@@ -90,6 +90,7 @@ enum KeyCode {
 
 enum Command {
     case toggleWorkspaceFullscreen
+    case toggleWindowFloating
     case focusWorkspace(Int)
     case focusPreviousWorkspace
     case workspaceDown

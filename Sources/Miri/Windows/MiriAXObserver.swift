@@ -372,6 +372,9 @@ extension Miri {
         if isLifecycleChange {
             windowManagement.observation.noteWindowStateChange(pid: notificationPID)
         }
+        if name == kAXUIElementDestroyedNotification {
+            windowManagement.forgetManualBehavior(for: element)
+        }
         if debugLogging {
             debugLog("ax notification name=\(name) pid=\(notificationPID)")
         }

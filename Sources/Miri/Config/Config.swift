@@ -221,7 +221,8 @@ struct MiriConfig: Codable {
     )
 
     static let defaultKeybindings: [String: [String]] = [
-        "toggle_workspace_fullscreen": ["lalt+ctrl+f"],
+        "toggle_workspace_fullscreen": ["lalt+shift+f"],
+        "toggle_window_floating": ["lalt+ctrl+f"],
         "focus_workspace_1": ["lalt+1"],
         "focus_workspace_2": ["lalt+2"],
         "focus_workspace_3": ["lalt+3"],
