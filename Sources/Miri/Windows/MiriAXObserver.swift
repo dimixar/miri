@@ -180,17 +180,19 @@ extension Miri {
                 return
             }
             let focusedElement: AXUIElement?
+            let canUseCachedFallback = allowCachedFallback
+                && self.activeWorkspaceObject()?.fullscreenState == .off
             if result.disposition == .completed,
                let current = result.value?.handle.element
             {
                 focusedElement = current
-            } else if allowCachedFallback,
+            } else if canUseCachedFallback,
                       let cached = self.lastKnownFocusedElements[pid],
                       self.isKnownWindow(cached)
             {
                 focusedElement = cached
                 self.debugLog("focus adoption using cached identity reason=\(reason) pid=\(pid)")
-            } else if allowCachedFallback {
+            } else if canUseCachedFallback {
                 let known = self.allWindows().filter { $0.pid == pid }
                 focusedElement = known.count == 1 ? known[0].element : nil
                 if focusedElement != nil {
@@ -200,9 +202,6 @@ extension Miri {
                 focusedElement = nil
             }
             guard let focusedElement else {
-                if result.disposition == .completed {
-                    self.suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
-                }
                 completion(false)
                 return
             }
@@ -212,7 +211,8 @@ extension Miri {
                 applyLayout: applyLayout,
                 animateIfSameWorkspace: animateIfSameWorkspace,
                 forceLayoutIfAlreadyFocused: forceLayoutIfAlreadyFocused,
-                reason: reason
+                reason: reason,
+                snapshot: result.disposition == .completed ? result.value : nil
             )
             completion(adopted)
         }
@@ -231,7 +231,8 @@ extension Miri {
         applyLayout: Bool = true,
         animateIfSameWorkspace: Bool = false,
         forceLayoutIfAlreadyFocused: Bool = false,
-        reason: String = "focus-adoption"
+        reason: String = "focus-adoption",
+        snapshot: AXWindowReadSnapshot? = nil
     ) -> Bool {
         lastKnownFocusedElements[pid] = focusedElement
         if mouseInteractionController.isActive {
@@ -256,9 +257,19 @@ extension Miri {
             return false
         }
 
+        // Use the title from the same read that identified focus, before a
+        // formerly tiled window can receive workspace fullscreen sizing.
+        var classificationChanged = false
+        if let snapshot, snapshot.minimized != true, snapshot.fullscreen != true,
+           let known = allWindows().first(where: { sameWindow($0.element, focusedElement) }) {
+            classificationChanged = upsertDiscoveredWindow(ManagedWindow(
+                element: focusedElement, pid: pid, windowID: snapshot.handle.windowID,
+                bundleID: known.bundleID, appName: known.appName, title: snapshot.title
+            ))
+        }
+
         if windowManagement.floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
-            suspendWorkspaceFullscreenForExternalFocus(applyLayout: false)
-            if applyLayout {
+            if applyLayout, classificationChanged || activeWorkspaceObject()?.fullscreenState == .off {
                 projectLayout(focusActiveWindow: false)
             }
             return true
@@ -307,7 +318,7 @@ extension Miri {
             if changedFocus || fullscreenChanged {
                 focusStateGeneration &+= 1
             }
-            let shouldProject = changedFocus || fullscreenChanged || forceLayoutIfAlreadyFocused
+            let shouldProject = changedFocus || fullscreenChanged || forceLayoutIfAlreadyFocused || classificationChanged
             if shouldProject {
                 // Preserve an implicit camera just as keyboard focus does.
                 windowManagement.setScrollOffset(scrollOffset, in: workspace)
@@ -328,7 +339,9 @@ extension Miri {
             return true
         }
 
-        suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
+        if applyLayout, classificationChanged {
+            projectLayout(focusActiveWindow: false)
+        }
         return false
     }
 
@@ -404,8 +417,7 @@ extension Miri {
                 deferAXReconciliation(pid: pid, adoptFocused: true, reason: name)
                 return
             }
-            _ = adoptFocusedElement(
-                element,
+            requestFocusedWindowAdoption(
                 pid: pid,
                 animateIfSameWorkspace: true,
                 reason: name

@@ -154,18 +154,32 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertFalse(miri.windowManagement.toggleWorkspaceFullscreen())
     }
 
-    func testWorkspaceFullscreenSuspendsForUnmanagedFocusAndFollowsReplacementWindow() throws {
+    func testWorkspaceFullscreenPreservesLayoutForExcludedFocusAndFollowsReplacementWindow() throws {
         let (miri, workspace) = try fixture(
-            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45,
+            rules: [WindowRule(titleContains: "Floating", behavior: .float)]
         )
         miri.sessionController.pauseForUnavailableSession()
         miri.perform(.toggleWorkspaceFullscreen)
-        let unmanaged = AXUIElementCreateApplication(9000)
+        let before = miri.captureLayoutState()
 
-        XCTAssertFalse(miri.adoptFocusedElement(unmanaged, pid: 9000, applyLayout: false))
-        XCTAssertEqual(workspace.fullscreenState, .suspended)
-        XCTAssertEqual(projectedFrames(miri)[1].width, 804)
-        XCTAssertFalse(miri.focusColumn(at: 0))
+        // Distinct synthetic AX identities represent windows in the same app
+        // and another app; no AX messaging is performed by this fixture.
+        for pid in [workspace.columns[1].pid, 9000] {
+            let floating = ManagedWindow(
+                element: AXUIElementCreateApplication(pid_t(5000 + pid)), pid: pid,
+                windowID: nil, bundleID: nil, appName: "Test", title: "Floating"
+            )
+            _ = miri.windowManagement.insertFloating(floating)
+            XCTAssertTrue(miri.adoptFocusedElement(floating.element, pid: pid, applyLayout: false))
+            let unmanaged = AXUIElementCreateApplication(pid_t(6000 + pid))
+            XCTAssertFalse(miri.adoptFocusedElement(unmanaged, pid: pid, applyLayout: false))
+            XCTAssertEqual(miri.captureLayoutState(), before)
+            XCTAssertEqual(workspace.fullscreenState, .active)
+            XCTAssertEqual(projectedFrames(miri)[1], viewport)
+            XCTAssertFalse(miri.focusColumn(at: 0))
+            XCTAssertEqual(workspace.columns.map(\.manualWidthRatio), [0.28, 0.67, 0.4])
+        }
 
         let target = workspace.columns[1]
         XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
@@ -175,6 +189,60 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertEqual(projectedFrames(miri)[1], viewport)
         miri.perform(.toggleWorkspaceFullscreen)
         XCTAssertEqual(projectedFrames(miri)[1].width, 480)
+    }
+
+    func testWorkspaceFullscreenClassifiesFreshFocusedTitleBeforeFollowingWindow() throws {
+        for behavior: WindowBehavior in [.float, .ignore] {
+            let (miri, workspace) = try fixture(
+                alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45,
+                rules: [WindowRule(appName: "Test", titleContains: "Excluded", behavior: behavior)]
+            )
+            miri.sessionController.pauseForUnavailableSession()
+            miri.perform(.toggleWorkspaceFullscreen)
+            let previous = workspace.columns[1]
+            let target = workspace.columns[2]
+            func focusedSnapshot(title: String) -> AXWindowReadSnapshot {
+                AXWindowReadSnapshot(
+                    handle: AXElementHandle(element: target.element, pid: target.pid, windowID: nil),
+                    role: kAXWindowRole, subrole: kAXStandardWindowSubrole, title: title,
+                    minimized: false, fullscreen: false, frame: viewport,
+                    positionSettable: true, sizeSettable: true
+                )
+            }
+
+            _ = miri.adoptFocusedElement(
+                target.element, pid: target.pid, applyLayout: false,
+                snapshot: focusedSnapshot(title: "EXCLUDED panel")
+            )
+
+            XCTAssertTrue(miri.activeWindow() === previous)
+            XCTAssertEqual(workspace.fullscreenState, .active)
+            XCTAssertEqual(projectedFrames(miri)[1], viewport)
+            XCTAssertEqual(workspace.columns.map(\.manualWidthRatio), [0.28, 0.67])
+            XCTAssertFalse(workspace.columns.contains { $0 === target })
+            XCTAssertEqual(miri.windowManagement.floatingWindows.contains { $0 === target }, behavior == .float)
+            XCTAssertEqual(miri.allWindows().contains { $0 === target }, behavior == .float)
+
+            if behavior == .float {
+                // A window that stops matching its floating rule is eligible
+                // again, and receives fullscreen without losing its ratio.
+                XCTAssertTrue(miri.adoptFocusedElement(
+                    target.element, pid: target.pid, applyLayout: false,
+                    snapshot: focusedSnapshot(title: "Document")
+                ))
+                XCTAssertTrue(miri.activeWindow() === target)
+                XCTAssertEqual(workspace.fullscreenState, .active)
+                XCTAssertEqual(projectedFrames(miri)[workspace.activeColumn], viewport)
+                miri.perform(.toggleWorkspaceFullscreen)
+                XCTAssertEqual(projectedFrames(miri)[workspace.activeColumn].width, 480)
+            } else {
+                let tiled = workspace.columns[0]
+                XCTAssertTrue(miri.adoptFocusedElement(tiled.element, pid: tiled.pid, applyLayout: false))
+                XCTAssertEqual(projectedFrames(miri)[0], viewport)
+                miri.perform(.toggleWorkspaceFullscreen)
+                XCTAssertEqual(projectedFrames(miri)[0].width, 336)
+            }
+        }
     }
 
     func testFocusBetweenTwoVisibleWindowsKeepsFramesStationary() throws {
@@ -792,7 +860,8 @@ final class FocusScrollingTests: XCTestCase {
         widths: [CGFloat],
         activeColumn: Int,
         scrollOffset: CGFloat?,
-        resizeMode: WidthResizeMode = .default
+        resizeMode: WidthResizeMode = .default,
+        rules: [WindowRule] = []
     ) throws -> (Miri, Workspace) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("miri-focus-tests-\(UUID().uuidString)", isDirectory: true)
@@ -802,6 +871,7 @@ final class FocusScrollingTests: XCTestCase {
         var config = MiriConfig.fallback
         config.focusAlignment = alignment
         config.widthResizeMode = resizeMode
+        config.rules = rules
         config.persistLayout = false
         config.restoreOnExit = false
         try JSONEncoder().encode(config).write(to: configURL)

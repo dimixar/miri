@@ -472,6 +472,10 @@ extension Miri {
             }
 
             let nextBehavior = behavior(for: existing)
+            if nextBehavior == .ignore {
+                removeWindow(existing)
+                return true
+            }
             let shouldFloat = nextBehavior == .float
             let isFloating = windowManagement.floatingWindows.contains(where: { $0 === existing })
             guard previousBehavior != nextBehavior || shouldFloat != isFloating else {
