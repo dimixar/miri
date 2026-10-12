@@ -128,6 +128,7 @@ struct MiriConfig: Codable {
     var presetWidthRatios: [CGFloat]?
     var rowsPerColumn: Int?
     var heightPresetRatios: [CGFloat]?
+    var workspaceBoundaryHoldMS: Int?
     var animationDurationMS: Int?
     var keyboardAnimationMS: Int?
     var moveColumnAnimationMS: Int?
@@ -179,6 +180,7 @@ struct MiriConfig: Codable {
         presetWidthRatios: [0.33, 0.5, 0.67, 1.0],
         rowsPerColumn: 1,
         heightPresetRatios: [0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75],
+        workspaceBoundaryHoldMS: 750,
         animationDurationMS: nil,
         keyboardAnimationMS: nil,
         moveColumnAnimationMS: nil,
@@ -294,6 +296,7 @@ struct MiriConfig: Codable {
         config.presetWidthRatios = normalizeWidthPresets(config.presetWidthRatios)
         config.rowsPerColumn = config.rowsPerColumn.map { min(max($0, 1), 3) }
         config.heightPresetRatios = normalizeHeightPresets(config.heightPresetRatios)
+        config.workspaceBoundaryHoldMS = config.workspaceBoundaryHoldMS.map { min(max($0, 250), 2000) }
         config.animationDurationMS = config.animationDurationMS.map { min(max($0, 0), 500) }
         config.keyboardAnimationMS = config.keyboardAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }
@@ -420,6 +423,7 @@ struct MiriConfig: Codable {
         case presetWidthRatios = "preset_width_ratios"
         case rowsPerColumn = "rows_per_column"
         case heightPresetRatios = "height_preset_ratios"
+        case workspaceBoundaryHoldMS = "workspace_boundary_hold_ms"
         case animationDurationMS = "animation_duration_ms"
         case keyboardAnimationMS = "keyboard_animation_ms"
         case moveColumnAnimationMS = "move_column_animation_ms"

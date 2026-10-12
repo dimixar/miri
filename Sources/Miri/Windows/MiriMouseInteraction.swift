@@ -8,6 +8,7 @@ extension Miri {
         guard appPhase == .running, sessionController.isLayoutTrackingAllowed else { return }
         switch event.kind {
         case .down:
+            cancelWorkspaceBoundaryHold()
             cancelMouseInteraction()
             guard !windowManagement.observation.transientWindowActive,
                   let workspace = activeWorkspaceObject(),

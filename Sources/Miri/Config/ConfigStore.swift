@@ -204,6 +204,7 @@ extension MiriConfig {
         value.presetWidthRatios = presetWidthRatios ?? fallback.presetWidthRatios
         value.rowsPerColumn = rowsPerColumn ?? fallback.rowsPerColumn
         value.heightPresetRatios = Self.normalize(self).heightPresetRatios ?? fallback.heightPresetRatios
+        value.workspaceBoundaryHoldMS = workspaceBoundaryHoldMS ?? fallback.workspaceBoundaryHoldMS
         value.animationDurationMS = animationDurationMS ?? fallback.animationDurationMS
         value.keyboardAnimationMS = keyboardAnimationMS ?? fallback.keyboardAnimationMS
         value.moveColumnAnimationMS = moveColumnAnimationMS ?? fallback.moveColumnAnimationMS

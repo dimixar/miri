@@ -54,6 +54,7 @@ final class SettingsDraftTests: XCTestCase {
         original.manualFloatingOutlineThickness = 7
         original.rowsPerColumn = 3
         original.heightPresetRatios = [0.3, 0.6]
+        original.workspaceBoundaryHoldMS = 1250
         original.animationStrategy = .off
         original.workspaceBarCenterStyle = .border
         original.activeRescanBundleIDs = ["com.example.One", "com.example.Two"]
@@ -67,6 +68,7 @@ final class SettingsDraftTests: XCTestCase {
         XCTAssertEqual(object["manual_floating_outline_thickness"] as? Int, 7)
         XCTAssertEqual(object["rows_per_column"] as? Int, 3)
         XCTAssertEqual(object["height_preset_ratios"] as? [Double], [0.3, 0.6])
+        XCTAssertEqual(object["workspace_boundary_hold_ms"] as? Int, 1250)
         let restored = SettingsDraft(config: try JSONDecoder().decode(MiriConfig.self, from: encoded))
 
         XCTAssertEqual(restored, original)
@@ -80,13 +82,20 @@ final class SettingsDraftTests: XCTestCase {
         let draft = SettingsDraft(config: legacy)
         XCTAssertEqual(draft.rowsPerColumn, 1)
         XCTAssertEqual(draft.heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+        XCTAssertEqual(draft.workspaceBoundaryHoldMS, 750)
         XCTAssertEqual(legacy.resolved().rowsPerColumn, 1)
         XCTAssertEqual(legacy.resolved().heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+        XCTAssertEqual(legacy.resolved().workspaceBoundaryHoldMS, 750)
 
         for (requested, expected) in [(-1, 1), (1, 1), (2, 2), (3, 3), (4, 3)] {
             var edited = draft
             edited.rowsPerColumn = requested
             XCTAssertEqual(edited.applying(to: legacy).rowsPerColumn, expected)
+        }
+        for (requested, expected) in [(-1, 250), (249, 250), (250, 250), (750, 750), (2000, 2000), (2001, 2000)] {
+            var edited = draft
+            edited.workspaceBoundaryHoldMS = requested
+            XCTAssertEqual(edited.applying(to: legacy).workspaceBoundaryHoldMS, expected)
         }
 
         var config = legacy
@@ -250,6 +259,7 @@ final class SettingsStoreTests: XCTestCase {
         store.draft.manualFloatingOutlineThickness = 1
         store.draft.rowsPerColumn = 3
         store.draft.heightPresetRatios = [0.2, 0.4]
+        store.draft.workspaceBoundaryHoldMS = 250
         XCTAssertTrue(store.isDirty)
         XCTAssertEqual(store.feedbackText, "Unsaved changes")
 
@@ -260,18 +270,21 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 2)
         XCTAssertEqual(store.draft.rowsPerColumn, 1)
         XCTAssertEqual(store.draft.heightPresetRatios, MiriConfig.fallback.heightPresetRatios)
+        XCTAssertEqual(store.draft.workspaceBoundaryHoldMS, 750)
 
         store.draft.outerGap = 24
         store.draft.dragScrollSpeedPercent = 200
         store.draft.manualFloatingOutlineThickness = 10
         store.draft.rowsPerColumn = 2
         store.draft.heightPresetRatios = [0.3, 0.7]
+        store.draft.workspaceBoundaryHoldMS = 1500
         XCTAssertTrue(store.submit(closeOnSuccess: false))
         XCTAssertEqual(submittedConfig?.outerGap, 24)
         XCTAssertEqual(submittedConfig?.dragScrollSpeedPercent, 200)
         XCTAssertEqual(submittedConfig?.manualFloatingOutlineThickness, 10)
         XCTAssertEqual(submittedConfig?.rowsPerColumn, 2)
         XCTAssertEqual(submittedConfig?.heightPresetRatios, [0.3, 0.7])
+        XCTAssertEqual(submittedConfig?.workspaceBoundaryHoldMS, 1500)
         XCTAssertEqual(shouldClose, false)
         XCTAssertEqual(store.feedback, .saving)
 
@@ -281,6 +294,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 10)
         XCTAssertEqual(store.draft.rowsPerColumn, 2)
         XCTAssertEqual(store.draft.heightPresetRatios, [0.3, 0.7])
+        XCTAssertEqual(store.draft.workspaceBoundaryHoldMS, 1500)
         XCTAssertEqual(store.feedback, .saved)
     }
 

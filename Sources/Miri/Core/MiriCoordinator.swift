@@ -57,6 +57,13 @@ extension Miri {
 
     @MainActor private func handleCoordinatorEvent(_ event: AppEvent, sequence: EventSequence) {
         defer { refreshManualFloatingOutlines() }
+        switch event {
+        case .session, .workspace, .config, .ui, .terminate:
+            cancelWorkspaceBoundaryHold()
+        case .windows(.environmentGuardEvaluated(let blocked, _)) where blocked:
+            cancelWorkspaceBoundaryHold()
+        default: break
+        }
         if appPhase == .terminated {
             debugLog("coordinator event ignored sequence=\(sequence) reason=terminated event=\(event.logName)")
             return
@@ -122,7 +129,15 @@ extension Miri {
 
     @MainActor private func handleCoordinatorInput(_ event: InputEvent) {
         switch event {
+        case .shortcut(let command, let keyCode, let modifiers, let isRepeat):
+            if !handleWorkspaceBoundaryShortcut(command, keyCode: keyCode, modifiers: modifiers, isRepeat: isRepeat) {
+                cancelWorkspaceBoundaryHold()
+                admitCommand(command)
+            }
+        case .shortcutReleased:
+            cancelWorkspaceBoundaryHold()
         case .command(let command, let animateWorkspace):
+            cancelWorkspaceBoundaryHold()
             admitCommand(command, animateWorkspace: animateWorkspace)
         case .pointer(let pointer):
             handleMousePointer(pointer)
@@ -221,6 +236,7 @@ extension Miri {
         case .minimumRowHeightObserved(let window, let height):
             guard appPhase == .running, sessionController.isLayoutTrackingAllowed,
                   tiledWindows().contains(where: { $0 === window }), height > window.minimumHeight + 1 else { return }
+            cancelWorkspaceBoundaryHold()
             window.minimumHeight = height
             projectLayout(focusActiveWindow: false)
         }
@@ -570,6 +586,8 @@ private extension AppEvent {
 private extension InputEvent {
     var logName: String {
         switch self {
+        case .shortcut: return "input.shortcut"
+        case .shortcutReleased: return "input.shortcut-released"
         case .command: return "input.command"
         case .pointer: return "input.pointer"
         case .pointerTapDisabled: return "input.pointer-tap-disabled"

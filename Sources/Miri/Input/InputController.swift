@@ -32,6 +32,9 @@ final class InputController {
     private var carbonHotKeys: [EventHotKeyRef] = []
     private var carbonEventHandler: EventHandlerRef?
     private var carbonCommandByID: [UInt32: Command] = [:]
+    private var carbonKeyCodeByID: [UInt32: Int64] = [:]
+    private var pressedCarbonIDs = Set<UInt32>()
+    private var swallowedKeys = Set<Int64>()
     private var commandByKeybinding: [String: Command] = [:]
     private var excludedKeybindingSet = Set<String>()
     private var focusedWindowInputMonitor: Any?
@@ -51,12 +54,14 @@ final class InputController {
     var commandCount: Int { commandByKeybinding.count }
 
     func configure(_ config: MiriConfig) {
+        emit(.input(.shortcutReleased))
         commandByKeybinding = KeybindingResolver.makeCommandByKeybinding(config: config)
         excludedKeybindingSet = Set((config.excludedKeybindings ?? MiriConfig.fallback.excludedKeybindings ?? [])
             .compactMap(KeybindingResolver.normalizedKeybinding(_:)))
     }
 
     func install(backend: KeyboardShortcutBackend) {
+        emit(.input(.shortcutReleased))
         switch backend {
         case .eventTap:
             uninstallCarbonHotKeys()
@@ -70,14 +75,28 @@ final class InputController {
     func installFocusedWindowMonitor() {
         guard focusedWindowInputMonitor == nil else { return }
         focusedWindowInputMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .keyUp, .flagsChanged]
         ) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch event.type {
                 case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                    self.emit(.input(.shortcutReleased))
                     self.emit(.input(.focusedWindowProbeRequested(reason: "mouse-down")))
+                case .keyUp:
+                    self.pressedCarbonIDs = self.pressedCarbonIDs.filter {
+                        self.carbonKeyCodeByID[$0] != Int64(event.keyCode)
+                    }
+                    self.emit(.input(.shortcutReleased))
+                case .flagsChanged:
+                    self.emit(.input(.shortcutReleased))
                 case .keyDown:
+                    if KeybindingResolver.commandForKeyEvent(
+                        modifiers: event.cgEvent?.flags ?? [], keyCode: Int64(event.keyCode),
+                        keyText: event.charactersIgnoringModifiers ?? "", commandByKeybinding: self.commandByKeybinding
+                    ) == nil {
+                        self.emit(.input(.shortcutReleased))
+                    }
                     let switchesWindow = event.modifierFlags.contains(.command)
                         && (event.keyCode == UInt16(kVK_ANSI_Grave) || event.keyCode == UInt16(kVK_Tab))
                     if switchesWindow {
@@ -156,6 +175,8 @@ final class InputController {
     }
 
     func uninstallEventTap() {
+        emit(.input(.shortcutReleased))
+        swallowedKeys.removeAll()
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
             CFMachPortInvalidate(eventTap)
@@ -168,6 +189,9 @@ final class InputController {
     }
 
     func uninstallCarbonHotKeys() {
+        emit(.input(.shortcutReleased))
+        pressedCarbonIDs.removeAll()
+        carbonKeyCodeByID.removeAll()
         for hotKey in carbonHotKeys { UnregisterEventHotKey(hotKey) }
         carbonHotKeys.removeAll()
         carbonCommandByID.removeAll()
@@ -183,7 +207,15 @@ final class InputController {
         return true
     }
 
-    fileprivate func handleKeyEvent(_ event: CGEvent) -> Bool {
+    func handleKeyEvent(_ event: CGEvent) -> Bool {
+        if event.type == .keyUp {
+            emit(.input(.shortcutReleased))
+            return swallowedKeys.remove(event.getIntegerValueField(.keyboardEventKeycode)) != nil
+        }
+        if event.type == .flagsChanged {
+            emit(.input(.shortcutReleased))
+            return false
+        }
         let modifiers = event.flags
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let keyText = KeybindingResolver.keyboardText(from: event)
@@ -201,30 +233,53 @@ final class InputController {
         )
 
         if isAwaitingSessionRecovery() {
-            return handleRecoveryKey(event, command)
+            emit(.input(.shortcutReleased))
+            let consumed = handleRecoveryKey(event, command)
+            if consumed { swallowedKeys.insert(keyCode) }
+            return consumed
         }
         DispatchQueue.main.async { [weak self] in
             self?.emit(.input(.userInteraction))
         }
-        guard let command else { return false }
-        guard !shouldSuppressCommand() else { return false }
+        guard let command, !shouldSuppressCommand() else {
+            emit(.input(.shortcutReleased))
+            return swallowedKeys.contains(keyCode)
+        }
+        swallowedKeys.insert(keyCode)
+        let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         DispatchQueue.main.async { [weak self] in
-            self?.emit(.input(.command(command, animateWorkspace: false)))
+            self?.emit(.input(.shortcut(command, keyCode: keyCode, modifiers: modifiers, isRepeat: isRepeat)))
         }
         return true
     }
 
-    fileprivate func handleCarbonHotKey(id: UInt32) -> OSStatus {
+    func handleCarbonHotKey(id: UInt32, released: Bool) -> OSStatus {
+        if released {
+            // Carbon can report release when a modifier is lifted while the
+            // physical letter key is still down. Do not turn a modifier re-press
+            // into a fresh boundary hold; the global key-up route clears it.
+            if let keyCode = carbonKeyCodeByID[id],
+               !CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode)) {
+                pressedCarbonIDs.remove(id)
+            }
+            emit(.input(.shortcutReleased))
+            return noErr
+        }
         guard let command = carbonCommandByID[id] else {
             return OSStatus(eventNotHandledErr)
         }
         if isAwaitingSessionRecovery() {
+            emit(.input(.shortcutReleased))
             return handleRecoveryKeyForCarbon(command) ? noErr : OSStatus(eventNotHandledErr)
         }
         let suppressed = shouldSuppressCommand()
+        let isRepeat = !pressedCarbonIDs.insert(id).inserted
+        let keyCode = carbonKeyCodeByID[id] ?? -1
+        let modifiers = CGEventSource.flagsState(.combinedSessionState)
+        if suppressed { emit(.input(.shortcutReleased)) }
         DispatchQueue.main.async { [weak self] in
             if !suppressed {
-                self?.emit(.input(.command(command, animateWorkspace: false)))
+                self?.emit(.input(.shortcut(command, keyCode: keyCode, modifiers: modifiers, isRepeat: isRepeat)))
             }
             // Even a suppressed registered hot key must refresh cached
             // transient-window state so a closed dialog cannot lock out Miri.
@@ -239,7 +294,9 @@ final class InputController {
 
     private func installEventTap() {
         guard eventTap == nil else { return }
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let mask = [CGEventType.keyDown, .keyUp, .flagsChanged].reduce(CGEventMask(0)) {
+            $0 | CGEventMask(1 << $1.rawValue)
+        }
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -264,10 +321,13 @@ final class InputController {
 
     private func installCarbonHotKeys() {
         uninstallCarbonHotKeys()
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventSpecs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(
-            GetApplicationEventTarget(), inputCarbonHotKeyHandler, 1, &eventSpec, refcon, &carbonEventHandler
+            GetApplicationEventTarget(), inputCarbonHotKeyHandler, 2, &eventSpecs, refcon, &carbonEventHandler
         )
         guard status == noErr else {
             fputs("miri: unable to install registered shortcut handler (\(status)); falling back to event tap\n", stderr)
@@ -300,6 +360,7 @@ final class InputController {
             }
             carbonHotKeys.append(hotKeyRef)
             carbonCommandByID[nextID] = command
+            carbonKeyCodeByID[nextID] = hotKey.keyCode
             nextID += 1
         }
         print("miri: registered \(carbonHotKeys.count) shortcuts with macOS")
@@ -338,7 +399,7 @@ private func inputEventTapCallback(
         }
         return Unmanaged.passUnretained(event)
     }
-    guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+    guard type == .keyDown || type == .keyUp || type == .flagsChanged else { return Unmanaged.passUnretained(event) }
     let consumed = MainActor.assumeIsolated {
         controller.handleKeyEvent(payload.value)
     }
@@ -347,6 +408,7 @@ private func inputEventTapCallback(
 
 fileprivate extension InputController {
     func emitEventTapDisabled(_ type: CGEventType) {
+        emit(.input(.shortcutReleased))
         emit(.input(.eventTapDisabled(type)))
     }
 }
@@ -366,7 +428,8 @@ private func inputCarbonHotKeyHandler(
         return OSStatus(eventNotHandledErr)
     }
     let controller = Unmanaged<InputController>.fromOpaque(userData).takeUnretainedValue()
+    let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
     return MainActor.assumeIsolated {
-        controller.handleCarbonHotKey(id: hotKeyID.id)
+        controller.handleCarbonHotKey(id: hotKeyID.id, released: released)
     }
 }

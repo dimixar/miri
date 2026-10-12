@@ -24,6 +24,7 @@ extension Miri {
         enforceFullscreenSpaceGuardWorkspace()
         let viewport = currentViewport()
         if windowManagement.enforceRowHeights(height: viewport.height, gap: points(forPhysicalPixels: innerGap, in: viewport)) {
+            cancelWorkspaceBoundaryHold()
             schedulePersistentLayoutSnapshotWrite()
         }
         // The cleanup watcher must always describe the model that is about to

@@ -161,6 +161,61 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
+    func testFullscreenRowShortcutsDoNotWarnOrNavigateHiddenRowsAndWorkspaceSwitchPreservesFocus() throws {
+        _ = NSApplication.shared
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+        )
+        workspace.columns = [Column(windows: workspace.windows, activeRow: 1)]
+        workspace.activeColumn = 0
+        miri.windowManagement.ensureWorkspaceExists(2)
+        XCTAssertTrue(miri.windowManagement.moveActiveColumn(toWorkspace: 1))
+        let source = try XCTUnwrap(miri.activeWorkspaceObject())
+        XCTAssertTrue(miri.windowManagement.toggleWorkspaceFullscreen())
+        for index in [0, 2] {
+            let destination = miri.windowManagement.workspaces[index]
+            let rows = (0..<3).map { row in
+                let pid = pid_t(2000 + index * 10 + row)
+                return ManagedWindow(element: AXUIElementCreateApplication(pid), pid: pid,
+                                     windowID: nil, bundleID: nil, appName: "Test", title: "Destination \(index) row \(row)")
+            }
+            destination.columns = [Column(windows: rows, activeRow: 1)]
+            destination.fullscreenState = index == 2 ? .active : .off
+        }
+        miri.appPhase = .running
+        defer {
+            miri.cancelWorkspaceBoundaryHold()
+            miri.workspaceBoundaryFeedbackController.hide()
+            miri.workspaceFullscreenFeedbackController.hide()
+        }
+        let state = miri.captureLayoutState()
+        let focused = source.activeWindow
+        for (command, key) in [(Command.rowDown, KeyCode.j), (.rowUp, KeyCode.k)] {
+            // No physical key is held and no real AX focus is supplied: cancel
+            // rather than moving, but never fall through to a fullscreen notice.
+            miri.enqueue(.input(.shortcut(command, keyCode: key, modifiers: .maskAlternate, isRepeat: false)))
+            XCTAssertEqual(miri.captureLayoutState(), state)
+            XCTAssertTrue(source.activeWindow === focused)
+            XCTAssertFalse(NSApp.windows.contains {
+                $0.identifier?.rawValue == "miri.workspace-fullscreen-feedback" && $0.isVisible
+            })
+            miri.enqueue(.input(.shortcutReleased))
+        }
+        miri.sessionController.pauseForUnavailableSession()
+        for (command, index) in [(Command.workspaceDown, 2), (.workspaceUp, 0)] {
+            XCTAssertTrue(miri.windowManagement.selectWorkspace(1, rememberPrevious: false) || miri.windowManagement.activeWorkspace == 1)
+            let destination = miri.windowManagement.workspaces[index]
+            let remembered = destination.activeWindow
+            let fullscreen = destination.fullscreenState
+            miri.perform(command)
+            XCTAssertEqual(miri.windowManagement.activeWorkspace, index)
+            XCTAssertTrue(destination.activeWindow === remembered)
+            XCTAssertEqual(destination.fullscreenState, fullscreen)
+            XCTAssertEqual(source.fullscreenState, .active)
+            XCTAssertTrue(source.activeWindow === focused)
+        }
+    }
+
     func testWorkspaceFullscreenConsumesColumnNavigationAndResizeWithoutBlockingExternalFocus() async throws {
         _ = NSApplication.shared
         let screen = try XCTUnwrap(NSScreen.main)

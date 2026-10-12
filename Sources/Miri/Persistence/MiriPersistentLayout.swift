@@ -141,6 +141,7 @@ extension Miri {
             workspaces: nextWorkspaces,
             activeWorkspace: nextActiveWorkspace
         )
+        cancelWorkspaceBoundaryHold()
         windowManagement.enforceRowCapacity(configStore.effectiveConfig.rowsPerColumn ?? 1)
         persistentLayoutInitialStateApplied = true
         if finalize {

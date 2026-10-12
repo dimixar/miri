@@ -121,6 +121,8 @@ struct ReconciliationIntent {
 }
 
 enum InputEvent {
+    case shortcut(Command, keyCode: Int64, modifiers: CGEventFlags, isRepeat: Bool)
+    case shortcutReleased
     case command(Command, animateWorkspace: Bool)
     case pointer(MousePointerEvent)
     case pointerTapDisabled

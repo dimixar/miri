@@ -83,6 +83,22 @@ struct LayoutSettingsView: View {
                 }
             }
 
+            MiriSection(
+                title: "Workspace navigation",
+                detail: "Relative workspace moves require holding the shortcut. Row moves and numbered workspace shortcuts are immediate. Releasing early cancels the crossing."
+            ) {
+                MiriSettingGroup {
+                    MiriIntegerSliderRow(
+                        title: "Boundary hold duration",
+                        detail: "750ms is the default.",
+                        value: $store.draft.workspaceBoundaryHoldMS,
+                        range: 250...2000,
+                        step: 50,
+                        suffix: "ms"
+                    )
+                }
+            }
+
             MiriSection(title: "Window dragging") {
                 MiriSettingGroup {
                     MiriIntegerSliderRow(

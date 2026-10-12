@@ -12,6 +12,7 @@ extension Miri {
     }
 
     func loadLogicalSpaceContext(_ context: LogicalSpaceContext) {
+        cancelWorkspaceBoundaryHold()
         windowManagement.activateContext(context)
         layoutController.resetTracking()
         reconcileWorkspaceCapacity()

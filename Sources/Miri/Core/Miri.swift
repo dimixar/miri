@@ -100,6 +100,9 @@ final class Miri: NSObject, NSApplicationDelegate {
     }
     lazy var mouseInteractionOverlayController = MouseInteractionOverlayController()
     lazy var workspaceFullscreenFeedbackController = WorkspaceFullscreenFeedbackController()
+    lazy var workspaceBoundaryFeedbackController = WorkspaceBoundaryFeedbackController()
+    var workspaceBoundaryHold: WorkspaceBoundaryHold?
+    var workspaceBoundaryTimer: Timer?
     lazy var floatingWindowOutlineController = FloatingWindowOutlineController()
 
     lazy var sessionController = SessionController { [weak self] event in

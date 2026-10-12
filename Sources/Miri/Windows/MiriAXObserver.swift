@@ -318,6 +318,7 @@ extension Miri {
             windowManagement.setActiveColumn(loc.column, in: workspace)
             workspace.columns[loc.column].activeRow = row
             if changedFocus || fullscreenChanged {
+                cancelWorkspaceBoundaryHold()
                 focusStateGeneration &+= 1
             }
             let shouldProject = changedFocus || fullscreenChanged || forceLayoutIfAlreadyFocused || classificationChanged

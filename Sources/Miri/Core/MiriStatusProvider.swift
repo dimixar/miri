@@ -364,6 +364,7 @@ extension Miri {
     }
 
     private func applyConfigChange(source: URL) {
+        cancelWorkspaceBoundaryHold()
         guard runtimeStarted else {
             print("miri: reloaded config \(source.path); runtime remains paused for Accessibility access")
             return
