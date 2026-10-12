@@ -28,14 +28,17 @@ struct MiriWorkspaceSummary: Equatable {
     let isWorkspaceFullscreen: Bool
     let lastFocusedWindow: MiriWorkspaceBarWindow?
     let appNames: [String]
+    let lastFocusedColumn: [MiriWorkspaceBarWindow]
 }
 
 struct MiriWorkspaceBarStatus: Equatable {
     let workspace: Int
     let focusedIndex: Int?
-    let windows: [MiriWorkspaceBarWindow]
+    let columns: [[MiriWorkspaceBarWindow]]
     let workspaceSummaries: [MiriWorkspaceSummary]
     let fullscreenWindows: [MiriWorkspaceBarFullscreenWindow]
+
+    var windows: [MiriWorkspaceBarWindow] { columns.flatMap { $0 } }
 }
 
 struct MiriWorkspaceBarWindow: Equatable {

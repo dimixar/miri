@@ -278,6 +278,28 @@ final class StackedColumnTests: XCTestCase {
         XCTAssertEqual(snapshot.workspaces[0].columns[0].heightRatios, [0.25, 0.75])
     }
 
+    func testWorkspaceBarPreservesColumnGroupsAndRefreshesWhenOnlyGroupingChanges() throws {
+        let miri = try coordinator()
+        let workspace = try XCTUnwrap(miri.activeWorkspaceObject())
+        let windows = [window(1), window(2), window(3), window(4)]
+        workspace.columns = [Column(windows: Array(windows.prefix(2))), Column(windows: Array(windows.suffix(2)))]
+        workspace.activeColumn = 1
+        let original = miri.currentWorkspaceBarStatus()
+        XCTAssertEqual(original.columns.map { $0.map(\.title) }, [["Window 1", "Window 2"], ["Window 3", "Window 4"]])
+        XCTAssertEqual(original.focusedIndex, 2)
+        workspace.columns = [Column(windows: [windows[0]]), Column(windows: Array(windows.dropFirst()), activeRow: 1)]
+        let regrouped = miri.currentWorkspaceBarStatus()
+        XCTAssertEqual(regrouped.windows, original.windows)
+        XCTAssertEqual(regrouped.focusedIndex, original.focusedIndex)
+        XCTAssertNotEqual(regrouped, original, "Grouping alone must invalidate the rendered bar")
+        miri.windowManagement.ensureWorkspaceExists(1)
+        XCTAssertTrue(miri.windowManagement.selectWorkspace(1))
+        let inactive = try XCTUnwrap(miri.currentWorkspaceBarStatus().workspaceSummaries.first)
+        XCTAssertFalse(inactive.isActive)
+        XCTAssertEqual(inactive.lastFocusedColumn.map(\.title), ["Window 2", "Window 3", "Window 4"])
+        XCTAssertEqual(inactive.lastFocusedWindow?.title, "Window 3")
+    }
+
     func testNativeFullscreenReturnRestoresRowWithoutReplacingPeers() throws {
         let miri = try coordinator()
         let workspace = try XCTUnwrap(miri.activeWorkspaceObject())

@@ -14,8 +14,8 @@ struct WorkspaceBarSettingsView: View {
                     )
                     MiriRowDivider()
                     MiriIntegerSliderRow(
-                        title: "Visible app icons",
-                        detail: "Maximum app icons shown for each workspace.",
+                        title: "Visible columns",
+                        detail: "Maximum columns shown in the active workspace. Stacked rows stay together.",
                         value: $store.draft.workspaceBarVisibleIconCount,
                         range: 1...6
                     )

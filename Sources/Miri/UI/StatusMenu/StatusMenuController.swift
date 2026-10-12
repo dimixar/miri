@@ -247,7 +247,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         statusItem.button?.image = drawWorkspaceBar(barStatus, config: config, appearance: appearance)
     }
 
-    private func drawWorkspaceBar(
+    func drawWorkspaceBar(
         _ status: MiriWorkspaceBarStatus,
         config: MiriConfig,
         appearance: NSAppearance
@@ -298,8 +298,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             .font: font,
             .foregroundColor: delimiterColor,
         ]
-        let count = status.windows.count
-        let focused = status.focusedIndex.flatMap { count.indicesContains($0) ? $0 : nil }
+        let count = status.columns.count
+        var windowOffset = 0
+        let focused = status.columns.firstIndex { column in
+            defer { windowOffset += column.count }
+            return status.focusedIndex.map { (windowOffset..<(windowOffset + column.count)).contains($0) } ?? false
+        }
         let range: Range<Int>
         if let focused, count > 0 {
             let visibleCount = min(maxIcons, count)
@@ -310,8 +314,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             range = 0..<min(maxIcons, count)
         }
 
-        let leftOverflow = range.lowerBound
-        let rightOverflow = max(0, count - range.upperBound)
+        let leftOverflow = status.columns.prefix(range.lowerBound).reduce(0) { $0 + $1.count }
+        let rightOverflow = status.columns.dropFirst(range.upperBound).reduce(0) { $0 + $1.count }
         let allWorkspaceSummaries = status.workspaceSummaries
         let activeSummaryIndex = allWorkspaceSummaries.firstIndex(where: \.isActive) ?? 0
         let workspaceSummaryStart = max(0, min(activeSummaryIndex - 4, max(0, allWorkspaceSummaries.count - 9)))
@@ -382,6 +386,35 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let yText: CGFloat = 2 + verticalOutset
         let yIcon: CGFloat = (height - iconSize) / 2
         let yIconBox: CGFloat = (height - iconBox) / 2
+        func drawColumn(_ windows: [MiriWorkspaceBarWindow], focusedRow: Int?, at x: CGFloat) {
+            guard !windows.isEmpty else { return }
+            let rowHeight = iconBox / CGFloat(windows.count)
+            for (row, window) in windows.enumerated() {
+                let box = NSRect(x: x, y: yIconBox + iconBox - CGFloat(row + 1) * rowHeight, width: iconBox, height: rowHeight)
+                if row == focusedRow {
+                    let alpha: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.62 : 0.42
+                    focusedWindowColor.withAlphaComponent(alpha).setFill()
+                    NSBezierPath(roundedRect: box, xRadius: min(5, rowHeight / 2), yRadius: min(5, rowHeight / 2)).fill()
+                    if windows.count > 1 {
+                        focusedWindowColor.withAlphaComponent(0.9).setStroke()
+                        let outline = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+                        outline.lineWidth = 1
+                        outline.stroke()
+                    }
+                }
+                let size = windows.count == 1 ? iconSize : rowHeight - 1
+                icon(for: window).draw(
+                    in: NSRect(x: box.midX - size / 2, y: box.midY - size / 2, width: size, height: size),
+                    from: .zero, operation: .sourceOver, fraction: 1
+                )
+            }
+            if windows.count > 1 {
+                delimiterColor.withAlphaComponent(0.4).setStroke()
+                let outline = NSBezierPath(roundedRect: NSRect(x: x + 0.5, y: yIconBox + 0.5, width: iconBox - 1, height: iconBox - 1), xRadius: 3, yRadius: 3)
+                outline.lineWidth = 1
+                outline.stroke()
+            }
+        }
         var firstWorkspace = true
         for summary in workspaceSummaries {
             if !firstWorkspace { x += textGap }
@@ -412,12 +445,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             }
 
             if !summary.isActive, let window = summary.lastFocusedWindow {
-                icon(for: window).draw(
-                    in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize),
-                    from: .zero,
-                    operation: .sourceOver,
-                    fraction: 1
-                )
+                let column = !summary.isWorkspaceFullscreen && !summary.lastFocusedColumn.isEmpty
+                    ? summary.lastFocusedColumn : [window]
+                drawColumn(column, focusedRow: nil, at: x)
                 x += iconBox
                 if summary.isWorkspaceFullscreen { x += fullscreenPadding }
                 continue
@@ -458,22 +488,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 }
                 x += centerPadding
 
+                var windowIndex = leftOverflow
                 for index in range {
-                    let window = status.windows[index]
-                    let isFocused = index == focused
-                    let box = NSRect(x: x, y: yIconBox, width: iconBox, height: iconBox)
-                    if isFocused {
-                        let alpha: CGFloat = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 0.62 : 0.42
-                        focusedWindowColor.withAlphaComponent(alpha).setFill()
-                        NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+                    let column = status.columns[index]
+                    let focusedRow = status.focusedIndex.flatMap { focusedIndex in
+                        (windowIndex..<(windowIndex + column.count)).contains(focusedIndex) ? focusedIndex - windowIndex : nil
                     }
-
-                    icon(for: window).draw(
-                        in: NSRect(x: x + iconInset, y: yIcon, width: iconSize, height: iconSize),
-                        from: .zero,
-                        operation: .sourceOver,
-                        fraction: 1
-                    )
+                    drawColumn(column, focusedRow: focusedRow, at: x)
+                    windowIndex += column.count
                     x += iconBox
                 }
                 x += centerPadding

@@ -33,7 +33,7 @@ extension Miri {
             return MiriWorkspaceBarStatus(
                 workspace: snapshot.activeWorkspace + 1,
                 focusedIndex: nil,
-                windows: [],
+                columns: [],
                 workspaceSummaries: [],
                 fullscreenWindows: fullscreenWorkspaceBarWindows()
             )
@@ -43,7 +43,7 @@ extension Miri {
         return MiriWorkspaceBarStatus(
             workspace: snapshot.activeWorkspace + 1,
             focusedIndex: workspace.columns.isEmpty ? nil : workspace.columns.prefix(workspace.activeColumn).reduce(0) { $0 + $1.windows.count } + workspace.columns[workspace.activeColumn].activeRow,
-            windows: workspace.windows.map(workspaceBarWindow),
+            columns: workspace.columns.map { $0.windows.map(workspaceBarWindow) },
             workspaceSummaries: workspaceSummaries(snapshot: snapshot),
             fullscreenWindows: fullscreenWorkspaceBarWindows()
         )
@@ -68,7 +68,8 @@ extension Miri {
                 isActive: index == snapshot.activeWorkspace,
                 isWorkspaceFullscreen: workspace.fullscreenState != .off,
                 lastFocusedWindow: focusedWindow,
-                appNames: appNames
+                appNames: appNames,
+                lastFocusedColumn: workspace.columns.isEmpty ? [] : workspace.columns[workspace.activeColumn].windows.map(workspaceBarWindow)
             )
         }
     }

@@ -39,7 +39,7 @@ let statusMenu = StatusMenuController(
             workspaceBar: MiriWorkspaceBarStatus(
                 workspace: 1,
                 focusedIndex: nil,
-                windows: [],
+                columns: [],
                 workspaceSummaries: [],
                 fullscreenWindows: []
             ),
