@@ -201,6 +201,8 @@ managed window is focused.
 `row_down` / `row_up` default to `lalt+j` / `lalt+k`: focus the next/previous
 row, or hold at the bottom/top boundary to switch workspace. Repeats that started
 within a stack cannot arm a boundary crossing; release and press again at the edge.
+Horizontal column focus chooses the row with the closest vertical center, using
+the actual row heights. Exact ties keep the destination's remembered row.
 In workspace fullscreen, these shortcuts always use held next/previous workspace
 navigation, regardless of the hidden row position. They preserve each workspace's
 remembered focus and fullscreen state rather than focusing a boundary row.
@@ -305,8 +307,11 @@ current full rescan. See
   adaptive system label colors.
 - `workspace_bar_highlight_color`: custom focused-window accent, as a named
   color or `#RRGGBB`. Used only when `workspace_bar_use_custom_colors` is true.
-- `workspace_bar_visible_icon_count`: visible app icons per workspace, clamped
-  to `1...6`.
+- `workspace_bar_visible_icon_count`: visible columns in the active workspace,
+  clamped to `1...6`. Stacked app icons appear vertically in their column, with
+  the focused row highlighted. Overflow counts hidden windows, not columns.
+  Inactive workspaces preview their last-focused column; native/workspace
+  fullscreen previews keep the last-focused app icon.
 - `workspace_bar_overflow_style`: `plus_count`, `dots_count`, `chevron`, or
   `none`.
 - `workspace_bar_show_fullscreen`: show remembered fullscreen apps in the bar.
