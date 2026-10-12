@@ -140,6 +140,8 @@ struct MiriConfig: Codable {
     var focusAlignment: FocusAlignment?
     var newWindowPosition: NewWindowPosition?
     var dragScrollSpeedPercent: Int?
+    var manualFloatingOutlineEnabled: Bool?
+    var manualFloatingOutlineThickness: Int?
     var innerGap: CGFloat?
     var outerGap: CGFloat?
     var parkedSliverWidth: CGFloat?
@@ -187,6 +189,8 @@ struct MiriConfig: Codable {
         focusAlignment: .default,
         newWindowPosition: .afterActive,
         dragScrollSpeedPercent: 100,
+        manualFloatingOutlineEnabled: true,
+        manualFloatingOutlineThickness: 2,
         innerGap: 0,
         outerGap: 0,
         parkedSliverWidth: 1,
@@ -285,6 +289,7 @@ struct MiriConfig: Codable {
         config.animationPixelThreshold = config.animationPixelThreshold.map { min(max($0, 0), 32) }
         config.minimumWorkspaceCount = config.minimumWorkspaceCount.map { min(max($0, 1), 9) }
         config.dragScrollSpeedPercent = config.dragScrollSpeedPercent.map { min(max($0, 25), 500) }
+        config.manualFloatingOutlineThickness = config.manualFloatingOutlineThickness.map { min(max($0, 1), 10) }
         config.innerGap = config.innerGap.map { min(max($0, 0), 96) }
         config.outerGap = config.outerGap.map { min(max($0, 0), 96) }
         config.parkedSliverWidth = config.parkedSliverWidth.map { min(max($0, 0), 32) }
@@ -400,6 +405,8 @@ struct MiriConfig: Codable {
         case focusAlignment = "focus_alignment"
         case newWindowPosition = "new_window_position"
         case dragScrollSpeedPercent = "drag_scroll_speed_percent"
+        case manualFloatingOutlineEnabled = "manual_floating_outline_enabled"
+        case manualFloatingOutlineThickness = "manual_floating_outline_thickness"
         case innerGap = "inner_gap"
         case outerGap = "outer_gap"
         case parkedSliverWidth = "parked_sliver_width"

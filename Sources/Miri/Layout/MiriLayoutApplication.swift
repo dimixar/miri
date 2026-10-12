@@ -17,7 +17,10 @@ extension Miri {
             debugLog("layout skipped because user session is unavailable")
             return
         }
-        defer { notifyWorkspaceBarNeedsRefresh() }
+        defer {
+            notifyWorkspaceBarNeedsRefresh()
+            refreshManualFloatingOutlines()
+        }
         enforceFullscreenSpaceGuardWorkspace()
         let viewport = currentViewport()
         // The cleanup watcher must always describe the model that is about to

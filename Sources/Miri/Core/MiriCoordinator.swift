@@ -56,6 +56,7 @@ extension Miri {
     }
 
     @MainActor private func handleCoordinatorEvent(_ event: AppEvent, sequence: EventSequence) {
+        defer { refreshManualFloatingOutlines() }
         if appPhase == .terminated {
             debugLog("coordinator event ignored sequence=\(sequence) reason=terminated event=\(event.logName)")
             return
@@ -462,6 +463,7 @@ extension Miri {
         appPhase = .terminating
         debugLog("termination preparation begin source=\(reason)")
         workspaceFullscreenFeedbackController.hide()
+        floatingWindowOutlineController.hide()
         guard runtimeStarted else {
             terminationCompleted = true
             appPhase = .terminated

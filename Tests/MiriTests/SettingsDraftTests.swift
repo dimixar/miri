@@ -10,6 +10,8 @@ final class SettingsDraftTests: XCTestCase {
         config.workspaceBarVisibleIconCount = nil
         config.activeRescanBundleIDs = nil
         config.dragScrollSpeedPercent = nil
+        config.manualFloatingOutlineEnabled = nil
+        config.manualFloatingOutlineThickness = nil
 
         let draft = SettingsDraft(config: config)
 
@@ -19,6 +21,8 @@ final class SettingsDraftTests: XCTestCase {
         XCTAssertEqual(draft.workspaceBarVisibleIconCount, MiriConfig.fallback.workspaceBarVisibleIconCount)
         XCTAssertEqual(draft.activeRescanBundleIDs, MiriConfig.fallback.activeRescanBundleIDs)
         XCTAssertEqual(draft.dragScrollSpeedPercent, 100)
+        XCTAssertTrue(draft.manualFloatingOutlineEnabled)
+        XCTAssertEqual(draft.manualFloatingOutlineThickness, 2)
     }
 
     func testApplyingDraftPreservesUnexposedConfiguration() {
@@ -46,6 +50,8 @@ final class SettingsDraftTests: XCTestCase {
         original.focusAlignment = .centeredSmart
         original.outerGap = 14
         original.dragScrollSpeedPercent = 500
+        original.manualFloatingOutlineEnabled = false
+        original.manualFloatingOutlineThickness = 7
         original.animationStrategy = .off
         original.workspaceBarCenterStyle = .border
         original.activeRescanBundleIDs = ["com.example.One", "com.example.Two"]
@@ -55,9 +61,30 @@ final class SettingsDraftTests: XCTestCase {
         let encoded = try JSONEncoder().encode(saved)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         XCTAssertEqual(object["drag_scroll_speed_percent"] as? Int, 500)
+        XCTAssertEqual(object["manual_floating_outline_enabled"] as? Bool, false)
+        XCTAssertEqual(object["manual_floating_outline_thickness"] as? Int, 7)
         let restored = SettingsDraft(config: try JSONDecoder().decode(MiriConfig.self, from: encoded))
 
         XCTAssertEqual(restored, original)
+    }
+
+    func testFloatingOutlineThicknessCompatibilityAndLimits() throws {
+        let legacy = try JSONDecoder().decode(
+            MiriConfig.self,
+            from: Data(#"{"default_width_ratio":0.67,"rules":[]}"#.utf8)
+        )
+        XCTAssertEqual(legacy.resolved().manualFloatingOutlineThickness, 2)
+        XCTAssertEqual(SettingsDraft(config: legacy).manualFloatingOutlineThickness, 2)
+
+        for (requested, expected) in [(-4, 1), (0, 1), (1, 1), (7, 7), (10, 10), (11, 10)] {
+            var draft = SettingsDraft(config: legacy)
+            draft.manualFloatingOutlineThickness = requested
+            XCTAssertEqual(draft.applying(to: legacy).manualFloatingOutlineThickness, expected)
+
+            let data = Data("{\"default_width_ratio\":0.67,\"rules\":[],\"manual_floating_outline_thickness\":\(requested)}".utf8)
+            let decoded = try JSONDecoder().decode(MiriConfig.self, from: data)
+            XCTAssertEqual(MiriConfig.normalize(decoded).resolved().manualFloatingOutlineThickness, expected)
+        }
     }
 
     func testDragScrollSpeedCompatibilityAndLimits() throws {
@@ -158,6 +185,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.isDirty)
         store.draft.outerGap = 22
         store.draft.dragScrollSpeedPercent = 50
+        store.draft.manualFloatingOutlineThickness = 1
         XCTAssertTrue(store.isDirty)
         XCTAssertEqual(store.feedbackText, "Unsaved changes")
 
@@ -165,18 +193,22 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.isDirty)
         XCTAssertEqual(store.draft.outerGap, MiriConfig.fallback.outerGap)
         XCTAssertEqual(store.draft.dragScrollSpeedPercent, 100)
+        XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 2)
 
         store.draft.outerGap = 24
         store.draft.dragScrollSpeedPercent = 200
+        store.draft.manualFloatingOutlineThickness = 10
         XCTAssertTrue(store.submit(closeOnSuccess: false))
         XCTAssertEqual(submittedConfig?.outerGap, 24)
         XCTAssertEqual(submittedConfig?.dragScrollSpeedPercent, 200)
+        XCTAssertEqual(submittedConfig?.manualFloatingOutlineThickness, 10)
         XCTAssertEqual(shouldClose, false)
         XCTAssertEqual(store.feedback, .saving)
 
         store.presentSaveSuccess()
         XCTAssertFalse(store.isDirty)
         XCTAssertEqual(store.draft.dragScrollSpeedPercent, 200)
+        XCTAssertEqual(store.draft.manualFloatingOutlineThickness, 10)
         XCTAssertEqual(store.feedback, .saved)
     }
 

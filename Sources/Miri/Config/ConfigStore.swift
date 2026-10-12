@@ -216,6 +216,8 @@ extension MiriConfig {
         value.focusAlignment = focusAlignment ?? fallback.focusAlignment
         value.newWindowPosition = newWindowPosition ?? fallback.newWindowPosition
         value.dragScrollSpeedPercent = dragScrollSpeedPercent ?? fallback.dragScrollSpeedPercent
+        value.manualFloatingOutlineEnabled = manualFloatingOutlineEnabled ?? fallback.manualFloatingOutlineEnabled
+        value.manualFloatingOutlineThickness = manualFloatingOutlineThickness ?? fallback.manualFloatingOutlineThickness
         value.innerGap = innerGap ?? fallback.innerGap
         value.outerGap = outerGap ?? fallback.outerGap
         value.parkedSliverWidth = parkedSliverWidth ?? fallback.parkedSliverWidth

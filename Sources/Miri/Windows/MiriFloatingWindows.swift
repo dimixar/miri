@@ -49,6 +49,20 @@ extension Miri {
         projectLayout(focusActiveWindow: !isFloating)
         saveActiveLogicalSpaceContext()
         schedulePersistentLayoutSnapshotWrite()
+        refreshManualFloatingOutlines()
         return true
+    }
+
+    func refreshManualFloatingOutlines() {
+        guard runtimeStarted else { return }
+        let enabled = appPhase == .running
+            && sessionController.isLayoutTrackingAllowed
+            && !windowManagement.pendingLogicalSpaceSwitch
+            && (configStore.effectiveConfig.manualFloatingOutlineEnabled ?? true)
+        floatingWindowOutlineController.update(
+            windows: windowManagement.manuallyFloatedWindows.filter { !$0.isMinimized && !$0.isFullscreen },
+            enabled: enabled,
+            thickness: configStore.effectiveConfig.manualFloatingOutlineThickness ?? 2
+        )
     }
 }

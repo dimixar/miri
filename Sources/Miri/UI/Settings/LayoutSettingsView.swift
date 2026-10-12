@@ -77,6 +77,26 @@ struct LayoutSettingsView: View {
                 }
             }
 
+            MiriSection(title: "Floating windows") {
+                MiriSettingGroup {
+                    MiriToggleRow(
+                        title: "Show outline for manually floated windows",
+                        detail: "Accent-tinted glass that follows the window's corners. Rule-floated and ignored windows are never outlined.",
+                        value: $store.draft.manualFloatingOutlineEnabled
+                    )
+                    MiriRowDivider()
+                    MiriIntegerSliderRow(
+                        title: "Outline thickness",
+                        detail: "Measured in points. 2pt is the default.",
+                        value: $store.draft.manualFloatingOutlineThickness,
+                        range: 1...10,
+                        suffix: "pt"
+                    )
+                    .disabled(!store.draft.manualFloatingOutlineEnabled)
+                    .opacity(store.draft.manualFloatingOutlineEnabled ? 1 : 0.45)
+                }
+            }
+
             MiriSection(title: "Spacing and workspaces") {
                 MiriSettingGroup {
                     MiriIntegerSliderRow(

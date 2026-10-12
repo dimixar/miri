@@ -16,6 +16,8 @@ struct SettingsDraft: Equatable {
     var minimumWorkspaceCount: Int
     var workspaceAutoBackAndForth: Bool
     var dragScrollSpeedPercent: Int
+    var manualFloatingOutlineEnabled: Bool
+    var manualFloatingOutlineThickness: Int
     var innerGap: CGFloat
     var outerGap: CGFloat
     var parkedSliverWidth: CGFloat
@@ -65,6 +67,8 @@ struct SettingsDraft: Equatable {
         minimumWorkspaceCount = config.minimumWorkspaceCount ?? fallback.minimumWorkspaceCount ?? 1
         workspaceAutoBackAndForth = config.workspaceAutoBackAndForth ?? fallback.workspaceAutoBackAndForth ?? false
         dragScrollSpeedPercent = config.dragScrollSpeedPercent ?? fallback.dragScrollSpeedPercent ?? 100
+        manualFloatingOutlineEnabled = config.manualFloatingOutlineEnabled ?? fallback.manualFloatingOutlineEnabled ?? true
+        manualFloatingOutlineThickness = config.manualFloatingOutlineThickness ?? fallback.manualFloatingOutlineThickness ?? 2
         innerGap = config.innerGap ?? fallback.innerGap ?? 0
         outerGap = config.outerGap ?? fallback.outerGap ?? 0
         parkedSliverWidth = config.parkedSliverWidth ?? fallback.parkedSliverWidth ?? 1
@@ -117,6 +121,8 @@ struct SettingsDraft: Equatable {
         config.minimumWorkspaceCount = minimumWorkspaceCount
         config.workspaceAutoBackAndForth = workspaceAutoBackAndForth
         config.dragScrollSpeedPercent = dragScrollSpeedPercent
+        config.manualFloatingOutlineEnabled = manualFloatingOutlineEnabled
+        config.manualFloatingOutlineThickness = manualFloatingOutlineThickness
         config.innerGap = innerGap
         config.outerGap = outerGap
         config.parkedSliverWidth = parkedSliverWidth

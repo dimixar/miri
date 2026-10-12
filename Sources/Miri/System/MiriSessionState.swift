@@ -60,6 +60,7 @@ extension Miri {
         cancelAppLaunchSettlingForUnavailableSession()
         cancelMouseInteraction()
         workspaceFullscreenFeedbackController.hide()
+        floatingWindowOutlineController.hide()
         manualResizeController.cancel()
         pendingFocusCommands.removeAll()
         pendingCoordinatorReconciliation = nil

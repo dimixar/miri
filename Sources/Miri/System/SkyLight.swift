@@ -17,6 +17,10 @@ final class SkyLight: @unchecked Sendable {
     private typealias SLSGetWindowTransform = @convention(c) (Int32, UInt32, UnsafeMutablePointer<CGAffineTransform>) -> Int32
     private typealias SLSSetWindowTransform = @convention(c) (Int32, UInt32, CGAffineTransform) -> Int32
     private typealias SLSSetWindowLevel = @convention(c) (Int32, UInt32, Int32) -> Int32
+    private typealias SLSWindowQueryWindows = @convention(c) (Int32, CFArray, UInt32) -> Unmanaged<CFTypeRef>?
+    private typealias SLSWindowQueryResultCopyWindows = @convention(c) (CFTypeRef) -> Unmanaged<CFTypeRef>?
+    private typealias SLSWindowIteratorAdvance = @convention(c) (CFTypeRef) -> Bool
+    private typealias SLSWindowIteratorGetCornerRadii = @convention(c) (CFTypeRef) -> Unmanaged<CFArray>?
     private typealias SLSTransactionCreate = @convention(c) (Int32) -> CFTypeRef?
     private typealias SLSTransactionCommit = @convention(c) (CFTypeRef, Int32) -> Void
     private typealias SLSTransactionMoveWindowWithGroup = @convention(c) (CFTypeRef, UInt32, CGPoint) -> Void
@@ -37,6 +41,10 @@ final class SkyLight: @unchecked Sendable {
     private let getWindowTransform: SLSGetWindowTransform?
     private let setWindowTransform: SLSSetWindowTransform?
     private let setWindowLevel: SLSSetWindowLevel?
+    private let windowQueryWindows: SLSWindowQueryWindows?
+    private let windowQueryResultCopyWindows: SLSWindowQueryResultCopyWindows?
+    private let windowIteratorAdvance: SLSWindowIteratorAdvance?
+    private let windowIteratorGetCornerRadii: SLSWindowIteratorGetCornerRadii?
     private let transactionCreate: SLSTransactionCreate?
     private let transactionCommit: SLSTransactionCommit?
     private let transactionMoveWindowWithGroup: SLSTransactionMoveWindowWithGroup?
@@ -70,6 +78,18 @@ final class SkyLight: @unchecked Sendable {
         setWindowLevel = skyLightHandle
             .flatMap { dlsym($0, "SLSSetWindowLevel") }
             .map { unsafeBitCast($0, to: SLSSetWindowLevel.self) }
+        windowQueryWindows = skyLightHandle
+            .flatMap { dlsym($0, "SLSWindowQueryWindows") }
+            .map { unsafeBitCast($0, to: SLSWindowQueryWindows.self) }
+        windowQueryResultCopyWindows = skyLightHandle
+            .flatMap { dlsym($0, "SLSWindowQueryResultCopyWindows") }
+            .map { unsafeBitCast($0, to: SLSWindowQueryResultCopyWindows.self) }
+        windowIteratorAdvance = skyLightHandle
+            .flatMap { dlsym($0, "SLSWindowIteratorAdvance") }
+            .map { unsafeBitCast($0, to: SLSWindowIteratorAdvance.self) }
+        windowIteratorGetCornerRadii = skyLightHandle
+            .flatMap { dlsym($0, "SLSWindowIteratorGetCornerRadii") }
+            .map { unsafeBitCast($0, to: SLSWindowIteratorGetCornerRadii.self) }
         transactionCreate = skyLightHandle
             .flatMap { dlsym($0, "SLSTransactionCreate") }
             .map { unsafeBitCast($0, to: SLSTransactionCreate.self) }
@@ -99,6 +119,27 @@ final class SkyLight: @unchecked Sendable {
         var id: UInt32 = 0
         let error = axUIElementGetWindow(element, &id)
         return error == AXError.success.rawValue && id != 0 ? id : nil
+    }
+
+    func cornerRadius(for windowID: UInt32) -> CGFloat? {
+        guard let connectionID, let windowQueryWindows, let windowQueryResultCopyWindows,
+              let windowIteratorAdvance, let windowIteratorGetCornerRadii,
+              let query = windowQueryWindows(connectionID, [windowID] as CFArray, 0)
+        else { return nil }
+        defer { query.release() }
+        guard let iterator = windowQueryResultCopyWindows(query.takeUnretainedValue()) else { return nil }
+        defer { iterator.release() }
+        guard windowIteratorAdvance(iterator.takeUnretainedValue()),
+              let result = windowIteratorGetCornerRadii(iterator.takeUnretainedValue()) else { return nil }
+        // Despite its Get name, this private API returns an owned array.
+        defer { result.release() }
+        guard let radii = result.takeUnretainedValue() as? [NSNumber],
+              let radius = radii.first?.doubleValue,
+              radius.isFinite, radius >= 0,
+              radii.allSatisfy({ $0.doubleValue == radius }) else { return nil }
+        // Uniform windows need no assumptions about the undocumented corner order.
+        // Preserve zero: a square window is different from unavailable metadata.
+        return CGFloat(radius)
     }
 
     @discardableResult
