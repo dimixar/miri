@@ -19,6 +19,8 @@ final class SettingsStore: ObservableObject {
     }
     @Published private(set) var permissions: MiriPermissionStatus
     @Published private(set) var availableApps: [RuleAppInfo]
+    @Published private(set) var loginItemStatus: LoginItemStatus
+    @Published private(set) var loginItemError: String?
     @Published private(set) var feedback: Feedback = .none
 
     private(set) var sourceConfig: MiriConfig
@@ -29,6 +31,7 @@ final class SettingsStore: ObservableObject {
         config: MiriConfig,
         availableApps: [RuleAppInfo],
         permissions: MiriPermissionStatus,
+        loginItemStatus: LoginItemStatus = .unavailable,
         actionSink: @escaping (UIAction) -> Void
     ) {
         sourceConfig = config
@@ -36,6 +39,7 @@ final class SettingsStore: ObservableObject {
         draft = originalDraft
         self.availableApps = availableApps
         self.permissions = permissions
+        self.loginItemStatus = loginItemStatus
         self.actionSink = actionSink
     }
 
@@ -71,6 +75,24 @@ final class SettingsStore: ObservableObject {
 
     func updatePermissions(_ permissions: MiriPermissionStatus) {
         self.permissions = permissions
+    }
+
+    func updateLoginItemStatus(_ status: LoginItemStatus, error: String? = nil) {
+        loginItemStatus = status
+        loginItemError = error
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        guard loginItemStatus.canChange else { return }
+        actionSink(.setLaunchAtLogin(enabled))
+    }
+
+    func refreshLoginItemStatus() {
+        actionSink(.refreshLoginItemStatus)
+    }
+
+    func openLoginItemSettings() {
+        actionSink(.openLoginItemSettings)
     }
 
     func revert() {

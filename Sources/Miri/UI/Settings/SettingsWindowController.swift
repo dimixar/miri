@@ -10,12 +10,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         config: MiriConfig,
         availableApps: [RuleAppInfo],
         permissions: MiriPermissionStatus,
+        loginItemStatus: LoginItemStatus,
         actionSink: @escaping (UIAction) -> Void
     ) {
         store = SettingsStore(
             config: config,
             availableApps: availableApps,
             permissions: permissions,
+            loginItemStatus: loginItemStatus,
             actionSink: actionSink
         )
 
@@ -78,6 +80,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func updatePermissions(_ permissions: MiriPermissionStatus) {
         store.updatePermissions(permissions)
+    }
+
+    func updateLoginItemStatus(_ status: LoginItemStatus, error: String? = nil) {
+        store.updateLoginItemStatus(status, error: error)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        store.refreshLoginItemStatus()
     }
 
     func presentSaveSuccess(closeOnSuccess: Bool) {

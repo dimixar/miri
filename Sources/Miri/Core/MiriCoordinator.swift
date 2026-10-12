@@ -259,6 +259,12 @@ extension Miri {
             requestAccessibilityPermissionImplementation()
         case .requestScreenRecordingPermission:
             requestScreenRecordingPermissionImplementation()
+        case .setLaunchAtLogin(let enabled):
+            setLaunchAtLoginImplementation(enabled)
+        case .refreshLoginItemStatus:
+            refreshLoginItemStatusImplementation()
+        case .openLoginItemSettings:
+            openLoginItemSettingsImplementation()
         case .restart:
             restartApplicationImplementation()
         case .restartOnboarding:
@@ -621,6 +627,9 @@ private extension UIAction {
         case .showSettings: return "ui.show-settings"
         case .requestAccessibilityPermission: return "ui.request-accessibility-permission"
         case .requestScreenRecordingPermission: return "ui.request-screen-recording-permission"
+        case .setLaunchAtLogin: return "ui.set-launch-at-login"
+        case .refreshLoginItemStatus: return "ui.refresh-login-item-status"
+        case .openLoginItemSettings: return "ui.open-login-item-settings"
         case .restart: return "ui.restart"
         case .restartOnboarding: return "ui.restart-onboarding"
         case .openConfig: return "ui.open-config"

@@ -25,6 +25,7 @@ final class Miri: NSObject, NSApplicationDelegate {
     var terminationWaiters: [() -> Void] = []
     let configStore = ConfigStore()
     let permissionController = MiriPermissionController()
+    let loginItemController = LoginItemController()
     lazy var axOperations = AXOperationController { [weak self] message in
         self?.debugLog(message)
     }

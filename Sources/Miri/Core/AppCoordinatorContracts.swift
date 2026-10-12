@@ -167,6 +167,9 @@ enum UIAction {
     case showSettings
     case requestAccessibilityPermission
     case requestScreenRecordingPermission
+    case setLaunchAtLogin(Bool)
+    case refreshLoginItemStatus
+    case openLoginItemSettings
     case restart
     case restartOnboarding
     case openConfig

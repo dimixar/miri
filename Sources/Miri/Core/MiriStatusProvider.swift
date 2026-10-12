@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 
 private enum PermissionCheckKind {
     case accessibility
@@ -149,6 +150,7 @@ extension Miri {
                 availableApps: apps,
                 permissions: permissionController.status
             )
+            refreshLoginItemStatusImplementation()
             settingsWindowController.showWindow(nil)
             settingsWindowController.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -159,12 +161,35 @@ extension Miri {
             config: configStore.documentConfig,
             availableApps: apps,
             permissions: permissionController.status,
+            loginItemStatus: loginItemController.status(onboardingCompleted: !onboardingStore.isRequired),
             actionSink: { [weak self] action in self?.enqueue(.ui(action)) }
         )
         settingsWindowController = controller
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor func refreshLoginItemStatusImplementation() {
+        settingsWindowController?.updateLoginItemStatus(
+            loginItemController.status(onboardingCompleted: !onboardingStore.isRequired)
+        )
+    }
+
+    @MainActor func setLaunchAtLoginImplementation(_ enabled: Bool) {
+        do {
+            let status = try loginItemController.setEnabled(enabled, onboardingCompleted: !onboardingStore.isRequired)
+            settingsWindowController?.updateLoginItemStatus(status)
+        } catch {
+            settingsWindowController?.updateLoginItemStatus(
+                loginItemController.status(onboardingCompleted: !onboardingStore.isRequired),
+                error: "Could not change launch at login: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    @MainActor func openLoginItemSettingsImplementation() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 
     @MainActor func requestAccessibilityPermissionImplementation() {

@@ -168,6 +168,31 @@ final class SettingsDraftTests: XCTestCase {
 
 @MainActor
 final class SettingsStoreTests: XCTestCase {
+    func testLoginItemUpdatesAreImmediateAndIndependentOfConfigDraft() {
+        let store = SettingsStore(
+            config: MiriConfig.fallback,
+            availableApps: [],
+            permissions: MiriPermissionStatus(accessibility: .granted, screenRecording: .missing),
+            loginItemStatus: .notRegistered,
+            actionSink: { _ in }
+        )
+        store.draft.outerGap = 18
+        store.updateLoginItemStatus(.enabled)
+        XCTAssertEqual(store.draft.outerGap, 18)
+        XCTAssertTrue(store.isDirty)
+        store.revert()
+        XCTAssertEqual(store.loginItemStatus, .enabled)
+        XCTAssertFalse(store.isDirty)
+
+        store.updateLoginItemStatus(.enabled, error: "Registration failed")
+        XCTAssertEqual(store.loginItemError, "Registration failed")
+        XCTAssertEqual(store.feedback, .none)
+        store.updateLoginItemStatus(.requiresApproval)
+        XCTAssertNil(store.loginItemError)
+        XCTAssertTrue(store.loginItemStatus.isRequested)
+        XCTAssertFalse(store.isDirty)
+    }
+
     func testDirtyRevertAndSaveLifecycle() {
         var submittedConfig: MiriConfig?
         var shouldClose: Bool?

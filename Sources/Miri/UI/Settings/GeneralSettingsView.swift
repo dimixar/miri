@@ -5,6 +5,34 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         MiriPageScrollContainer {
+            MiriSection(title: "Startup") {
+                MiriSettingGroup {
+                    MiriToggleRow(
+                        title: "Launch at login",
+                        detail: store.loginItemStatus.detail,
+                        value: Binding(
+                            get: { store.loginItemStatus.isRequested },
+                            set: store.setLaunchAtLogin
+                        )
+                    )
+                    .disabled(!store.loginItemStatus.canChange)
+                    if store.loginItemStatus == .requiresApproval {
+                        MiriRowDivider()
+                        MiriSettingRow(title: "Approval required") {
+                            Button("Open Login Items", action: store.openLoginItemSettings)
+                        }
+                    }
+                    if let error = store.loginItemError {
+                        Text(error)
+                            .font(MiriTheme.Typography.rowDetail)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, MiriTheme.Spacing.rowHorizontal)
+                            .padding(.bottom, MiriTheme.Spacing.rowVertical)
+                    }
+                }
+            }
+
             MiriSection(
                 title: "Permissions",
                 detail: "Miri checks access in place, just like onboarding."
