@@ -24,6 +24,12 @@ order. A timer or UI controller never mutates configuration consumers directly.
 The repository includes a complete default config at
 [`miri.config.json`](../miri.config.json).
 
+**Launch at login** is a native macOS preference, not a JSON config key.
+Manage it under Settings → General → Startup in the packaged `Miri.app` after
+onboarding. Changes apply immediately; Revert/Cancel affect only the config draft.
+Miri reads the current login-item status from macOS rather than re-registering
+at startup, so disabling it in System Settings stays respected.
+
 ## Example
 
 ```json

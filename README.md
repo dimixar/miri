@@ -220,6 +220,18 @@ It covers pre-created workspace count, explicit back-and-forth behavior, layout,
 animation, fullscreen/Space recovery, logical Space autosave, active rescans for
 problematic apps, window rules, excluded shortcuts, and command keybindings.
 
+Settings → General → Startup includes an opt-in **Launch at login** toggle for
+the packaged, code-signed `Miri.app`, available after onboarding completes.
+It changes the native macOS login item immediately, independently of Apply/Save
+or the JSON config. If macOS requires approval, Settings shows an **Open Login
+Items** button. Returning to Settings refreshes the actual macOS status; Miri
+does not automatically override changes made in System Settings.
+
+Only one Miri instance can run per user, including simultaneous login/manual
+launches or a command-line launch alongside the app. Extra instances exit before
+onboarding, window discovery, or shortcuts start. The lock is released by macOS
+on exit or crash; cleanup watchers are exempt so window restoration still works.
+
 ## Session Lock And Sleep Recovery
 
 miri pauses window discovery, Accessibility handling, layout projection,
