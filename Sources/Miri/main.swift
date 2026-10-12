@@ -15,6 +15,18 @@ if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--cleanup-watc
     CleanupWatcher.run(parentPID: parentPID, snapshotPath: CommandLine.arguments[3])
 }
 
+let instanceLock: ApplicationInstanceLock
+do {
+    guard let acquired = try ApplicationInstanceLock() else {
+        print("miri: another instance is already running")
+        exit(0)
+    }
+    instanceLock = acquired
+} catch {
+    fputs("miri: could not acquire the application instance lock: \(error.localizedDescription)\n", stderr)
+    exit(1)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
@@ -40,4 +52,4 @@ let statusMenu = StatusMenuController(
 )
 _ = statusMenu
 miri.start()
-app.run()
+withExtendedLifetime(instanceLock) { app.run() }
