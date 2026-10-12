@@ -164,7 +164,8 @@ unless configured otherwise.
 | `LAlt+Shift+J` / `LAlt+Shift+K` | Move column workspace down / up |
 | `LAlt+Shift+H` / `LAlt+Shift+L` | Move column left / right |
 | `LAlt+Shift+[` / `LAlt+Shift+]` | Move column to first / last |
-| `LAlt+Ctrl+F` | Toggle workspace fullscreen |
+| `LAlt+Shift+F` | Toggle workspace fullscreen |
+| `LAlt+Ctrl+F` | Toggle focused window floating/tiled |
 | `LAlt+Ctrl+H` / `LAlt+Ctrl+L` | Cycle active column width preset |
 | `LAlt+Ctrl+-` / `LAlt+Ctrl+=` | Nudge active column width |
 | `LAlt+Ctrl+Shift+H` / `LAlt+Ctrl+Shift+L` | Cycle every tiled window width preset |
@@ -181,6 +182,20 @@ to the newly focused tiled window, including across Miri workspaces. Toggling
 back restores normal tiling around that window. Explicit workspace navigation
 keeps each workspace's mode in place. Unmanaged focus suspends the override;
 it resumes when a tiled window regains focus. The mode is not saved across restarts.
+
+The floating toggle affects only the actual focused managed window, not other
+windows from the same app. Its live-window override wins over behavior rules
+through rescans, title changes, hide/minimize, and session recovery; it clears
+when the window closes or Miri restarts. Retiling restores its former workspace,
+neighbor position, and width when possible. Floating a workspace-fullscreen
+window exits that mode without focusing a different column. Ignored/unmanaged
+windows are left alone.
+
+Only manually floated windows receive a click-through, accent-tinted glass
+outline that follows the window's reported corner radius. Rule-floated and ignored
+windows do not. Settings → Layout → Floating windows can disable outlines or set
+their thickness from 1–10pt (default 2pt) without changing floating state.
+Settings → Shortcuts can change or disable either toggle's binding.
 
 ## Menu Bar And Settings
 

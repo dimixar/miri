@@ -88,6 +88,18 @@ The repository includes a complete default config at
   doubles it. Settings → Layout → Window dragging exposes the same control.
   Apply or Save takes effect without restarting; the edge zone and dwell delay
   remain unchanged.
+- `manual_floating_outline_enabled`: show a click-through Liquid Glass rim
+  tinted with the adaptive system accent around manually floated windows.
+  Defaults to `true`; Settings → Layout → Floating windows can disable it.
+  Applying the setting hides or restores existing outlines without restarting
+  or changing floating state. Rule-floated and ignored windows are never outlined.
+- `manual_floating_outline_thickness`: outline thickness in logical points,
+  clamped to `1...10`, default `2`. Settings → Layout → Floating windows exposes
+  the same range in 1pt increments; Apply or Save updates existing outlines.
+  Corner radii follow each window's macOS 26+ WindowServer metadata, including
+  square corners, without screen capture. Radii refresh on resize and once per
+  second while visible. Unavailable or asymmetric metadata uses a 10pt radius
+  fallback; custom-drawn silhouettes are not inferred from screenshots.
 - `minimum_workspace_count`: number of empty-or-occupied numbered workspaces
   Miri always keeps available, clamped to `1...9`. Moving a column or applying
   a window rule to a higher workspace creates every numbered slot through that
@@ -169,13 +181,29 @@ managed window is focused.
 `keybindings` is merged with built-in defaults by action name. Set an action to
 `[]` to disable it. `excluded_keybindings` always wins when using `event_tap`.
 
-`toggle_workspace_fullscreen` defaults to `lalt+ctrl+f` and is editable under
+`toggle_workspace_fullscreen` defaults to `lalt+shift+f` and is editable under
 Settings → Shortcuts → Workspace fullscreen. It toggles a temporary full-workspace
 override for the focused tiled window, preserving normal ratios. Column navigation,
 width shortcuts, and drag-layout gestures are disabled while enabled. External
 focus changes transfer the override to the focused tiled window; toggling off
 restores normal tiling with that window focused. This is separate from native
 macOS fullscreen and does not create a macOS Space.
+
+`toggle_window_floating` defaults to `lalt+ctrl+f` and is editable under
+Settings → Shortcuts → Floating windows. It toggles the actual focused managed
+window, including a floating window, without changing app rules or its peers.
+Both explicit floating and explicit tiling override behavior rules for that live
+window. Overrides survive rescans, title changes, hiding/minimization, and session
+recovery, but are not restored across Miri restarts. Retiling restores the saved
+workspace, adjacent position, and width when possible; after a move to a different
+native Space it uses the current workspace instead. Ignored windows, dialogs,
+and native-fullscreen windows are not toggled.
+
+Existing explicit shortcuts are preserved. If an older config still explicitly
+assigns `lalt+ctrl+f` to fullscreen and does not configure the floating command,
+the inherited floating binding is left empty rather than stealing that shortcut.
+Change the bindings in Settings to adopt the new defaults, or set either command
+to `[]` to disable it.
 
 Supported modifier names include `cmd`, `win`, `windows`, `super`, `meta`,
 `ctrl`, `shift`, `alt`, `option`, side-specific `lalt`/`ralt`, and `fn`/`globe`.
