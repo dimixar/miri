@@ -84,10 +84,16 @@ they do not preempt focus/layout work.
 ## Miri Appears Paused After Unlock Or Wake
 
 This can be expected briefly. miri deliberately remains paused after the
-desktop session becomes available until input targets a relevant window. Click
-or scroll an on-screen managed window, type while one is focused, or invoke a
-configured Miri Carbon hot key while a managed window is focused. Input on the
-lock/login UI does not count.
+desktop session becomes available until input targets a relevant window, if
+windows are already known. Click or scroll an on-screen managed window, type
+while one is focused, or invoke a configured Miri Carbon hot key while a managed
+window is focused. Input on the lock/login UI does not count.
+
+If the runtime window model is empty, recovery starts automatically instead.
+Floating, fullscreen, minimized, and Space-buffered windows count as known
+state; saved layout metadata alone does not. See the
+[session availability flow](architecture.md#session-availability-flow) for retry
+and discovery-settling behavior.
 
 `SessionController` owns the lock/sleep/console flags, recovery generation, and
 recovery event tap. Those fields are main-actor isolated and externally

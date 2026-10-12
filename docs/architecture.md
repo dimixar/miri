@@ -5,6 +5,11 @@ miri is a source-first macOS window manager coordinated by the main-actor
 phase, admission, and startup/termination orchestration; stateful domain data
 is owned by dedicated controllers.
 
+Only one Miri instance can run per user, including simultaneous login/manual
+launches or a command-line launch alongside the app. Extra instances exit before
+onboarding, window discovery, or shortcuts start. The lock is released by macOS
+on exit or crash; cleanup watchers are exempt so window restoration still works.
+
 The current architecture is designed and tested for one active display: a
 MacBook using only its built-in screen. It does not maintain independent layout
 models or viewport ownership for multiple displays.
@@ -141,12 +146,12 @@ moves before the overlay is removed. Discovery, AX notifications, and layout
 application remain ignored while the session is unavailable.
 
 An unlock, login activation, or wake signal makes the session eligible but does
-not immediately restart layout work. miri temporarily watches for a mouse press
-or scroll targeting a relevant on-screen window, a key press directed to the
-focused managed window, or a registered Carbon hot key with a managed window in
-focus. Lock/login UI input cannot release this guard because both console state
-and the target window are validated. Focused and hit-window AX validation runs
-on the target PID lane rather than the main actor.
+not immediately restart layout work. When windows are known, miri temporarily
+watches for a mouse press or scroll targeting a relevant on-screen window, a key
+press directed to the focused managed window, or a registered Carbon hot key
+with a managed window in focus. Lock/login UI input cannot release this guard
+because both console state and the target window are validated. Focused and
+hit-window AX validation runs on the target PID lane rather than the main actor.
 
 After a qualifying interaction, the coordinator enters a distinct recovering
 phase. It refreshes transient-window state against the current active PID set,
@@ -159,6 +164,16 @@ each remembered live application also receives its own 30-second
 launch-settling period. Any settling periods that were already running when the
 session became unavailable are cancelled rather than rearmed after unlock or
 wake.
+
+If the whole runtime window model is empty, miri instead attempts recovery
+automatically and retries every half-second while the session/transient guards
+block it. Floating, fullscreen, minimized, and Space-buffered windows count as
+known state; saved layout metadata alone does not. Startup and successful
+empty-model recovery also open a 30-second discovery settling period, requesting
+full rescans every second without superseding a full scan still in progress.
+This captures apps and windows restored after the first scan. An empty scan does
+not re-enable the interaction requirement. Lock, sleep, or termination cancels
+the settling work; afterward, normal observation and periodic rescans take over.
 
 ## Layout Pipeline
 
@@ -233,8 +248,9 @@ symbols:
   notifications, plus the `IOConsoleLocked` IORegistry property, for lock-state
   monitoring and guarded session recovery.
 - `AXFullScreen` for native fullscreen detection.
-- `AXEnhancedUserInterface`, conditionally and temporarily toggled while frames
-  are applied.
+- `AXEnhancedUserInterface`, temporarily disabled while frames are applied only
+  when it was already enabled and readable; its previous value is restored
+  immediately afterward.
 
 There is no public macOS API for changing another application's WindowServer
 level or compositor position. If SkyLight calls are unavailable, floating
@@ -242,6 +258,9 @@ windows can still be raised and focused, while exact parking becomes
 best-effort. The private symbols are dynamically resolved so their absence is
 non-fatal; the undocumented notifications, properties, and attributes remain
 macOS-version-sensitive.
+
+If private AX-to-window-ID mapping is absent, identity matching and recovery
+use weaker fallbacks rather than failing window management.
 
 CoreGraphics session dictionaries, NSWorkspace session/sleep notifications, CG
 event taps and fields, CoreGraphics window-list metadata, and ScreenCaptureKit

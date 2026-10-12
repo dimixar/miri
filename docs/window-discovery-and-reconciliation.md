@@ -116,9 +116,11 @@ can rejoin its prior column without first focusing a neighbor.
 
 Discovery and reconciliation stop while the screen is locked, the console
 session is inactive, or the system is sleeping. They remain stopped after the
-desktop becomes available until a mouse, scroll, keyboard, or registered-hot-key
-interaction is validated against a relevant managed window. This avoids using
-events from the lock/login UI as evidence that the desktop is ready.
+desktop becomes available, when windows are known, until a mouse, scroll,
+keyboard, or registered-hot-key interaction is validated against a relevant
+managed window. This avoids using events from the lock/login UI as evidence
+that the desktop is ready. An empty runtime model recovers automatically; see
+the [session availability flow](architecture.md#session-availability-flow).
 
 Applications launched during this waiting period are recorded but not scanned
 immediately. A valid interaction with one of their manageable windows can

@@ -240,6 +240,11 @@ focus changes transfer the override to the focused tiled window; toggling off
 restores normal tiling with that window focused. This is separate from native
 macOS fullscreen and does not create a macOS Space.
 
+Cmd-Tab, Cmd-grave, and Dock/window activation transfer the override even across
+Miri workspaces. Explicit workspace navigation keeps each workspace's mode in
+place. Unmanaged focus suspends the override until a tiled window regains focus.
+The mode is not saved across restarts.
+
 `toggle_window_floating` defaults to `lalt+ctrl+f` and is editable under
 Settings → Shortcuts → Floating windows. It toggles the actual focused managed
 window, including a floating window, without changing app rules or its peers.
@@ -249,6 +254,9 @@ recovery, but are not restored across Miri restarts. Retiling restores the saved
 workspace, adjacent position, and width when possible; after a move to a different
 native Space it uses the current workspace instead. Ignored windows, dialogs,
 and native-fullscreen windows are not toggled.
+
+Floating a workspace-fullscreen window exits that mode without focusing a
+different column. The override clears when the window closes or Miri restarts.
 
 Existing explicit shortcuts are preserved. If an older config still explicitly
 assigns `lalt+ctrl+f` to fullscreen and does not configure the floating command,
@@ -276,10 +284,12 @@ Rules can match on `bundle_id`, `app_name`, or `title_contains`.
 ## Recovery And Persistence
 
 Session lock/sleep recovery is automatic rather than configurable. Layout work
-pauses while the session is unavailable and resumes only after asynchronously
-validated interaction with a relevant managed window, AX quiescence, and a
-current full rescan. See
-[Session Lock And Sleep Recovery](../README.md#session-lock-and-sleep-recovery).
+pauses while the session is unavailable. When windows are known, recovery waits
+for asynchronously validated interaction with a relevant managed window; an
+empty runtime model recovers automatically. Both paths wait for AX quiescence
+and a current full rescan. See the
+[session availability flow](architecture.md#session-availability-flow) and
+[recovery troubleshooting](troubleshooting.md#miri-appears-paused-after-unlock-or-wake).
 
 - `window_reconciliation_interval_ms`: long safety timer for missed
   notifications, clamped to `5000...300000`.
