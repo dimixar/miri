@@ -203,6 +203,11 @@ extension Miri {
         workspaceBoundaryHold = hold
         workspaceBoundaryTimer?.invalidate()
         workspaceBoundaryTimer = nil
+        performWorkspaceBoundaryTransition(hold)
+    }
+
+    /// Apply a committed crossing after physical input and focus validation.
+    func performWorkspaceBoundaryTransition(_ hold: WorkspaceBoundaryHold) {
         if hold.movesWindow {
             let previous = captureLayoutState()
             seedPresentationFrames(from: previous)
@@ -223,7 +228,8 @@ extension Miri {
                 persistenceChanged: true, statusChanged: true), animated: true)
         } else {
             let destination = windowManagement.workspaces[hold.targetIndex]
-            if hold.requiresRowBoundary, destination.columns.indices.contains(destination.activeColumn) {
+            if hold.requiresRowBoundary, destination.fullscreenState == .off,
+               destination.columns.indices.contains(destination.activeColumn) {
                 let destinationColumn = destination.columns[destination.activeColumn]
                 destinationColumn.activeRow = hold.direction == .down ? 0 : max(0, destinationColumn.windows.count - 1)
             }

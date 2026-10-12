@@ -216,6 +216,57 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
+    func testCommittedRowBoundaryCrossingPreservesFullscreenFocusButUsesNormalEntryRows() throws {
+        for direction: WorkspaceBoundaryDirection in [.up, .down] {
+            for fullscreen: WorkspaceFullscreenState in [.active, .suspended, .off] {
+                let (miri, workspace) = try fixture(
+                    alignment: .default, widths: [0.5, 0.5], activeColumn: 0, scrollOffset: nil
+                )
+                miri.sessionController.pauseForUnavailableSession()
+                let windows = workspace.windows
+                let rememberedRow = direction == .up ? 0 : 1
+                workspace.columns = [Column(windows: windows, activeRow: rememberedRow)]
+                miri.windowManagement.ensureWorkspaceExists(1)
+                if direction == .down {
+                    XCTAssertTrue(miri.windowManagement.moveActiveColumn(toWorkspace: 1))
+                }
+                let destination = try XCTUnwrap(miri.activeWorkspaceObject())
+                destination.fullscreenState = fullscreen
+                let targetIndex = miri.windowManagement.activeWorkspace
+                XCTAssertTrue(miri.windowManagement.selectWorkspace(direction == .up ? 1 : 0))
+                let source = try XCTUnwrap(miri.activeWorkspaceObject())
+                var gate = try XCTUnwrap(WorkspaceBoundaryGate(now: 0, milliseconds: 750, isRepeat: false))
+                XCTAssertTrue(gate.commitIfReady(now: 0.75, held: true, sourceValid: true))
+                let hold = WorkspaceBoundaryHold(
+                    gate: gate, thresholdFocusValidated: true,
+                    command: direction == .up ? .rowUp : .rowDown,
+                    direction: direction, movesWindow: false,
+                    keyCode: direction == .up ? KeyCode.k : KeyCode.j, modifiers: .maskAlternate,
+                    workspace: source, window: nil,
+                    sourceIndex: miri.windowManagement.activeWorkspace, targetIndex: targetIndex,
+                    targetWorkspace: destination, contextID: miri.windowManagement.activeLogicalSpaceContextID,
+                    focusGeneration: miri.focusStateGeneration, sessionGeneration: miri.sessionController.resumeGeneration
+                )
+                miri.workspaceBoundaryHold = hold
+                defer { miri.cancelWorkspaceBoundaryHold() }
+                miri.performWorkspaceBoundaryTransition(hold)
+                let expectedRow = fullscreen == .off ? (direction == .up ? 1 : 0) : rememberedRow
+                XCTAssertTrue(miri.activeWorkspaceObject() === destination)
+                XCTAssertTrue(miri.activeWindow() === windows[expectedRow])
+                XCTAssertEqual(destination.windows.map(\.title), windows.map(\.title))
+                if fullscreen != .off {
+                    XCTAssertEqual(destination.fullscreenState, .active)
+                    let visible = miri.layoutController.projectItems(
+                        viewport: viewport, state: miri.captureLayoutState(), parkHidden: true
+                    ).filter(\.visible)
+                    XCTAssertEqual(visible.count, 1)
+                    XCTAssertTrue(visible.first?.window === windows[rememberedRow])
+                    XCTAssertEqual(visible.first?.frame, viewport)
+                }
+            }
+        }
+    }
+
     func testWorkspaceFullscreenConsumesColumnNavigationAndResizeWithoutBlockingExternalFocus() async throws {
         _ = NSApplication.shared
         let screen = try XCTUnwrap(NSScreen.main)
