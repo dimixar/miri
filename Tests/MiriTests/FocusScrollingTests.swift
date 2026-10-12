@@ -418,6 +418,40 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
+    func testHorizontalFocusChoosesClosestRowCentersAndKeepsRememberedRowOnTies() throws {
+        let cases: [([CGFloat], Int, [CGFloat], Int, Int)] = [
+            ([0.5, 0.5], 0, [0.5, 0.5], 1, 0),
+            ([0.5, 0.5], 1, [0.5, 0.5], 0, 1),
+            ([0.4, 0.6], 0, [0.1, 0.2, 0.7], 2, 1),
+            ([1], 0, [0.5, 0.5], 1, 1),
+        ]
+        for (sourceShares, sourceRow, targetShares, remembered, expected) in cases {
+            for direction in [-1, 1] {
+                let (miri, workspace) = try fixture(
+                    alignment: .default,
+                    widths: Array(repeating: 0.5, count: sourceShares.count + targetShares.count),
+                    activeColumn: 0, scrollOffset: 0
+                )
+                miri.sessionController.pauseForUnavailableSession()
+                let windows = workspace.windows
+                let source = Column(windows: Array(windows.prefix(sourceShares.count)), activeRow: sourceRow, heightRatios: sourceShares)
+                let target = Column(windows: Array(windows.dropFirst(sourceShares.count)), activeRow: remembered, heightRatios: targetShares)
+                workspace.columns = direction > 0 ? [source, target] : [target, source]
+                workspace.activeColumn = direction > 0 ? 0 : 1
+                miri.focusColumn(by: direction, in: workspace, viewport: viewport)
+                XCTAssertTrue(workspace.activeWindow === target.windows[expected])
+                XCTAssertEqual(source.activeRow, sourceRow)
+                XCTAssertEqual(workspace.scrollOffset, 0, "Visible columns must not move the camera")
+                miri.focusColumn(by: direction, in: workspace, viewport: viewport)
+                XCTAssertTrue(workspace.activeWindow === target.windows[expected], "A clamped column move must not change rows")
+                workspace.activeColumn = direction > 0 ? 0 : 1
+                target.activeRow = remembered
+                XCTAssertTrue(miri.focusColumn(at: direction > 0 ? 1 : 0))
+                XCTAssertTrue(workspace.activeWindow === target.windows[expected], "First/last column navigation also follows geometry")
+            }
+        }
+    }
+
     func testFocusBetweenTwoVisibleWindowsKeepsFramesStationary() throws {
         for alignment in minimalRevealModes {
             let (miri, workspace) = try fixture(

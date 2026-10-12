@@ -336,14 +336,18 @@ extension Miri {
         // Resolve the old camera before changing focus, including an implicit
         // offset, so an already-visible target does not realign the strip.
         let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
+        let source = workspace.activeWindow
         windowManagement.setActiveColumn(workspace.activeColumn + delta, in: workspace)
+        focusClosestRow(in: workspace, to: source, viewport: viewport)
         windowManagement.setScrollOffset(scrollOffset, in: workspace)
         revealActiveColumnIfNeeded(in: workspace, viewport: viewport)
     }
 
     func focusColumn(at requestedIndex: Int) -> Bool {
-        guard activeWorkspaceObject()?.fullscreenState == .off else { return false }
+        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .off else { return false }
+        let source = workspace.activeWindow
         let result = windowManagement.focusColumn(at: requestedIndex)
+        focusClosestRow(in: workspace, to: source, viewport: currentViewport())
         if result.target < result.source {
             lastHorizontalFocusDirection = -1
             clearIntelligentResizeMemory()
@@ -352,6 +356,21 @@ extension Miri {
             clearIntelligentResizeMemory()
         }
         return result.changed
+    }
+
+    private func focusClosestRow(in workspace: Workspace, to source: ManagedWindow?, viewport: CGRect) {
+        guard let source, workspace.columns.indices.contains(workspace.activeColumn) else { return }
+        let column = workspace.columns[workspace.activeColumn]
+        guard column.windows.count > 1, !column.windows.contains(where: { $0 === source }) else { return }
+        let items = layoutController.projectItems(viewport: viewport, state: captureLayoutState(), parkHidden: false)
+        guard let sourceFrame = items.first(where: { $0.window === source })?.frame else { return }
+        let centers = column.windows.map { window in items.first { $0.window === window }!.frame.midY }
+        var closest = column.activeRow
+        for row in centers.indices where abs(centers[row] - sourceFrame.midY) < abs(centers[closest] - sourceFrame.midY) {
+            closest = row
+        }
+        // An exact tie keeps the destination's remembered row.
+        column.activeRow = closest
     }
 
     func moveActiveColumnHorizontally(by delta: Int) -> Bool {
