@@ -36,6 +36,10 @@ current scope and have not been tested.
 ## Features
 
 - **Niri-like columns.** A keyboard-first horizontal column layout for macOS.
+- **Optional stacked rows.** Up to three windows per column, with independent
+  height presets and shared width. New windows still open in separate columns.
+  Row-edge workspace navigation requires a configurable hold, with glass pill
+  feedback and cancellation on release.
 - **Configurable focus alignment.** Choose how the layout responds to focus changes:
 
   - **Default:** Keep the current view and scroll only enough to fully reveal
@@ -156,16 +160,17 @@ unless configured otherwise.
 | :-- | :-- |
 | `LAlt+1`..`LAlt+9` | Focus workspace by dynamic index |
 | `LAlt+0` | Focus previous workspace |
-| `LAlt+J` / `LAlt+K` | Focus workspace down / up |
+| `LAlt+J` / `LAlt+K` | Focus row down / up; hold at the edge to change workspace |
 | `LAlt+H` / `LAlt+L` | Focus column left / right |
 | `LAlt+[` / `LAlt+]` | Focus first / last column |
 | `LAlt+Home` / `LAlt+End` | Focus first / last column |
 | `LAlt+Shift+1`..`LAlt+Shift+9` | Move column to workspace |
-| `LAlt+Shift+J` / `LAlt+Shift+K` | Move column workspace down / up |
-| `LAlt+Shift+H` / `LAlt+Shift+L` | Move column left / right |
+| `LAlt+Shift+J` / `LAlt+Shift+K` | Reorder row down / up; hold at the edge to move that window to another workspace |
+| `LAlt+Shift+H` / `LAlt+Shift+L` | Move focused window into the adjacent column or a new column |
 | `LAlt+Shift+[` / `LAlt+Shift+]` | Move column to first / last |
 | `LAlt+Shift+F` | Toggle workspace fullscreen |
 | `LAlt+Ctrl+F` | Toggle focused window floating/tiled |
+| `LAlt+Ctrl+J` / `LAlt+Ctrl+K` | Smaller / larger row height preset (no wrapping) |
 | `LAlt+Ctrl+H` / `LAlt+Ctrl+L` | Cycle active column width preset |
 | `LAlt+Ctrl+-` / `LAlt+Ctrl+=` | Nudge active column width |
 | `LAlt+Ctrl+Shift+H` / `LAlt+Ctrl+Shift+L` | Cycle every tiled window width preset |
@@ -173,6 +178,11 @@ unless configured otherwise.
 
 Shortcut handling can use either a CG event tap or Carbon registered hot keys.
 See [Configuration](docs/configuration.md#shortcuts).
+
+Stacking is disabled by default. Choose two or three rows under Settings →
+Layout → Stacked columns, then use LAlt+Shift+H/L to join windows. Boundary holds
+default to 750ms; release cancels, and each crossing requires a fresh press.
+Explicit older bindings are preserved rather than replaced with new defaults.
 
 Workspace fullscreen fills the usable workspace with the focused tiled window,
 without entering native macOS fullscreen or changing normal width ratios.

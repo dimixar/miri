@@ -68,6 +68,17 @@ at startup, so disabling it in System Settings stays respected.
 
 - `default_width_ratio`: default column width as a fraction of the viewport.
 - `preset_width_ratios`: ratios used by width cycling commands.
+- `rows_per_column`: maximum rows per column, `1...3`, default `1`. A single
+  window fills the height; new windows always create a separate column. Lowering
+  capacity splits excess rows into adjacent columns and preserves focus.
+- `height_preset_ratios`: sorted, unique fractions between `0` and `1`, default
+  `[0.25, 1/3, 0.5, 2/3, 0.75]`. Height cycling stops at the end rather than
+  wrapping; siblings redistribute proportionally. Stable WindowServer readback
+  learns app-imposed minimum heights. If minimum heights cannot fit, excess rows
+  become separate columns instead of overlapping. Minimums are learned per run.
+- `workspace_boundary_hold_ms`: duration for relative workspace navigation and
+  row-edge transfers, clamped to `250...2000`, default `750`. Settings → Layout
+  exposes it alongside stacking capacity and height presets.
 - `focus_alignment`: `default`, `centered`, or `centered_smart`. Default moves
   only enough to fully reveal the focused window. Centered always centers it.
   Centered smart always centers a workspace's only tiled window. With multiple
@@ -115,8 +126,8 @@ at startup, so disabling it in System Settings stays respected.
   jumps back to the previous workspace. It defaults to `false`; the dedicated
   `focus_previous_workspace` command provides explicit back-and-forth behavior.
 - `inner_gap` / `outer_gap`: layout gaps in physical pixels. `inner_gap`
-  applies only between adjacent columns; `outer_gap` independently insets the
-  usable display viewport. Values are converted using the display's backing
+  applies between adjacent columns and stacked rows; `outer_gap` independently
+  insets the usable display viewport. Values are converted using the display's backing
   scale and final frame edges are aligned to physical pixels.
 - `parked_sliver_width`: number of pixels left visible in each axis when real
   windows are parked beyond the lower-left or lower-right display corner
@@ -186,6 +197,38 @@ managed window is focused.
 
 `keybindings` is merged with built-in defaults by action name. Set an action to
 `[]` to disable it. `excluded_keybindings` always wins when using `event_tap`.
+
+`row_down` / `row_up` default to `lalt+j` / `lalt+k`: focus the next/previous
+row, or hold at the bottom/top boundary to switch workspace. Repeats that started
+within a stack cannot arm a boundary crossing; release and press again at the edge.
+In workspace fullscreen, these shortcuts always use held next/previous workspace
+navigation, regardless of the hidden row position. They preserve each workspace's
+remembered focus and fullscreen state rather than focusing a boundary row.
+`move_window_down` / `move_window_up` use Shift with those keys: reorder the
+focused row, or hold at the boundary to move only that window to a new column in
+the next/previous workspace. Moving down beyond the last workspace creates the
+next workspace only after the hold commits. Numbered workspace commands remain immediate.
+
+`move_window_left` / `move_window_right` default to `lalt+shift+h` /
+`lalt+shift+l`. They join an adjacent column if it has capacity. Otherwise they
+create a standalone column beyond it. At the strip edge, a stacked window
+detaches; an already standalone edge window stays put. Joining adopts the
+destination width, and detaching restores the window's standalone preference.
+`cycle_height_preset_backward` / `cycle_height_preset_forward` default to
+`lalt+ctrl+j` / `lalt+ctrl+k`.
+
+Relative workspace commands show a readable glass/accent pill at the relevant
+screen edge. It grows into a fixed outline during the hold. Cancellation shrinks
+it for 150ms, then fades for 150ms; completion keeps the final size while fading
+for 200ms. Each press commits at most one transition. Key/modifier release,
+conflicting input, focus/context changes, session suspension, and input
+reconfiguration cancel pending holds without moving windows.
+
+Legacy `workspace_down` / `workspace_up` still switch whole workspaces, and
+`move_column_down` / `move_column_up` still transfer whole columns, now with
+the relative-workspace hold safeguard. Explicit old bindings suppress conflicting
+inherited row/window defaults. To adopt the new workflow, clear the old binding
+and assign it to the corresponding row/window action in Settings → Shortcuts.
 
 `toggle_workspace_fullscreen` defaults to `lalt+shift+f` and is editable under
 Settings → Shortcuts → Workspace fullscreen. It toggles a temporary full-workspace
