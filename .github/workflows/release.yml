@@ -154,7 +154,7 @@ jobs:
     name: Build macOS DMG
     needs: preflight
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -166,12 +166,20 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '26'
+          xcode-version: '27.0'
 
-      - name: Show toolchain
+      - name: Verify toolchain matches local development
         run: |
-          swift --version
-          xcodebuild -version || true
+          set -euo pipefail
+          xcode_version="$(xcodebuild -version)"
+          swift_version="$(swift --version)"
+          printf '%s\n' "$xcode_version" "$swift_version"
+
+          if [[ "$xcode_version" != $'Xcode 27.0\nBuild version 27A266a' ||
+                "$swift_version" != *'Apple Swift version 6.4 (swiftlang-6.4.0.34.1 '* ]]; then
+            echo "::error::Expected Xcode 27.0 (27A266a) with Apple Swift 6.4 (swiftlang-6.4.0.34.1)."
+            exit 1
+          fi
 
       - name: Package DMG
         run: |
