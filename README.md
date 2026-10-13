@@ -23,7 +23,10 @@ independently and is no longer a fork.
 ## Status
 
 miri is **source-first**: build with Swift or package a local app using the
-commands below. GitHub Releases are not currently provided.
+commands below. If you're comfortable with ad-hoc signed, non-notarized builds,
+you can download the latest Apple Silicon DMG from
+[GitHub Releases](https://github.com/dimixar/miri/releases), including nightly
+prereleases.
 
 It is designed and tested for **one MacBook built-in display**. External and
 multi-display configurations are outside the current scope and untested.
@@ -79,6 +82,21 @@ app rather than for a packaged `Miri.app`. See
 [permission troubleshooting](docs/troubleshooting.md#permissions).
 
 ## Install And Run
+
+Download a `.dmg` from [Releases](https://github.com/dimixar/miri/releases), open
+it, and drag **Miri.app** into **Applications**.
+
+These builds are **ad-hoc signed, not Apple-notarized**. Browser downloads are
+quarantined by macOS, which may block the first launch. If you trust the download,
+run this in Terminal after copying the app to Applications and before opening it:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Miri.app
+open /Applications/Miri.app
+```
+
+This removes quarantine only from Miri, not system-wide. Repeat for a newly
+downloaded build if macOS quarantines it again.
 
 Build and run from source:
 
