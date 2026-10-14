@@ -311,6 +311,21 @@ and a current full rescan. See the
 
 ## Menu Bar
 
+New visible system notifications mark their source app with an underline in
+the same adaptive system color as the workspace text. Underlines sit beneath
+the icons and numbers, inside their workspace outlines.
+Stacked columns share one underline, and workspace numbers are underlined when
+any app in that workspace needs attention, including hidden columns and
+remembered fullscreen windows. Focusing an app clears its attention across all
+workspaces; other apps' marks remain. Switching workspaces alone does not clear
+them. Notifications from the frontmost app do not create a mark.
+
+Detection uses Accessibility events from Notification Center, not continuous
+polling or its database. Native notifications remain untouched. Existing
+banners are ignored when monitoring starts, and attention is kept only in
+memory and cleared on lock, sleep or quit. Notifications hidden by macOS and
+sources that cannot be identified unambiguously are not marked.
+
 - `workspace_bar_use_custom_colors`: use the saved highlight and
   delimiter/border colors instead of the current macOS system accent color.
   Defaults to `false`. In system-color mode, low-contrast accents are lightened
