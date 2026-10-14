@@ -340,40 +340,60 @@ final class FocusScrollingTests: XCTestCase {
         XCTAssertNil(feedbackPanel(), "Unavailable sessions must not show feedback")
     }
 
-    func testWorkspaceFullscreenTransfersAcrossWorkspacesAndClearsWhenLastWindowCloses() throws {
-        let (miri, source) = try fixture(
-            alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
-        )
-        miri.sessionController.pauseForUnavailableSession()
-        miri.windowManagement.ensureWorkspaceExists(1)
-        let destination = miri.windowManagement.workspaces[1]
-        let target = source.windows[2]
-        _ = miri.windowManagement.insert(target, in: destination, at: 0, focus: false)
-        miri.perform(.toggleWorkspaceFullscreen)
+    func testExternalFocusKeepsFullscreenInItsWorkspaceAndClearsWhenLastWindowCloses() throws {
+        for sourceState: WorkspaceFullscreenState in [.active, .suspended] {
+            for destinationState: WorkspaceFullscreenState in [.off, .active, .suspended] {
+                let (miri, source) = try fixture(
+                    alignment: .default, widths: [0.28, 0.67, 0.4], activeColumn: 1, scrollOffset: 45
+                )
+                miri.sessionController.pauseForUnavailableSession()
+                miri.windowManagement.ensureWorkspaceExists(1)
+                let destination = miri.windowManagement.workspaces[1]
+                let target = source.windows[2]
+                _ = miri.windowManagement.insert(target, in: destination, at: 0, focus: false)
+                miri.perform(.toggleWorkspaceFullscreen)
+                if sourceState == .suspended {
+                    XCTAssertTrue(miri.windowManagement.suspendWorkspaceFullscreen())
+                }
+                destination.fullscreenState = destinationState
+                let sourceFocus = try XCTUnwrap(source.activeWindow)
+                let destinationFullscreen = destinationState != .off
+                let expectedDestinationState: WorkspaceFullscreenState = destinationFullscreen ? .active : .off
 
-        XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
-        XCTAssertEqual(miri.windowManagement.activeWorkspace, 1)
-        XCTAssertEqual(source.fullscreenState, .off)
-        XCTAssertEqual(destination.fullscreenState, .active)
-        XCTAssertEqual(projectedFrames(miri)[2], viewport)
-        var summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
-        XCTAssertFalse(summaries[0].isWorkspaceFullscreen)
-        XCTAssertTrue(summaries[1].isWorkspaceFullscreen)
-        XCTAssertEqual(summaries[1].lastFocusedWindow?.title, target.title)
+                XCTAssertTrue(miri.adoptFocusedElement(target.element, pid: target.pid, applyLayout: false))
+                XCTAssertEqual(miri.windowManagement.activeWorkspace, 1)
+                XCTAssertEqual(source.fullscreenState, sourceState)
+                XCTAssertTrue(source.activeWindow === sourceFocus)
+                XCTAssertEqual(destination.fullscreenState, expectedDestinationState)
+                XCTAssertEqual(projectedFrames(miri)[2].width, destinationFullscreen ? 1200 : 480)
+                XCTAssertEqual(projectedFrames(miri)[2].height, 800)
+                var summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
+                XCTAssertTrue(summaries[0].isWorkspaceFullscreen)
+                XCTAssertEqual(summaries[1].isWorkspaceFullscreen, destinationFullscreen)
+                XCTAssertEqual(summaries[1].lastFocusedWindow?.title, target.title)
 
-        // Explicit workspace navigation leaves each workspace's mode in place.
-        XCTAssertTrue(miri.focusWorkspace(1))
-        XCTAssertEqual(source.fullscreenState, .off)
-        XCTAssertEqual(destination.fullscreenState, .active)
-        summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
-        XCTAssertFalse(summaries[1].isActive)
-        XCTAssertTrue(summaries[1].isWorkspaceFullscreen)
-        XCTAssertEqual(summaries[1].lastFocusedWindow?.title, target.title)
-        XCTAssertTrue(miri.focusWorkspace(2))
-        miri.windowManagement.remove(target)
-        XCTAssertEqual(destination.fullscreenState, .off)
-        XCTAssertFalse(miri.currentWorkspaceBarStatus().workspaceSummaries[1].isWorkspaceFullscreen)
-        XCTAssertFalse(miri.windowManagement.toggleWorkspaceFullscreen())
+                // Returning through external focus resumes only the source's own mode.
+                XCTAssertTrue(miri.adoptFocusedElement(sourceFocus.element, pid: sourceFocus.pid, applyLayout: false))
+                XCTAssertEqual(miri.windowManagement.activeWorkspace, 0)
+                XCTAssertEqual(source.fullscreenState, .active)
+                XCTAssertEqual(destination.fullscreenState, expectedDestinationState)
+                XCTAssertEqual(projectedFrames(miri)[1], viewport)
+
+                // Explicit workspace navigation also leaves each workspace's mode in place.
+                XCTAssertTrue(miri.focusWorkspace(2))
+                XCTAssertEqual(source.fullscreenState, .active)
+                XCTAssertEqual(destination.fullscreenState, expectedDestinationState)
+                summaries = miri.currentWorkspaceBarStatus().workspaceSummaries
+                XCTAssertFalse(summaries[0].isActive)
+                XCTAssertTrue(summaries[0].isWorkspaceFullscreen)
+                XCTAssertEqual(summaries[1].isWorkspaceFullscreen, destinationFullscreen)
+                miri.windowManagement.remove(target)
+                XCTAssertEqual(destination.fullscreenState, .off)
+                XCTAssertEqual(source.fullscreenState, .active)
+                XCTAssertFalse(miri.currentWorkspaceBarStatus().workspaceSummaries[1].isWorkspaceFullscreen)
+                XCTAssertFalse(miri.windowManagement.toggleWorkspaceFullscreen())
+            }
+        }
     }
 
     func testWorkspaceFullscreenPreservesLayoutForExcludedFocusAndFollowsReplacementWindow() throws {

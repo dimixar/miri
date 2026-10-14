@@ -841,13 +841,7 @@ final class WindowManagement {
 
     @discardableResult
     func resumeWorkspaceFullscreen(in target: Workspace) -> Bool {
-        let source = activeWorkspaceObject()
         let previousState = target.fullscreenState
-        if let source, source !== target, source.fullscreenState != .off {
-            source.fullscreenState = .off
-            target.fullscreenState = .active
-            return true
-        }
         if target.fullscreenState == .suspended {
             target.fullscreenState = .active
         }
