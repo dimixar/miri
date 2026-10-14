@@ -236,13 +236,14 @@ and assign it to the corresponding row/window action in Settings → Shortcuts.
 Settings → Shortcuts → Workspace fullscreen. It toggles a temporary full-workspace
 override for the focused tiled window, preserving normal ratios. Column navigation,
 width shortcuts, and drag-layout gestures are disabled while enabled. External
-focus changes transfer the override to the focused tiled window; toggling off
-restores normal tiling with that window focused. This is separate from native
-macOS fullscreen and does not create a macOS Space.
+focus changes within that workspace apply the override to the focused tiled
+window; toggling off restores normal tiling with that window focused. This is
+separate from native macOS fullscreen and does not create a macOS Space.
 
-Cmd-Tab, Cmd-grave, and Dock/window activation transfer the override even across
-Miri workspaces. Explicit workspace navigation keeps each workspace's mode in
-place. Unmanaged focus suspends the override until a tiled window regains focus.
+Cmd-Tab, Cmd-grave, Dock/window activation, and explicit workspace navigation
+keep each workspace's mode in place. Focusing a tiled window resumes only its
+own workspace's suspended override; it does not inherit another workspace's mode.
+Unmanaged focus suspends the override until a tiled window regains focus.
 The mode is not saved across restarts.
 
 `toggle_window_floating` defaults to `lalt+ctrl+f` and is editable under
