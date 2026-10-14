@@ -810,7 +810,7 @@ final class WindowManagement {
     func setWidthRatio(_ ratio: CGFloat?, for window: ManagedWindow) {
         if let column = logicalSpaceContexts.flatMap(\.workspaces).flatMap(\.columns).first(where: { $0.windows.contains { $0 === window } }) {
             column.widthRatio = ratio
-            if column.windows.count == 1 { window.manualWidthRatio = ratio }
+            for member in column.windows { member.manualWidthRatio = ratio }
         } else { window.manualWidthRatio = ratio }
     }
 

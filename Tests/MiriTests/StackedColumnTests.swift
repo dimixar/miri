@@ -124,11 +124,54 @@ final class StackedColumnTests: XCTestCase {
         XCTAssertEqual(second.manualWidthRatio, 0.7)
         management.setWidthRatio(0.6, for: second)
         XCTAssertEqual(workspace.columns[0].widthRatio, 0.6)
-        XCTAssertEqual(second.manualWidthRatio, 0.7)
+        XCTAssertEqual(first.manualWidthRatio, 0.6)
+        XCTAssertEqual(second.manualWidthRatio, 0.6)
         XCTAssertTrue(management.moveActiveWindowHorizontally(by: 1, capacity: 3))
-        XCTAssertEqual(workspace.columns[1].widthRatio, 0.7)
+        XCTAssertEqual(workspace.columns[1].widthRatio, 0.6)
         XCTAssertTrue(workspace.activeWindow === second)
         XCTAssertFalse(management.moveActiveWindowHorizontally(by: 1, capacity: 3))
+    }
+
+    func testMinimizedWindowsRememberVisibleWidthAndSurvivingColumnWinsOnRestore() throws {
+        for survives in [false, true] {
+            let miri = try coordinator()
+            let workspace = try XCTUnwrap(miri.activeWorkspaceObject())
+            let first = window(1, width: 0.3), second = window(2, width: 0.7)
+            miri.insertNewWindow(first, applyLayout: false)
+            miri.insertNewWindow(second, applyLayout: false)
+            XCTAssertTrue(miri.windowManagement.moveActiveWindowHorizontally(by: -1, capacity: 3))
+            XCTAssertEqual(miri.widthRatio(for: second), 0.3)
+            XCTAssertEqual(second.manualWidthRatio, 0.7, "Joining must preserve the standalone preference")
+
+            miri.rememberMinimizedWindowState(second)
+            miri.removeWindow(second)
+            if survives {
+                miri.windowManagement.setWidthRatio(0.8, for: first)
+            } else {
+                miri.rememberMinimizedWindowState(first)
+                miri.removeWindow(first)
+                XCTAssertTrue(workspace.isEmpty)
+            }
+
+            let expectedWidth: CGFloat = survives ? 0.8 : 0.3
+            for cycle in 0..<2 {
+                let restored = ManagedWindow(element: second.element, pid: second.pid, windowID: second.windowID,
+                                             bundleID: second.bundleID, appName: second.appName, title: second.title)
+                XCTAssertTrue(miri.upsertDiscoveredWindow(restored))
+                XCTAssertEqual(workspace.columns.count, 1)
+                XCTAssertEqual(workspace.windows.count, survives ? 2 : 1)
+                XCTAssertEqual(restored.manualWidthRatio, cycle == 0 ? 0.3 : expectedWidth)
+                XCTAssertEqual(miri.widthRatio(for: restored), expectedWidth)
+                for item in project(workspace.columns[0]) {
+                    // The left edge is flush; half the 12-pixel gap at 2× removes 3 points on the right.
+                    XCTAssertEqual(item.frame.width, survives ? 797 : 297, accuracy: 0.5)
+                }
+                if cycle == 0 {
+                    miri.rememberMinimizedWindowState(restored)
+                    miri.removeWindow(restored)
+                }
+            }
+        }
     }
 
     func testFullNeighborCreatesColumnPastItAndDefaultCapacityDoesNotStack() throws {

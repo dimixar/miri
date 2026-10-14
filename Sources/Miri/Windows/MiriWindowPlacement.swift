@@ -193,7 +193,7 @@ extension Miri {
                 identity: persistentIdentity(for: window),
                 workspace: location.workspaceIndex,
                 column: location.columnIndex,
-                manualWidthRatio: window.manualWidthRatio
+                manualWidthRatio: widthRatio(for: window)
             ),
             pid: window.pid
         )
