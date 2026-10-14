@@ -52,6 +52,7 @@ extension Miri {
 
     private func pauseLayoutTrackingForSession() {
         sessionController.pauseForUnavailableSession()
+        notificationAttentionController.stop()
         pendingSessionRecoveryCommands.removeAll()
         pendingSessionRecoveryLaunchedPIDs.removeAll()
         windowManagement.observation.configurePeriodicTimer(enabled: false, interval: windowReconciliationInterval)

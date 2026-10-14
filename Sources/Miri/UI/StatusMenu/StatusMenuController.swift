@@ -383,12 +383,20 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         defer { image.unlockFocus() }
 
         var x = paddingX
-        let yText: CGFloat = 2 + verticalOutset
-        let yIcon: CGFloat = (height - iconSize) / 2
+        // Reserve space inside each content box, not below the workspace border.
+        let attentionLane: CGFloat = 4
+        let columnContentHeight = iconBox - attentionLane
+        let yText: CGFloat = 3 + verticalOutset
         let yIconBox: CGFloat = (height - iconBox) / 2
+        let yIcon: CGFloat = yIconBox + attentionLane + (columnContentHeight - iconSize) / 2
+        func drawAttentionLine(centerX: CGFloat, width: CGFloat = 10) {
+            NSColor.labelColor.setFill()
+            NSBezierPath(roundedRect: NSRect(x: centerX - width / 2, y: yIconBox + 2, width: width, height: 1.5),
+                         xRadius: 0.75, yRadius: 0.75).fill()
+        }
         func drawColumn(_ windows: [MiriWorkspaceBarWindow], focusedRow: Int?, at x: CGFloat) {
             guard !windows.isEmpty else { return }
-            let rowHeight = iconBox / CGFloat(windows.count)
+            let rowHeight = columnContentHeight / CGFloat(windows.count)
             for (row, window) in windows.enumerated() {
                 let box = NSRect(x: x, y: yIconBox + iconBox - CGFloat(row + 1) * rowHeight, width: iconBox, height: rowHeight)
                 if row == focusedRow {
@@ -414,12 +422,21 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 outline.lineWidth = 1
                 outline.stroke()
             }
+            if windows.contains(where: \.needsAttention) {
+                drawAttentionLine(centerX: x + iconBox / 2)
+            }
         }
         var firstWorkspace = true
         for summary in workspaceSummaries {
             if !firstWorkspace { x += textGap }
             firstWorkspace = false
             let label = workspaceLabelRun(workspace: summary.workspace, isActive: summary.isActive && !summary.isWorkspaceFullscreen, style: activeStyle)
+            let number = "\(summary.workspace)"
+            let prefix = String(label.text.prefix { !$0.isNumber })
+            let numberPadding: CGFloat = summary.isWorkspaceFullscreen ? fullscreenPadding
+                : (summary.isActive && activeStyle.hasBorder ? 4 + configuredBorderOutset : 0)
+            let numberCenter = x + numberPadding + (prefix as NSString).size(withAttributes: label.attributes).width
+                + (number as NSString).size(withAttributes: label.attributes).width / 2
             if summary.isWorkspaceFullscreen {
                 let enclosedIconWidth: CGFloat = !summary.isActive && summary.lastFocusedWindow != nil ? iconBox : 0
                 drawWorkspaceFullscreenFrame(
@@ -443,6 +460,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                     color: delimiterColor
                 )
             }
+            if summary.needsAttention { drawAttentionLine(centerX: numberCenter, width: 7) }
 
             if !summary.isActive, let window = summary.lastFocusedWindow {
                 let column = !summary.isWorkspaceFullscreen && !summary.lastFocusedColumn.isEmpty
@@ -530,6 +548,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             firstFullscreenGroup = false
             let label = "\(group.workspace)"
             (label as NSString).draw(at: CGPoint(x: x, y: yText), withAttributes: textAttrs)
+            if group.windows.contains(where: \.needsAttention) {
+                drawAttentionLine(centerX: x + textWidth(label) / 2, width: 7)
+            }
             x += textWidth(label)
             x += 2
             for window in group.windows {
@@ -539,6 +560,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                     operation: .sourceOver,
                     fraction: 1
                 )
+                if window.needsAttention { drawAttentionLine(centerX: x + iconBox / 2) }
                 x += iconBox
             }
         }

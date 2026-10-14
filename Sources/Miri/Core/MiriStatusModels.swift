@@ -29,6 +29,7 @@ struct MiriWorkspaceSummary: Equatable {
     let lastFocusedWindow: MiriWorkspaceBarWindow?
     let appNames: [String]
     let lastFocusedColumn: [MiriWorkspaceBarWindow]
+    var needsAttention = false
 }
 
 struct MiriWorkspaceBarStatus: Equatable {
@@ -45,6 +46,7 @@ struct MiriWorkspaceBarWindow: Equatable {
     let bundleID: String?
     let appName: String
     let title: String
+    var needsAttention = false
 }
 
 struct MiriWorkspaceBarFullscreenWindow: Equatable {

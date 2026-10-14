@@ -156,6 +156,8 @@ enum WorkspaceEvent {
 
 enum WindowEvent {
     case accessibilityNotification(name: String, element: AXUIElement)
+    case notificationCenterChanged
+    case notificationAttentionChanged
     case reconciliationRequested(ReconciliationIntent)
     case environmentGuardEvaluated(blocked: Bool, recovered: Bool)
 }

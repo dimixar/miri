@@ -461,6 +461,7 @@ extension Miri {
         reconciliationDrainScheduled = false
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         appPhase = .running
+        notificationAttentionController.start()
 
         for pid in launchedWhileUnavailable {
             guard let app = NSRunningApplication(processIdentifier: pid) else { continue }

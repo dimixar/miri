@@ -708,6 +708,7 @@ final class AXOperationController {
     func registerObserver(
         pid: pid_t,
         notifications: [String],
+        coalescingKey: String = "observer-registration",
         callback: @escaping AXObserverCallback,
         refcon: UnsafeMutableRawPointer,
         completion: @escaping @MainActor (AXOperationResult<AXObserverRegistration>) -> Void
@@ -716,7 +717,7 @@ final class AXOperationController {
         let refconBits = UInt(bitPattern: refcon)
         submit(
             pid: pid,
-            key: "observer-registration",
+            key: coalescingKey,
             priority: .background,
             operationName: "observer-registration",
             operationBudget: miriAXObserverRegistrationBudget,
@@ -750,6 +751,76 @@ final class AXOperationController {
                 return (AXObserverRegistration(observer: observer, notificationErrors: errors), .success)
             },
             completion: completion
+        )
+    }
+
+    func readNotificationCenter(
+        pid: pid_t,
+        completion: @escaping @MainActor (AXOperationResult<[NotificationAXNode]>) -> Void
+    ) {
+        submit(
+            pid: pid, key: "notification-banners", priority: .background,
+            operationName: "notification-banners", operationBudget: miriAXWindowReadBudget,
+            operation: {
+                struct ReadFailure: Error { let error: AXError }
+                let app = AXUIElementCreateApplication(pid)
+                let deadline = CFAbsoluteTimeGetCurrent() + miriAXWindowReadBudget
+                var remaining = 384
+                func value(_ element: AXUIElement, _ attribute: String) throws -> CFTypeRef? {
+                    guard CFAbsoluteTimeGetCurrent() < deadline else { throw ReadFailure(error: .cannotComplete) }
+                    var raw: CFTypeRef?
+                    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &raw)
+                    if error == .noValue { return nil }
+                    if error == .attributeUnsupported, attribute != kAXFocusedWindowAttribute { return nil }
+                    guard error == .success else { throw ReadFailure(error: error) }
+                    return raw
+                }
+                func string(_ element: AXUIElement, _ attribute: String) throws -> String {
+                    guard let raw = try value(element, attribute) else { return "" }
+                    let text: String
+                    if let attributed = raw as? NSAttributedString { text = attributed.string }
+                    else if let plain = raw as? String { text = plain }
+                    else { throw ReadFailure(error: .failure) }
+                    guard text.utf8.count <= 50_000 else { throw ReadFailure(error: .failure) }
+                    return text
+                }
+                func elements(_ element: AXUIElement, _ attribute: String, maximum: Int) throws -> [AXUIElement] {
+                    guard let raw = try value(element, attribute) else { return [] }
+                    guard let children = raw as? [AXUIElement], children.count <= maximum else { throw ReadFailure(error: .failure) }
+                    return children
+                }
+                func node(_ element: AXUIElement, depth: Int) throws -> NotificationAXNode {
+                    guard depth <= 12, remaining > 0 else { throw ReadFailure(error: .failure) }
+                    remaining -= 1
+                    let role = try string(element, kAXRoleAttribute)
+                    let subrole = try string(element, kAXSubroleAttribute)
+                    let description: String
+                    if role == "AXImage" { description = try string(element, kAXDescriptionAttribute) }
+                    else if role == "AXGroup" || subrole.hasPrefix("AXNotificationCenter") {
+                        description = try string(element, "AXAttributedDescription")
+                    }
+                    else { description = "" }
+                    return try NotificationAXNode(
+                        element: element, role: role, subrole: subrole,
+                        identifier: string(element, kAXIdentifierAttribute),
+                        text: role == "AXStaticText" ? string(element, kAXValueAttribute) : "",
+                        description: description,
+                        children: elements(element, kAXChildrenAttribute, maximum: 64).map { try node($0, depth: depth + 1) }
+                    )
+                }
+                do {
+                    // Opening the center exposes history, not incoming banners.
+                    guard try value(app, kAXFocusedWindowAttribute) == nil else { return (nil, .success) }
+                    let windows = try elements(app, kAXWindowsAttribute, maximum: 32)
+                    let nodes = try windows.map { try node($0, depth: 0) }
+                    guard CFAbsoluteTimeGetCurrent() < deadline else { return (nil, .cannotComplete) }
+                    return (nodes, .success)
+                } catch let failure as ReadFailure {
+                    return (nil, failure.error)
+                } catch {
+                    return (nil, .failure)
+                }
+            }, completion: completion
         )
     }
 

@@ -32,6 +32,11 @@ final class Miri: NSObject, NSApplicationDelegate {
     lazy var windowManagement = WindowManagement(axOperations: axOperations) { [weak self] event in
         self?.enqueue(event)
     }
+    lazy var notificationAttentionController = NotificationAttentionController(
+        axOperations: axOperations,
+        applications: { [weak self] in self?.notificationSourceApplications() ?? [] },
+        emit: { [weak self] event in self?.enqueue(event) }
+    )
     var fullscreenTransitionGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardUntil: CFAbsoluteTime = 0
     var fullscreenSpaceChangeGuardStartedGeneration: UInt64 = 0
@@ -156,6 +161,7 @@ final class Miri: NSObject, NSApplicationDelegate {
         lastActivatedApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         appPhase = sessionController.isLayoutTrackingAllowed ? .running : .sessionUnavailable
         if sessionController.isLayoutTrackingAllowed {
+            notificationAttentionController.start()
             beginStartupDiscoveryAfterTransientRefresh(generation: sessionController.resumeGeneration)
         } else {
             print("miri: layout tracking paused because the user session is unavailable")

@@ -54,7 +54,8 @@ extension Miri {
     }
 
     func workspaceSummaries(snapshot: WorkspaceModelSnapshot) -> [MiriWorkspaceSummary] {
-        snapshot.workspaces.enumerated().map { index, workspace in
+        let attention = notificationAttentionController.state.bundleIDs
+        return snapshot.workspaces.enumerated().map { index, workspace in
             let focusedWindow: MiriWorkspaceBarWindow?
             if workspace.columns.isEmpty {
                 focusedWindow = nil
@@ -69,13 +70,34 @@ extension Miri {
                 isWorkspaceFullscreen: workspace.fullscreenState != .off,
                 lastFocusedWindow: focusedWindow,
                 appNames: appNames,
-                lastFocusedColumn: workspace.columns.isEmpty ? [] : workspace.columns[workspace.activeColumn].windows.map(workspaceBarWindow)
+                lastFocusedColumn: workspace.columns.isEmpty ? [] : workspace.columns[workspace.activeColumn].windows.map(workspaceBarWindow),
+                needsAttention: workspace.windows.contains { $0.bundleID.map(attention.contains) ?? false }
+                    || windowManagement.fullscreenWindowStates.values.contains {
+                        $0.workspace == index && ($0.bundleID.map(attention.contains) ?? false)
+                    }
             )
         }
     }
 
     func workspaceBarWindow(_ window: ManagedWindow) -> MiriWorkspaceBarWindow {
-        MiriWorkspaceBarWindow(bundleID: window.bundleID, appName: window.appName, title: window.title)
+        MiriWorkspaceBarWindow(
+            bundleID: window.bundleID, appName: window.appName, title: window.title,
+            needsAttention: window.bundleID.map(notificationAttentionController.state.bundleIDs.contains) ?? false
+        )
+    }
+
+    func notificationSourceApplications() -> [NotificationApplication] {
+        let managed = windowManagement.snapshot().workspaces.flatMap(\.windows).compactMap { window in
+            window.bundleID.map { NotificationApplication(name: window.appName, bundleID: $0) }
+        }
+        let fullscreen = windowManagement.fullscreenWindowStates.values.compactMap { window in
+            window.bundleID.map { NotificationApplication(name: window.appName, bundleID: $0) }
+        }
+        let running = NSWorkspace.shared.runningApplications.compactMap { app -> NotificationApplication? in
+            guard let name = app.localizedName, let bundleID = app.bundleIdentifier else { return nil }
+            return NotificationApplication(name: name, bundleID: bundleID)
+        }
+        return Array(Set(managed + fullscreen + running))
     }
 
     func fullscreenWorkspaceBarWindows() -> [MiriWorkspaceBarFullscreenWindow] {
@@ -98,7 +120,8 @@ extension Miri {
                     window: MiriWorkspaceBarWindow(
                         bundleID: state.bundleID,
                         appName: state.appName,
-                        title: state.title
+                        title: state.title,
+                        needsAttention: state.bundleID.map(notificationAttentionController.state.bundleIDs.contains) ?? false
                     )
                 )
             }

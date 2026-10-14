@@ -107,6 +107,10 @@ extension Miri {
             handleCoordinatorWorkspace(workspace)
         case .windows(.accessibilityNotification(let name, let element)):
             handleAXNotificationImplementation(name, element: element)
+        case .windows(.notificationCenterChanged):
+            notificationAttentionController.scheduleScan()
+        case .windows(.notificationAttentionChanged):
+            notifyWorkspaceBarNeedsRefresh()
         case .windows(.reconciliationRequested(var intent)):
             intent.id = sequence
             admitReconciliation(intent)
@@ -195,12 +199,15 @@ extension Miri {
     @MainActor private func handleCoordinatorWorkspace(_ event: WorkspaceEvent) {
         switch event {
         case .applicationActivated(let app):
+            notificationAttentionController.applicationActivated(app)
             applicationActivatedImplementation(app)
         case .applicationActivationSettled(let app):
             applicationActivationSettledImplementation(app)
         case .applicationLaunched(let app):
+            notificationAttentionController.applicationLifecycleChanged(app)
             applicationLaunchedImplementation(app)
         case .applicationTerminated(let app):
+            notificationAttentionController.applicationLifecycleChanged(app)
             applicationTerminatedImplementation(app)
         case .activeSpaceChanged:
             activeSpaceChangedImplementation()
@@ -491,6 +498,7 @@ extension Miri {
         debugLog("termination preparation begin source=\(reason)")
         workspaceFullscreenFeedbackController.hide()
         floatingWindowOutlineController.hide()
+        notificationAttentionController.stop()
         guard runtimeStarted else {
             terminationCompleted = true
             appPhase = .terminated
@@ -628,6 +636,8 @@ private extension WindowEvent {
     var logName: String {
         switch self {
         case .accessibilityNotification: return "windows.ax-notification"
+        case .notificationCenterChanged: return "windows.notification-center-changed"
+        case .notificationAttentionChanged: return "windows.notification-attention-changed"
         case .reconciliationRequested: return "windows.reconciliation-requested"
         case .environmentGuardEvaluated: return "windows.environment-guard-evaluated"
         }
