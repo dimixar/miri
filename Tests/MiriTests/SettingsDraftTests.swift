@@ -92,7 +92,7 @@ final class SettingsDraftTests: XCTestCase {
             edited.rowsPerColumn = requested
             XCTAssertEqual(edited.applying(to: legacy).rowsPerColumn, expected)
         }
-        for (requested, expected) in [(-1, 250), (249, 250), (250, 250), (750, 750), (2000, 2000), (2001, 2000)] {
+        for (requested, expected) in [(-1, 10), (9, 10), (10, 10), (20, 20), (250, 250), (750, 750), (2000, 2000), (2001, 2000)] {
             var edited = draft
             edited.workspaceBoundaryHoldMS = requested
             XCTAssertEqual(edited.applying(to: legacy).workspaceBoundaryHoldMS, expected)

@@ -92,8 +92,8 @@ struct LayoutSettingsView: View {
                         title: "Boundary hold duration",
                         detail: "750ms is the default.",
                         value: $store.draft.workspaceBoundaryHoldMS,
-                        range: 250...2000,
-                        step: 50,
+                        range: 10...2000,
+                        step: 10,
                         suffix: "ms"
                     )
                 }

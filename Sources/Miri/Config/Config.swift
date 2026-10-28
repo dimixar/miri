@@ -296,7 +296,7 @@ struct MiriConfig: Codable {
         config.presetWidthRatios = normalizeWidthPresets(config.presetWidthRatios)
         config.rowsPerColumn = config.rowsPerColumn.map { min(max($0, 1), 3) }
         config.heightPresetRatios = normalizeHeightPresets(config.heightPresetRatios)
-        config.workspaceBoundaryHoldMS = config.workspaceBoundaryHoldMS.map { min(max($0, 250), 2000) }
+        config.workspaceBoundaryHoldMS = config.workspaceBoundaryHoldMS.map { min(max($0, 10), 2000) }
         config.animationDurationMS = config.animationDurationMS.map { min(max($0, 0), 500) }
         config.keyboardAnimationMS = config.keyboardAnimationMS.map { min(max($0, 0), 500) }
         config.moveColumnAnimationMS = config.moveColumnAnimationMS.map { min(max($0, 0), 500) }

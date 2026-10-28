@@ -4,10 +4,13 @@ import XCTest
 
 final class KeyboardBoundaryGateTests: XCTestCase {
     func testThresholdAndSingleCommit() throws {
-        var gate = try XCTUnwrap(WorkspaceBoundaryGate(now: 0, milliseconds: 750, isRepeat: false))
-        XCTAssertFalse(gate.commitIfReady(now: 0.749, held: true, sourceValid: true))
-        XCTAssertTrue(gate.commitIfReady(now: 0.750, held: true, sourceValid: true))
-        XCTAssertFalse(gate.commitIfReady(now: 1.5, held: true, sourceValid: true))
+        for milliseconds in [10, 20, 750] {
+            var gate = try XCTUnwrap(WorkspaceBoundaryGate(now: 0, milliseconds: milliseconds, isRepeat: false))
+            let threshold = Double(milliseconds) / 1000
+            XCTAssertFalse(gate.commitIfReady(now: threshold - 0.001, held: true, sourceValid: true))
+            XCTAssertTrue(gate.commitIfReady(now: threshold, held: true, sourceValid: true))
+            XCTAssertFalse(gate.commitIfReady(now: threshold * 2, held: true, sourceValid: true))
+        }
     }
 
     func testReleaseModifierChangeAndStaleSourceCannotCommit() throws {
@@ -23,12 +26,12 @@ final class KeyboardBoundaryGateTests: XCTestCase {
     }
 
     func testDurationClampAndMonotonicProgress() throws {
-        let short = try XCTUnwrap(WorkspaceBoundaryGate(now: 10, milliseconds: 0, isRepeat: false))
+        let short = try XCTUnwrap(WorkspaceBoundaryGate(now: 0, milliseconds: 0, isRepeat: false))
         let long = try XCTUnwrap(WorkspaceBoundaryGate(now: 10, milliseconds: 5000, isRepeat: false))
-        XCTAssertEqual(short.duration, 0.25)
+        XCTAssertEqual(short.duration, 0.01)
         XCTAssertEqual(long.duration, 2)
-        XCTAssertEqual(short.progress(now: 9), 0)
-        XCTAssertEqual(short.progress(now: 10.125), 0.5)
+        XCTAssertEqual(short.progress(now: -1), 0)
+        XCTAssertEqual(short.progress(now: 0.005), 0.5)
         XCTAssertEqual(short.progress(now: 11), 1)
     }
 }

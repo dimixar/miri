@@ -77,8 +77,8 @@ at startup, so disabling it in System Settings stays respected.
   learns app-imposed minimum heights. If minimum heights cannot fit, excess rows
   become separate columns instead of overlapping. Minimums are learned per run.
 - `workspace_boundary_hold_ms`: duration for relative workspace navigation and
-  row-edge transfers, clamped to `250...2000`, default `750`. Settings → Layout
-  exposes it alongside stacking capacity and height presets.
+  row-edge transfers, clamped to `10...2000`, default `750`. Settings → Layout
+  exposes it in `10` ms steps alongside stacking capacity and height presets.
 - `focus_alignment`: `default`, `centered`, or `centered_smart`. Default moves
   only enough to fully reveal the focused window. Centered always centers it.
   Centered smart always centers a workspace's only tiled window. With multiple

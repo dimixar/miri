@@ -12,7 +12,7 @@ struct WorkspaceBoundaryGate {
     init?(now: TimeInterval, milliseconds: Int, isRepeat: Bool) {
         guard !isRepeat else { return nil }
         startedAt = now
-        duration = Double(min(max(milliseconds, 250), 2000)) / 1000
+        duration = Double(min(max(milliseconds, 10), 2000)) / 1000
     }
 
     func progress(now: TimeInterval) -> CGFloat {
