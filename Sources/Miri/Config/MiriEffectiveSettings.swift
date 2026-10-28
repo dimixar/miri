@@ -34,6 +34,14 @@ extension Miri {
         min(max(configStore.effectiveConfig.minimumWorkspaceCount ?? MiriConfig.fallback.minimumWorkspaceCount ?? 1, 1), 9)
     }
 
+    var layoutFullscreenMode: LayoutFullscreenMode {
+        configStore.effectiveConfig.layoutFullscreenMode ?? .perWorkspace
+    }
+
+    var fullscreenVerticalNavigation: FullscreenVerticalNavigation {
+        configStore.effectiveConfig.fullscreenVerticalNavigation ?? .switchWorkspaces
+    }
+
     var focusAlignment: FocusAlignment {
         configStore.effectiveConfig.focusAlignment ?? MiriConfig.fallback.focusAlignment ?? .default
     }

@@ -107,6 +107,16 @@ enum WorkspaceBarCenterStyle: String, Codable, Hashable {
     case filledBorder = "filled_border"
 }
 
+enum LayoutFullscreenMode: String, Codable, Hashable {
+    case perWorkspace = "per_workspace"
+    case perWindow = "per_window"
+}
+
+enum FullscreenVerticalNavigation: String, Codable, Hashable {
+    case switchWorkspaces = "switch_workspaces"
+    case focusWindowsFirst = "focus_windows_first"
+}
+
 enum WidthResizeMode: String, Codable, Hashable {
     case `default`
     case intelligent
@@ -129,6 +139,8 @@ struct MiriConfig: Codable {
     var rowsPerColumn: Int?
     var heightPresetRatios: [CGFloat]?
     var workspaceBoundaryHoldMS: Int?
+    var layoutFullscreenMode: LayoutFullscreenMode?
+    var fullscreenVerticalNavigation: FullscreenVerticalNavigation?
     var animationDurationMS: Int?
     var keyboardAnimationMS: Int?
     var moveColumnAnimationMS: Int?
@@ -181,6 +193,8 @@ struct MiriConfig: Codable {
         rowsPerColumn: 1,
         heightPresetRatios: [0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75],
         workspaceBoundaryHoldMS: 750,
+        layoutFullscreenMode: .perWorkspace,
+        fullscreenVerticalNavigation: .switchWorkspaces,
         animationDurationMS: nil,
         keyboardAnimationMS: nil,
         moveColumnAnimationMS: nil,
@@ -424,6 +438,8 @@ struct MiriConfig: Codable {
         case rowsPerColumn = "rows_per_column"
         case heightPresetRatios = "height_preset_ratios"
         case workspaceBoundaryHoldMS = "workspace_boundary_hold_ms"
+        case layoutFullscreenMode = "layout_fullscreen_mode"
+        case fullscreenVerticalNavigation = "fullscreen_vertical_navigation"
         case animationDurationMS = "animation_duration_ms"
         case keyboardAnimationMS = "keyboard_animation_ms"
         case moveColumnAnimationMS = "move_column_animation_ms"

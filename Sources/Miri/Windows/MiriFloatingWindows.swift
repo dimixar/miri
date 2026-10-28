@@ -21,7 +21,7 @@ extension Miri {
                   result.disposition == .completed,
                   let snapshot = result.value,
                   snapshot.minimized != true,
-                  snapshot.fullscreen != true
+                  snapshot.fullscreenOS != true
             else { return }
             guard !self.axReconciliationShouldDefer else {
                 self.pendingFocusCommands.append(.toggleWindowFloating)
@@ -34,7 +34,7 @@ extension Miri {
     @discardableResult
     func toggleFloatingWindow(for element: AXUIElement) -> Bool {
         guard let window = allWindows().first(where: { sameWindow($0.element, element) }),
-              !window.isMinimized, !window.isFullscreen else { return false }
+              !window.isMinimized, !window.fullscreenOS else { return false }
         windowManagement.setWidthRatio(widthRatio(for: window), for: window)
         guard windowManagement.toggleFloating(window) else { return false }
         focusStateGeneration &+= 1
@@ -60,7 +60,7 @@ extension Miri {
             && !windowManagement.pendingLogicalSpaceSwitch
             && (configStore.effectiveConfig.manualFloatingOutlineEnabled ?? true)
         floatingWindowOutlineController.update(
-            windows: windowManagement.manuallyFloatedWindows.filter { !$0.isMinimized && !$0.isFullscreen },
+            windows: windowManagement.manuallyFloatedWindows.filter { !$0.isMinimized && !$0.fullscreenOS },
             enabled: enabled,
             thickness: configStore.effectiveConfig.manualFloatingOutlineThickness ?? 2
         )

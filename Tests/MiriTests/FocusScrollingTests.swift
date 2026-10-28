@@ -447,7 +447,7 @@ final class FocusScrollingTests: XCTestCase {
                 AXWindowReadSnapshot(
                     handle: AXElementHandle(element: target.element, pid: target.pid, windowID: nil),
                     role: kAXWindowRole, subrole: kAXStandardWindowSubrole, title: title,
-                    minimized: false, fullscreen: false, frame: viewport,
+                    minimized: false, fullscreenOS: false, frame: viewport,
                     positionSettable: true, sizeSettable: true
                 )
             }
@@ -1133,12 +1133,266 @@ final class FocusScrollingTests: XCTestCase {
         }
     }
 
+    func testPerWindowFullscreenRestoresNormalLayoutOnKeyboardAndExternalFocus() throws {
+        for alignment: FocusAlignment in [.default, .centered, .centeredSmart] {
+            let (miri, workspace) = try fixture(
+                alignment: alignment, widths: [0.28, 0.67, 0.4], activeColumn: 1,
+                scrollOffset: 45, fullscreenMode: .perWindow
+            )
+            miri.sessionController.pauseForUnavailableSession()
+            let fullscreen = workspace.windows[1]
+            let normal = workspace.windows[2]
+            miri.perform(.toggleWorkspaceFullscreen)
+            XCTAssertTrue(fullscreen.fullscreenLayout)
+            XCTAssertFalse(fullscreen.fullscreenOS)
+            XCTAssertEqual(projectedFrames(miri)[1], viewport)
+
+            XCTAssertFalse(miri.consumeCommandBlockedByWorkspaceFullscreen(.columnRight))
+            miri.perform(.columnRight)
+            XCTAssertTrue(workspace.activeWindow === normal)
+            XCTAssertFalse(normal.fullscreenLayout)
+            XCTAssertEqual(projectedFrames(miri)[2].width, viewport.width * 0.4, accuracy: 0.01)
+            XCTAssertFalse(miri.currentWorkspaceBarStatus().workspaceSummaries[0].isWorkspaceFullscreen)
+
+            // The external adoption path is shared by Dock, Cmd-Tab and window activation.
+            XCTAssertTrue(miri.adoptFocusedElement(fullscreen.element, pid: fullscreen.pid, applyLayout: false))
+            XCTAssertEqual(projectedFrames(miri)[1], viewport)
+            XCTAssertTrue(miri.currentWorkspaceBarStatus().workspaceSummaries[0].isWorkspaceFullscreen)
+            XCTAssertTrue(miri.adoptFocusedElement(normal.element, pid: normal.pid, applyLayout: false))
+            XCTAssertEqual(projectedFrames(miri)[2].width, viewport.width * 0.4, accuracy: 0.01)
+            miri.perform(.columnLeft)
+            XCTAssertEqual(projectedFrames(miri)[1], viewport)
+            miri.perform(.toggleWorkspaceFullscreen)
+            XCTAssertFalse(fullscreen.fullscreenLayout)
+            XCTAssertEqual(projectedFrames(miri)[1].width, viewport.width * 0.67, accuracy: 0.01)
+            XCTAssertEqual(workspace.windows.map(\.manualWidthRatio), [0.28, 0.67, 0.4])
+        }
+    }
+
+    func testPerWindowFullscreenIsRememberedIndependentlyForMultipleWindowsAndWorkspaces() throws {
+        let (miri, source) = try fixture(
+            alignment: .default, widths: [0.4, 0.67], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        miri.perform(.toggleWorkspaceFullscreen)
+        miri.perform(.columnRight)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertTrue(source.windows.allSatisfy(\.fullscreenLayout))
+        miri.perform(.columnLeft)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+
+        miri.windowManagement.ensureWorkspaceExists(1)
+        let destination = miri.windowManagement.workspaces[1]
+        let other = ManagedWindow(element: AXUIElementCreateApplication(3000), pid: 3000,
+                                  windowID: nil, bundleID: nil, appName: "Test", title: "Other")
+        other.manualWidthRatio = 0.5
+        destination.columns = [Column(windows: [other])]
+        miri.perform(.workspaceDown)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+        XCTAssertEqual(miri.workspaceSummaries().map(\.isWorkspaceFullscreen), [true, false])
+        miri.perform(.workspaceUp)
+        XCTAssertTrue(source.activeWindow === source.windows[0])
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertEqual(miri.workspaceSummaries().map(\.isWorkspaceFullscreen), [false, false],
+                       "Remembered fullscreen on an unfocused peer must not light the indicator")
+        miri.perform(.workspaceDown)
+        XCTAssertFalse(miri.workspaceSummaries()[0].isWorkspaceFullscreen)
+    }
+
+    func testPerWindowFullscreenVerticalNavigationDefaultPreservesWorkspaceBehavior() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.4, 0.4], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        workspace.columns = [Column(windows: workspace.windows)]
+        miri.perform(.toggleWorkspaceFullscreen)
+        guard case .workspaceDown = miri.resolvedFullscreenNavigationCommand(.rowDown),
+              case .workspaceUp = miri.resolvedFullscreenNavigationCommand(.rowUp) else {
+            return XCTFail("The default must switch workspaces despite an available row")
+        }
+        XCTAssertEqual(workspace.columns[0].activeRow, 0)
+    }
+
+    func testPerWindowFullscreenVerticalNavigationFocusesRowsAndFallsBackAtEdges() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.4, 0.4, 0.4], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow, verticalNavigation: .focusWindowsFirst
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        let windows = workspace.windows
+        workspace.columns = [Column(windows: windows, activeRow: 1, widthRatio: 0.4)]
+        miri.perform(.toggleWorkspaceFullscreen)
+        for command in [Command.rowDown, .rowUp] {
+            switch (command, miri.resolvedFullscreenNavigationCommand(command)) {
+            case (.rowDown, .rowDown), (.rowUp, .rowUp): break
+            default: XCTFail("An available row must take priority")
+            }
+        }
+        // Exercise keyboard boundary routing before executing the immediate row command.
+        XCTAssertFalse(miri.handleWorkspaceBoundaryShortcut(.rowDown, keyCode: KeyCode.j,
+                                                           modifiers: .maskAlternate, isRepeat: false))
+        miri.perform(.rowDown)
+        XCTAssertTrue(workspace.activeWindow === windows[2])
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+        let normal = miri.layoutController.projectItems(viewport: viewport, state: miri.captureLayoutState(), parkHidden: false)
+        XCTAssertEqual(normal[2].frame.height, viewport.height / 3, accuracy: 0.5)
+        miri.perform(.rowUp)
+        XCTAssertTrue(workspace.activeWindow === windows[1])
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+        let fullscreen = miri.layoutController.projectItems(viewport: viewport, state: miri.captureLayoutState(), parkHidden: false)
+        XCTAssertEqual(fullscreen.filter(\.visible).map(\.window.title), [windows[1].title])
+        XCTAssertEqual(fullscreen[1].frame, viewport)
+
+        miri.perform(.rowDown)
+        miri.perform(.toggleWorkspaceFullscreen)
+        guard case .workspaceDown = miri.resolvedFullscreenNavigationCommand(.rowDown) else {
+            return XCTFail("The bottom row must fall back to workspace navigation")
+        }
+        miri.perform(.rowUp)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active,
+                       "Moving between two fullscreen windows must retain fullscreen presentation")
+        miri.perform(.rowUp)
+        miri.perform(.toggleWorkspaceFullscreen)
+        guard case .workspaceUp = miri.resolvedFullscreenNavigationCommand(.rowUp) else {
+            return XCTFail("The top row must fall back to workspace navigation")
+        }
+        workspace.columns = [Column(windows: [windows[0]])]
+        for command in [Command.rowDown, .rowUp] {
+            switch miri.resolvedFullscreenNavigationCommand(command) {
+            case .workspaceDown, .workspaceUp: break
+            default: XCTFail("A lone window must use workspace navigation")
+            }
+        }
+    }
+
+    func testPerWindowFullscreenWorkspaceFallbackPreservesRememberedRows() throws {
+        for navigation: FullscreenVerticalNavigation in [.switchWorkspaces, .focusWindowsFirst] {
+            let (miri, source) = try fixture(
+                alignment: .default, widths: [0.4, 0.4], activeColumn: 0,
+                scrollOffset: nil, fullscreenMode: .perWindow, verticalNavigation: navigation
+            )
+            miri.sessionController.pauseForUnavailableSession()
+            source.columns = [Column(windows: source.windows, activeRow: 1)]
+            miri.perform(.toggleWorkspaceFullscreen)
+            miri.windowManagement.ensureWorkspaceExists(1)
+            let destination = miri.windowManagement.workspaces[1]
+            let windows = (0..<2).map { row in
+                let pid = pid_t(4000 + row)
+                return ManagedWindow(element: AXUIElementCreateApplication(pid), pid: pid,
+                                     windowID: nil, bundleID: nil, appName: "Test", title: "Row \(row)")
+            }
+            destination.columns = [Column(windows: windows, activeRow: 1)]
+            var gate = try XCTUnwrap(WorkspaceBoundaryGate(now: 0, milliseconds: 750, isRepeat: false))
+            XCTAssertTrue(gate.commitIfReady(now: 0.75, held: true, sourceValid: true))
+            let command = miri.resolvedFullscreenNavigationCommand(.rowDown)
+            guard case .workspaceDown = command else { return XCTFail("Expected workspace fallback") }
+            let hold = WorkspaceBoundaryHold(
+                gate: gate, thresholdFocusValidated: true, command: command, direction: .down,
+                movesWindow: false, keyCode: KeyCode.j, modifiers: .maskAlternate,
+                workspace: source, window: source.activeWindow, sourceIndex: 0, targetIndex: 1,
+                targetWorkspace: destination, contextID: miri.windowManagement.activeLogicalSpaceContextID,
+                focusGeneration: miri.focusStateGeneration, sessionGeneration: miri.sessionController.resumeGeneration
+            )
+            miri.performWorkspaceBoundaryTransition(hold)
+            XCTAssertTrue(miri.activeWindow() === windows[1], "Fullscreen fallback must preserve the destination row")
+            XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+            XCTAssertTrue(miri.workspaceSummaries()[0].isWorkspaceFullscreen)
+            XCTAssertEqual(source.columns[0].activeRow, 1)
+            miri.perform(.workspaceUp)
+            XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+            XCTAssertEqual(source.columns[0].activeRow, 1)
+        }
+    }
+
+    func testLayoutFullscreenModeChangesApplyWithoutRecreatingWindowManagement() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.4, 0.67], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+        var config = miri.configStore.documentConfig
+        config.layoutFullscreenMode = .perWorkspace
+        let directory = miri.configStore.destinationURL.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard case .saved = miri.configStore.save(config) else { return XCTFail("Config save failed") }
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+        XCTAssertTrue(workspace.windows[0].fullscreenLayout)
+        config.layoutFullscreenMode = .perWindow
+        guard case .saved = miri.configStore.save(config) else { return XCTFail("Config save failed") }
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+        miri.perform(.columnLast)
+        XCTAssertTrue(workspace.activeWindow === workspace.windows[1])
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .off)
+        miri.perform(.columnFirst)
+        XCTAssertTrue(workspace.activeWindow === workspace.windows[0])
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+    }
+
+    func testPerWindowFullscreenSuspendsForFloatingAndUnmanagedFocus() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.4, 0.67], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        let fullscreen = workspace.windows[0]
+        let floating = workspace.windows[1]
+        XCTAssertTrue(miri.windowManagement.toggleFloating(floating))
+        miri.perform(.toggleWorkspaceFullscreen)
+        XCTAssertTrue(miri.adoptFocusedElement(floating.element, pid: floating.pid, applyLayout: false))
+        XCTAssertTrue(fullscreen.fullscreenLayout)
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .suspended)
+        XCTAssertFalse(miri.workspaceSummaries()[0].isWorkspaceFullscreen)
+        XCTAssertEqual(projectedFrames(miri)[0].width, viewport.width * 0.4, accuracy: 0.01)
+        XCTAssertTrue(miri.adoptFocusedElement(fullscreen.element, pid: fullscreen.pid, applyLayout: false))
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+        XCTAssertFalse(miri.adoptFocusedElement(AXUIElementCreateApplication(9999), pid: 9999, applyLayout: false))
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .suspended)
+        XCTAssertTrue(miri.adoptFocusedElement(fullscreen.element, pid: fullscreen.pid, applyLayout: false))
+        XCTAssertEqual(miri.windowManagement.activeFullscreenState, .active)
+    }
+
+    func testPerWindowFullscreenSurvivesRediscoveryAndNativeFullscreenWithoutLeakingToNewWindows() throws {
+        let (miri, workspace) = try fixture(
+            alignment: .default, widths: [0.4, 0.67], activeColumn: 0,
+            scrollOffset: nil, fullscreenMode: .perWindow
+        )
+        miri.sessionController.pauseForUnavailableSession()
+        let original = workspace.windows[0]
+        miri.perform(.toggleWorkspaceFullscreen)
+        miri.removeWindow(original)
+        let rediscovered = ManagedWindow(element: original.element, pid: original.pid, windowID: nil,
+                                         bundleID: nil, appName: "Test", title: "Changed title")
+        XCTAssertTrue(miri.upsertDiscoveredWindow(rediscovered))
+        XCTAssertTrue(rediscovered.fullscreenLayout)
+        XCTAssertTrue(miri.adoptFocusedElement(rediscovered.element, pid: rediscovered.pid, applyLayout: false))
+        miri.rememberFullscreenOSWindowState(rediscovered)
+        miri.removeWindow(rediscovered)
+        let nativeReturn = ManagedWindow(element: original.element, pid: original.pid, windowID: nil,
+                                        bundleID: nil, appName: "Test", title: "Changed again")
+        XCTAssertTrue(miri.restoreExitedFullscreenOSWindows(discovered: [nativeReturn]))
+        XCTAssertTrue(nativeReturn.fullscreenLayout)
+        XCTAssertFalse(nativeReturn.fullscreenOS)
+        XCTAssertTrue(miri.removeDestroyedWindowImmediately(nativeReturn.element))
+        let replacement = ManagedWindow(element: original.element, pid: original.pid, windowID: nil,
+                                       bundleID: nil, appName: "Test", title: "Replacement")
+        XCTAssertTrue(miri.upsertDiscoveredWindow(replacement))
+        XCTAssertFalse(replacement.fullscreenLayout)
+    }
+
     private func fixture(
         alignment: FocusAlignment,
         widths: [CGFloat],
         activeColumn: Int,
         scrollOffset: CGFloat?,
         resizeMode: WidthResizeMode = .default,
+        fullscreenMode: LayoutFullscreenMode = .perWorkspace,
+        verticalNavigation: FullscreenVerticalNavigation = .switchWorkspaces,
         rules: [WindowRule] = []
     ) throws -> (Miri, Workspace) {
         let directory = FileManager.default.temporaryDirectory
@@ -1149,6 +1403,8 @@ final class FocusScrollingTests: XCTestCase {
         var config = MiriConfig.fallback
         config.focusAlignment = alignment
         config.widthResizeMode = resizeMode
+        config.layoutFullscreenMode = fullscreenMode
+        config.fullscreenVerticalNavigation = verticalNavigation
         config.rules = rules
         config.persistLayout = false
         config.restoreOnExit = false

@@ -13,6 +13,8 @@ struct SettingsDraft: Equatable {
     var rowsPerColumn: Int
     var heightPresetRatios: [CGFloat]
     var workspaceBoundaryHoldMS: Int
+    var layoutFullscreenMode: LayoutFullscreenMode
+    var fullscreenVerticalNavigation: FullscreenVerticalNavigation
     var widthResizeMode: WidthResizeMode
     var focusAlignment: FocusAlignment
     var newWindowPosition: NewWindowPosition
@@ -68,6 +70,8 @@ struct SettingsDraft: Equatable {
         rowsPerColumn = stackedConfig.rowsPerColumn ?? 1
         heightPresetRatios = stackedConfig.heightPresetRatios ?? []
         workspaceBoundaryHoldMS = stackedConfig.workspaceBoundaryHoldMS ?? 750
+        layoutFullscreenMode = stackedConfig.layoutFullscreenMode ?? .perWorkspace
+        fullscreenVerticalNavigation = stackedConfig.fullscreenVerticalNavigation ?? .switchWorkspaces
         widthResizeMode = config.widthResizeMode ?? fallback.widthResizeMode ?? .default
         focusAlignment = config.focusAlignment ?? fallback.focusAlignment ?? .default
         newWindowPosition = config.newWindowPosition ?? fallback.newWindowPosition ?? .afterActive
@@ -125,6 +129,8 @@ struct SettingsDraft: Equatable {
         config.rowsPerColumn = rowsPerColumn
         config.heightPresetRatios = heightPresetRatios
         config.workspaceBoundaryHoldMS = workspaceBoundaryHoldMS
+        config.layoutFullscreenMode = layoutFullscreenMode
+        config.fullscreenVerticalNavigation = fullscreenVerticalNavigation
         config.widthResizeMode = widthResizeMode
         config.focusAlignment = focusAlignment
         config.newWindowPosition = newWindowPosition

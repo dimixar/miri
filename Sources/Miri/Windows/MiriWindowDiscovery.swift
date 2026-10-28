@@ -407,9 +407,9 @@ extension Miri {
         // a normal post-exit snapshot. Restore it before consulting the guard;
         // otherwise the guard suppresses the only reconciliation capable of
         // clearing its remembered state until focus moves to a neighbor.
-        var changed = restoreExitedFullscreenWindows(discovered: discovered)
-        if let fullscreenState = focusedRememberedFullscreenWindowState() {
-            enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
+        var changed = restoreExitedFullscreenOSWindows(discovered: discovered)
+        if let fullscreenState = focusedRememberedFullscreenOSWindowState() {
+            enforceRememberedFullscreenOSWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping app reconciliation while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")'")
             return changed
         }
@@ -455,7 +455,7 @@ extension Miri {
     @discardableResult
     func upsertDiscoveredWindow(_ found: ManagedWindow) -> Bool {
         if let existing = allWindows().first(where: { sameWindow($0.element, found.element) }) {
-            windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(existing))
+            windowManagement.clearPendingFullscreenOSTransition(for: ObjectIdentifier(existing))
             consumeBufferedWindowIfNeeded(existing)
             let previousBehavior = behavior(for: existing)
             let metadataChanged = existing.title != found.title
@@ -704,9 +704,9 @@ extension Miri {
             preservedWindows: stabilityDiscovered,
             finalizeLayoutRestore: discovery.unavailablePIDs.isEmpty
         )
-        let restoredFullscreenExit = restoreExitedFullscreenWindows(discovered: discovered)
-        if let fullscreenState = focusedRememberedFullscreenWindowState() {
-            enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
+        let restoredFullscreenExit = restoreExitedFullscreenOSWindows(discovered: discovered)
+        if let fullscreenState = focusedRememberedFullscreenOSWindowState() {
+            enforceRememberedFullscreenOSWorkspaceIfNeeded(fullscreenState)
             debugLog("skipping rescan mutations while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")' workspace=\(fullscreenState.workspace + 1)")
             completion(true)
             return
@@ -831,10 +831,10 @@ extension Miri {
         let runningApp = NSRunningApplication(processIdentifier: window.pid)
         let temporarilyHidden = runningApp?.isHidden == true || window.isMinimized
         let pendingFullscreenWithinGrace = windowManagement
-            .pendingFullscreenTransition(for: identity)
+            .pendingFullscreenOSTransition(for: identity)
             .map { now - $0 < fullscreenTransitionGrace } == true
         let hasCGInfo = windowHasCGInfo(window)
-        let fullscreen = window.isFullscreen
+        let fullscreen = window.fullscreenOS
         let behaviorIsIgnored = behavior(for: window) == .ignore
         let fullscreenGuardActive = now < fullscreenTransitionGuardUntil
         let appearsInUnknownSpace = windowAppearsInUnknownSpace(window)
@@ -856,7 +856,7 @@ extension Miri {
         return windowManagement.classifyMissingWindow(MissingWindowFacts(
             axEnumerationUnavailable: context.axEnumerationUnavailable,
             hasCGInfo: hasCGInfo,
-            isFullscreen: fullscreen,
+            fullscreenOS: fullscreen,
             pendingFullscreenWithinGrace: pendingFullscreenWithinGrace,
             isFullScan: context.isFullScan,
             runningApplicationExists: runningApp != nil,
@@ -881,23 +881,23 @@ extension Miri {
             debugLog("preserving pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
             return MissingWindowResult(changed: false, removedActive: false, canSaveLogicalSpace: true)
         case .preserveFullscreenGuard:
-            windowManagement.clearPendingFullscreenTransition(for: identity)
+            windowManagement.clearPendingFullscreenOSTransition(for: identity)
             debugLog("preserving window during fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
             return MissingWindowResult(changed: false, removedActive: false, canSaveLogicalSpace: true)
         case .moveToFullscreenState:
-            windowManagement.clearPendingFullscreenTransition(for: identity)
+            windowManagement.clearPendingFullscreenOSTransition(for: identity)
             fullscreenTransitionGuardUntil = max(
                 fullscreenTransitionGuardUntil,
                 CFAbsoluteTimeGetCurrent() + fullscreenTransitionGrace
             )
-            rememberFullscreenWindowState(window)
+            rememberFullscreenOSWindowState(window)
             removeWindow(window, preferRightFocus: true)
             return MissingWindowResult(changed: true, removedActive: wasActive, canSaveLogicalSpace: true)
         case .bufferUnknownSpace:
             _ = bufferWindowInUnknownSpaceIfNeeded(window)
             return MissingWindowResult(changed: true, removedActive: wasActive, canSaveLogicalSpace: false)
         case .remove(let rememberMinimized):
-            windowManagement.clearPendingFullscreenTransition(for: identity)
+            windowManagement.clearPendingFullscreenOSTransition(for: identity)
             if rememberMinimized { rememberMinimizedWindowState(window) }
             debugLog(
                 "removing missing window reason=\(context.reason) fullScan=\(context.isFullScan) app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' pid=\(window.pid) title='\(window.title)' id=\(window.windowID.map(String.init) ?? "nil")"
@@ -919,7 +919,7 @@ extension Miri {
                 sameWindow($0.element, windowSnapshot.handle.element)
             }) {
                 known.isMinimized = windowSnapshot.minimized == true
-                known.isFullscreen = windowSnapshot.fullscreen == true
+                known.fullscreenOS = windowSnapshot.fullscreenOS == true
             }
         }
 
@@ -953,8 +953,8 @@ extension Miri {
         noteFullscreenSpaceHelperIfNeeded(snapshot)
         guard snapshot.subrole != "AXUnknown",
               snapshot.minimized != true,
-              snapshot.fullscreen != true,
-              isManageableWindow(snapshot) || isKnownWindow(element) || isRememberedFullscreenWindow(element)
+              snapshot.fullscreenOS != true,
+              isManageableWindow(snapshot) || isKnownWindow(element) || isRememberedFullscreenOSWindow(element)
         else {
             return nil
         }
@@ -1033,8 +1033,8 @@ extension Miri {
         }
     }
 
-    func isRememberedFullscreenWindow(_ element: AXUIElement) -> Bool {
-        windowManagement.fullscreenWindowStates.values.contains { sameWindow($0.element, element) }
+    func isRememberedFullscreenOSWindow(_ element: AXUIElement) -> Bool {
+        windowManagement.fullscreenOSWindowStates.values.contains { sameWindow($0.element, element) }
     }
 
     func isLikelyFullscreenFrame(_ frame: CGRect) -> Bool {

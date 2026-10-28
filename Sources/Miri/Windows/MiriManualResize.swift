@@ -4,17 +4,17 @@ import CoreGraphics
 import Foundation
 
 extension Miri {
-    func handleFullscreenTransitionIfNeeded(
+    func handleFullscreenOSTransitionIfNeeded(
         _ element: AXUIElement,
-        isFullscreen: Bool
+        fullscreenOS: Bool
     ) -> Bool {
-        if isFullscreen, let location = tiledWindowLocation(for: element) {
+        if fullscreenOS, let location = tiledWindowLocation(for: element) {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == location.window.pid {
                 lastKnownFocusedElements[location.window.pid] = element
             }
-            windowManagement.clearPendingFullscreenTransition(for: ObjectIdentifier(location.window))
+            windowManagement.clearPendingFullscreenOSTransition(for: ObjectIdentifier(location.window))
             fullscreenTransitionGuardUntil = max(fullscreenTransitionGuardUntil, CFAbsoluteTimeGetCurrent() + fullscreenTransitionGrace)
-            rememberFullscreenWindowState(location.window)
+            rememberFullscreenOSWindowState(location.window)
             removeWindow(location.window, preferRightFocus: true)
             projectLayout(focusActiveWindow: location.workspace.columns.isEmpty ? false : true, layoutLockDelay: 0.02)
             schedulePersistentLayoutSnapshotWrite()
@@ -22,11 +22,11 @@ extension Miri {
         }
 
         if let location = tiledWindowLocation(for: element), !windowHasCGInfo(location.window) {
-            beginPendingFullscreenTransition(for: location.window)
+            beginPendingFullscreenOSTransition(for: location.window)
             return true
         }
 
-        if !isFullscreen, isRememberedFullscreenWindow(element) {
+        if !fullscreenOS, isRememberedFullscreenOSWindow(element) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
                 self?.requestReconciliation(
                     .all(adoptFocused: true, source: .delayedProbe, reason: "fullscreen-enter-settle")
@@ -38,11 +38,11 @@ extension Miri {
         return false
     }
 
-    func beginPendingFullscreenTransition(for window: ManagedWindow) {
+    func beginPendingFullscreenOSTransition(for window: ManagedWindow) {
         let id = ObjectIdentifier(window)
         let now = CFAbsoluteTimeGetCurrent()
-        if windowManagement.pendingFullscreenTransition(for: id) == nil {
-            windowManagement.recordPendingFullscreenTransition(for: id, at: now)
+        if windowManagement.pendingFullscreenOSTransition(for: id) == nil {
+            windowManagement.recordPendingFullscreenOSTransition(for: id, at: now)
             debugLog("pending fullscreen transition app='\(window.appName)' bundle='\(window.bundleID ?? "nil")' title='\(window.title)'")
             DispatchQueue.main.asyncAfter(deadline: .now() + fullscreenTransitionGrace) { [weak self] in
                 self?.requestReconciliation(
@@ -57,8 +57,8 @@ extension Miri {
         CFAbsoluteTimeGetCurrent() < fullscreenSpaceChangeGuardUntil
     }
 
-    func focusedRememberedFullscreenWindowState() -> FullscreenWindowState? {
-        guard !windowManagement.fullscreenWindowStates.isEmpty,
+    func focusedRememberedFullscreenOSWindowState() -> FullscreenOSWindowState? {
+        guard !windowManagement.fullscreenOSWindowStates.isEmpty,
               let frontmost = NSWorkspace.shared.frontmostApplication
         else {
             return nil
@@ -69,17 +69,17 @@ extension Miri {
         guard let focusedElement = lastKnownFocusedElements[frontmost.processIdentifier] else {
             return nil
         }
-        return windowManagement.fullscreenWindowStates.values.first { state in
+        return windowManagement.fullscreenOSWindowStates.values.first { state in
             state.pid == frontmost.processIdentifier
                 && sameWindow(state.element, focusedElement)
         }
     }
 
-    var focusedRememberedFullscreenWindowIsActive: Bool {
-        focusedRememberedFullscreenWindowState() != nil
+    var focusedRememberedFullscreenOSWindowIsActive: Bool {
+        focusedRememberedFullscreenOSWindowState() != nil
     }
 
-    func enforceRememberedFullscreenWorkspaceIfNeeded(_ state: FullscreenWindowState) {
+    func enforceRememberedFullscreenOSWorkspaceIfNeeded(_ state: FullscreenOSWindowState) {
         guard windowManagement.workspaces.indices.contains(state.workspace),
               windowManagement.activeWorkspace != state.workspace
         else {
@@ -141,6 +141,7 @@ extension Miri {
 
     func removeDestroyedWindowImmediately(_ element: AXUIElement) -> Bool {
         windowManagement.forgetManualBehavior(for: element)
+        windowManagement.forgetWindowFullscreen(for: element)
         if let location = tiledWindowLocation(for: element) {
             let wasActiveWorkspace = windowManagement.activeWorkspace == location.workspaceIndex
             let wasActiveWindow = wasActiveWorkspace && location.workspace.activeWindow === location.window
@@ -167,7 +168,7 @@ extension Miri {
         observedFrame frame: CGRect?
     ) -> Bool {
         guard let location = tiledWindowLocation(for: element),
-              location.workspace.fullscreenState == .off,
+              windowManagement.fullscreenState(in: location.workspace) == .off,
               let frame
         else {
             return false

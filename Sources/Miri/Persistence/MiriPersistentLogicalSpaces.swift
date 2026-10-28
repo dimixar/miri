@@ -11,7 +11,7 @@ extension Miri {
     func logicalSpacePersistenceIsSafe() -> Bool {
         !fullscreenSpaceChangeGuardIsActive()
             && CFAbsoluteTimeGetCurrent() >= fullscreenTransitionGuardUntil
-            && !focusedRememberedFullscreenWindowIsActive
+            && !focusedRememberedFullscreenOSWindowIsActive
             && !windowManagement.pendingLogicalSpaceSwitch
             && windowManagement.spaceBufferedWindows.isEmpty
     }

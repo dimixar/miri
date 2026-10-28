@@ -20,7 +20,7 @@ struct AXWindowReadSnapshot: @unchecked Sendable {
     let subrole: String?
     let title: String
     let minimized: Bool?
-    let fullscreen: Bool?
+    let fullscreenOS: Bool?
     let frame: CGRect?
     let positionSettable: Bool
     let sizeSettable: Bool
@@ -1393,7 +1393,7 @@ private func readWindowSnapshot(
         subrole: subrole,
         title: title,
         minimized: minimizedValue as? Bool,
-        fullscreen: fullscreenValue as? Bool,
+        fullscreenOS: fullscreenValue as? Bool,
         frame: frame,
         positionSettable: positionSettableError == .success && positionSettable.boolValue,
         sizeSettable: sizeSettableError == .success && sizeSettable.boolValue

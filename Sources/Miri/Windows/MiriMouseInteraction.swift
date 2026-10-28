@@ -12,7 +12,7 @@ extension Miri {
             cancelMouseInteraction()
             guard !windowManagement.observation.transientWindowActive,
                   let workspace = activeWorkspaceObject(),
-                  workspace.fullscreenState == .off,
+                  windowManagement.fullscreenState(in: workspace) == .off,
                   let windowID = event.windowID ?? sessionRecoveryFrontmostWindowID(at: event.location),
                   let window = workspace.windows.first(where: { $0.windowID == windowID }),
                   let frame = layoutController.windowServerFrame(for: windowID)
@@ -45,7 +45,7 @@ extension Miri {
             && session.logicalSpaceID == windowManagement.activeLogicalSpaceContextID
             && activeWorkspaceObject() === session.workspace
             && session.workspace.windows.contains(where: { $0 === session.window })
-            && !session.window.isMinimized && !session.window.isFullscreen
+            && !session.window.isMinimized && !session.window.fullscreenOS
     }
 
     func handleMouseInteractionTick(generation: UInt64) {
@@ -174,7 +174,7 @@ extension Miri {
                   self.sessionController.resumeGeneration == resumeGeneration else { return }
             guard self.mouseInteractionIsValid else { self.cancelMouseInteraction(); return }
             if let snapshot = result.value,
-               snapshot.minimized == true || snapshot.fullscreen == true {
+               snapshot.minimized == true || snapshot.fullscreenOS == true {
                 self.cancelMouseInteraction()
                 self.requestReconciliation(.all(adoptFocused: true, source: .accessibility, reason: "mouse-window-unavailable"))
                 return
@@ -198,7 +198,7 @@ extension Miri {
             _ = updateManualWidthRatio(for: release.window.element, observedFrame: finalFrame ?? release.latestFrame)
         } else if phase == .dragging {
             if case let .swap(target, _) = release.preview,
-               !target.isMinimized, !target.isFullscreen,
+               !target.isMinimized, !target.fullscreenOS,
                let targetID = target.windowID,
                let targetFrame = layoutController.windowServerFrame(for: targetID),
                targetFrame.intersects(mouseInteractionLayoutViewport ?? currentViewport()),

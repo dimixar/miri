@@ -67,12 +67,14 @@ extension Miri {
             return MiriWorkspaceSummary(
                 workspace: index + 1,
                 isActive: index == snapshot.activeWorkspace,
-                isWorkspaceFullscreen: workspace.fullscreenState != .off,
+                isWorkspaceFullscreen: layoutFullscreenMode == .perWindow
+                    ? workspace.fullscreenState == .active
+                    : workspace.fullscreenState != .off,
                 lastFocusedWindow: focusedWindow,
                 appNames: appNames,
                 lastFocusedColumn: workspace.columns.isEmpty ? [] : workspace.columns[workspace.activeColumn].windows.map(workspaceBarWindow),
                 needsAttention: workspace.windows.contains { $0.bundleID.map(attention.contains) ?? false }
-                    || windowManagement.fullscreenWindowStates.values.contains {
+                    || windowManagement.fullscreenOSWindowStates.values.contains {
                         $0.workspace == index && ($0.bundleID.map(attention.contains) ?? false)
                     }
             )
@@ -90,7 +92,7 @@ extension Miri {
         let managed = windowManagement.snapshot().workspaces.flatMap(\.windows).compactMap { window in
             window.bundleID.map { NotificationApplication(name: window.appName, bundleID: $0) }
         }
-        let fullscreen = windowManagement.fullscreenWindowStates.values.compactMap { window in
+        let fullscreen = windowManagement.fullscreenOSWindowStates.values.compactMap { window in
             window.bundleID.map { NotificationApplication(name: window.appName, bundleID: $0) }
         }
         let running = NSWorkspace.shared.runningApplications.compactMap { app -> NotificationApplication? in
@@ -101,7 +103,7 @@ extension Miri {
     }
 
     func fullscreenWorkspaceBarWindows() -> [MiriWorkspaceBarFullscreenWindow] {
-        windowManagement.fullscreenWindowStates.values
+        windowManagement.fullscreenOSWindowStates.values
             .sorted {
                 if $0.workspace != $1.workspace {
                     return $0.workspace < $1.workspace

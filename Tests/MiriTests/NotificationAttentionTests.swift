@@ -104,7 +104,7 @@ final class NotificationAttentionTests: XCTestCase {
         second.columns = [Column(windows: [window(app: "Chat", bundleID: "test.chat", pid: 1004)])]
         third.columns = []
         let fullscreen = window(app: "Mail", bundleID: "test.mail", pid: 1005)
-        miri.windowManagement.rememberFullscreenState(FullscreenWindowState(
+        miri.windowManagement.rememberFullscreenOSState(FullscreenOSWindowState(
             identity: PersistentWindowIdentity(bundleID: fullscreen.bundleID, appName: fullscreen.appName, title: fullscreen.title), element: fullscreen.element,
             pid: fullscreen.pid, windowID: 55, bundleID: fullscreen.bundleID, appName: fullscreen.appName,
             title: fullscreen.title, workspace: 2, column: 0, leftNeighborID: nil, rightNeighborID: nil,

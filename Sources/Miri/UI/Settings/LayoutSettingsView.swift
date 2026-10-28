@@ -28,6 +28,32 @@ struct LayoutSettingsView: View {
                 }
             }
 
+            MiriSection(title: "Layout fullscreen") {
+                MiriSettingGroup {
+                    MiriPickerRow(
+                        title: "Fullscreen behavior",
+                        detail: "Apply layout fullscreen to a workspace or remember it for individual windows.",
+                        options: [
+                            ("Per workspace", LayoutFullscreenMode.perWorkspace),
+                            ("Per window", LayoutFullscreenMode.perWindow),
+                        ],
+                        selection: $store.draft.layoutFullscreenMode
+                    )
+                    if store.draft.layoutFullscreenMode == .perWindow {
+                        MiriRowDivider()
+                        MiriPickerRow(
+                            title: "Vertical navigation while fullscreen",
+                            detail: "Focus windows first tries the next row in the column, then falls back to held workspace navigation.",
+                            options: [
+                                ("Switch workspaces", FullscreenVerticalNavigation.switchWorkspaces),
+                                ("Focus windows first", FullscreenVerticalNavigation.focusWindowsFirst),
+                            ],
+                            selection: $store.draft.fullscreenVerticalNavigation
+                        )
+                    }
+                }
+            }
+
             MiriSection(title: "Column sizing") {
                 MiriSettingGroup {
                     MiriTextFieldRow(

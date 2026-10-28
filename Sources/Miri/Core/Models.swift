@@ -12,7 +12,8 @@ final class ManagedWindow {
     var appName: String
     var title: String
     var isMinimized = false
-    var isFullscreen = false
+    var fullscreenOS = false
+    var fullscreenLayout = false
     var manualWidthRatio: CGFloat?
     // Learned from frame readback when an app refuses a smaller stacked row.
     var minimumHeight: CGFloat = 64
@@ -124,6 +125,7 @@ final class Workspace {
     var activeColumn: Int = 0
     var scrollOffset: CGFloat?
     var fullscreenState: WorkspaceFullscreenState = .off
+    var windowFullscreenSuspended = false
 
     var isEmpty: Bool {
         columns.isEmpty
@@ -155,8 +157,8 @@ final class LogicalSpaceContext {
     var signature: Set<UInt32>
     var minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState]
     var minimizedWindowPIDs: [PersistentWindowIdentity: pid_t]
-    var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState]
-    var pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime]
+    var fullscreenOSWindowStates: [PersistentWindowIdentity: FullscreenOSWindowState]
+    var pendingFullscreenOSTransitionSince: [ObjectIdentifier: CFAbsoluteTime]
     var fullscreenSpaceChangeGuardWorkspace: Int?
 
     init(
@@ -167,8 +169,8 @@ final class LogicalSpaceContext {
         signature: Set<UInt32> = [],
         minimizedWindowStates: [PersistentWindowIdentity: PersistentWindowState] = [:],
         minimizedWindowPIDs: [PersistentWindowIdentity: pid_t] = [:],
-        fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] = [:],
-        pendingFullscreenTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:],
+        fullscreenOSWindowStates: [PersistentWindowIdentity: FullscreenOSWindowState] = [:],
+        pendingFullscreenOSTransitionSince: [ObjectIdentifier: CFAbsoluteTime] = [:],
         fullscreenSpaceChangeGuardWorkspace: Int? = nil
     ) {
         self.id = id
@@ -178,8 +180,8 @@ final class LogicalSpaceContext {
         self.signature = signature
         self.minimizedWindowStates = minimizedWindowStates
         self.minimizedWindowPIDs = minimizedWindowPIDs
-        self.fullscreenWindowStates = fullscreenWindowStates
-        self.pendingFullscreenTransitionSince = pendingFullscreenTransitionSince
+        self.fullscreenOSWindowStates = fullscreenOSWindowStates
+        self.pendingFullscreenOSTransitionSince = pendingFullscreenOSTransitionSince
         self.fullscreenSpaceChangeGuardWorkspace = fullscreenSpaceChangeGuardWorkspace
     }
 }

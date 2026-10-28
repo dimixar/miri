@@ -29,7 +29,10 @@ final class Miri: NSObject, NSApplicationDelegate {
     lazy var axOperations = AXOperationController { [weak self] message in
         self?.debugLog(message)
     }
-    lazy var windowManagement = WindowManagement(axOperations: axOperations) { [weak self] event in
+    lazy var windowManagement = WindowManagement(
+        axOperations: axOperations,
+        fullscreenMode: { [weak self] in self?.layoutFullscreenMode ?? .perWorkspace }
+    ) { [weak self] event in
         self?.enqueue(event)
     }
     lazy var notificationAttentionController = NotificationAttentionController(

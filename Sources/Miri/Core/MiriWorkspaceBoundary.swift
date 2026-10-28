@@ -62,20 +62,29 @@ extension Miri {
         workspaceBoundaryHold = nil
     }
 
+    /// Fullscreen can navigate hidden rows only when explicitly configured.
+    /// At a row edge, use workspace commands to preserve destination focus.
+    func resolvedFullscreenNavigationCommand(_ command: Command) -> Command {
+        guard windowManagement.activeFullscreenState != .off else { return command }
+        let delta: Int
+        switch command {
+        case .rowDown: delta = 1
+        case .rowUp: delta = -1
+        default: return command
+        }
+        if layoutFullscreenMode == .perWindow,
+           fullscreenVerticalNavigation == .focusWindowsFirst,
+           windowManagement.canFocusRow(by: delta) {
+            return command
+        }
+        return delta > 0 ? .workspaceDown : .workspaceUp
+    }
+
     /// Returns true only when a boundary command was consumed (including repeats).
     func handleWorkspaceBoundaryShortcut(
         _ requestedCommand: Command, keyCode: Int64, modifiers: CGEventFlags, isRepeat: Bool
     ) -> Bool {
-        var command = requestedCommand
-        if let workspace = activeWorkspaceObject(), workspace.fullscreenState != .off {
-            // Fullscreen has no visible row neighbors. Use workspace navigation
-            // so neither the source nor destination's remembered row changes.
-            switch command {
-            case .rowDown: command = .workspaceDown
-            case .rowUp: command = .workspaceUp
-            default: break
-            }
-        }
+        let command = resolvedFullscreenNavigationCommand(requestedCommand)
         if let hold = workspaceBoundaryHold {
             if hold.keyCode == keyCode, hold.modifiers == modifiers { return true }
             cancelWorkspaceBoundaryHold()
@@ -98,7 +107,9 @@ extension Miri {
         if movesWindow, window == nil { return true }
         switch command {
         case .rowDown, .rowUp, .moveWindowDown, .moveWindowUp:
-            guard workspace.fullscreenState == .off else { return false }
+            guard windowManagement.fullscreenState(in: workspace) == .off
+                || (layoutFullscreenMode == .perWindow && fullscreenVerticalNavigation == .focusWindowsFirst
+                    && !movesWindow) else { return false }
             if workspace.columns.indices.contains(workspace.activeColumn) {
                 let column = workspace.columns[workspace.activeColumn]
                 let boundary = direction == .down ? column.windows.count - 1 : 0
@@ -158,7 +169,7 @@ extension Miri {
             && windowManagement.activeWorkspace == hold.sourceIndex
             && activeWorkspaceObject() === hold.workspace
             && hold.workspace.activeWindow === hold.window
-            && (!hold.requiresRowBoundary || hold.workspace.fullscreenState == .off)
+            && (!hold.requiresRowBoundary || windowManagement.fullscreenState(in: hold.workspace) == .off)
             && targetValid
             && focusedSourceValid
         guard held, valid else {
@@ -228,7 +239,7 @@ extension Miri {
                 persistenceChanged: true, statusChanged: true), animated: true)
         } else {
             let destination = windowManagement.workspaces[hold.targetIndex]
-            if hold.requiresRowBoundary, destination.fullscreenState == .off,
+            if hold.requiresRowBoundary, windowManagement.fullscreenState(in: destination) == .off,
                destination.columns.indices.contains(destination.activeColumn) {
                 let destinationColumn = destination.columns[destination.activeColumn]
                 destinationColumn.activeRow = hold.direction == .down ? 0 : max(0, destinationColumn.windows.count - 1)

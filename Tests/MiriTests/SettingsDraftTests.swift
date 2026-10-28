@@ -2,6 +2,27 @@ import XCTest
 @testable import miri
 
 final class SettingsDraftTests: XCTestCase {
+    func testFullscreenSettingsDefaultAndConfigurationRoundTrip() throws {
+        var legacy = MiriConfig.fallback
+        legacy.layoutFullscreenMode = nil
+        legacy.fullscreenVerticalNavigation = nil
+        XCTAssertEqual(legacy.resolved().layoutFullscreenMode, .perWorkspace)
+        XCTAssertEqual(legacy.resolved().fullscreenVerticalNavigation, .switchWorkspaces)
+        var draft = SettingsDraft(config: legacy)
+        XCTAssertEqual(draft.layoutFullscreenMode, .perWorkspace)
+        XCTAssertEqual(draft.fullscreenVerticalNavigation, .switchWorkspaces)
+        draft.layoutFullscreenMode = .perWindow
+        draft.fullscreenVerticalNavigation = .focusWindowsFirst
+        let encoded = try JSONEncoder().encode(draft.applying(to: legacy))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["layout_fullscreen_mode"] as? String, "per_window")
+        XCTAssertEqual(object["fullscreen_vertical_navigation"] as? String, "focus_windows_first")
+        XCTAssertEqual(SettingsDraft(config: try JSONDecoder().decode(MiriConfig.self, from: encoded)), draft)
+        draft.layoutFullscreenMode = .perWorkspace
+        XCTAssertEqual(SettingsDraft(config: draft.applying(to: legacy)).fullscreenVerticalNavigation, .focusWindowsFirst,
+                       "Hiding the dependent setting must preserve its selection")
+    }
+
     func testDraftResolvesOptionalValuesFromFallback() {
         var config = MiriConfig.fallback
         config.restoreOnExit = nil
@@ -55,6 +76,8 @@ final class SettingsDraftTests: XCTestCase {
         original.rowsPerColumn = 3
         original.heightPresetRatios = [0.3, 0.6]
         original.workspaceBoundaryHoldMS = 1250
+        original.layoutFullscreenMode = .perWindow
+        original.fullscreenVerticalNavigation = .focusWindowsFirst
         original.animationStrategy = .off
         original.workspaceBarCenterStyle = .border
         original.activeRescanBundleIDs = ["com.example.One", "com.example.Two"]

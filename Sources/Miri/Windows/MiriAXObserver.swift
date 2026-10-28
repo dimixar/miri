@@ -80,7 +80,7 @@ extension Miri {
             let placeholder = snapshot.role == kAXWindowRole
                 && (snapshot.subrole == nil || snapshot.subrole == kAXStandardWindowSubrole)
                 && snapshot.minimized != true
-                && snapshot.fullscreen != true
+                && snapshot.fullscreenOS != true
             guard placeholder else {
                 self.debugLog("ax created ignored reason=unmanageable-created pid=\(pid) title='\(snapshot.title)' role=\(snapshot.role ?? "nil") subrole=\(snapshot.subrole ?? "nil") frame=\(snapshot.frame.map { String(describing: $0) } ?? "nil")")
                 return
@@ -181,7 +181,7 @@ extension Miri {
             }
             let focusedElement: AXUIElement?
             let canUseCachedFallback = allowCachedFallback
-                && self.activeWorkspaceObject()?.fullscreenState == .off
+                && self.windowManagement.activeFullscreenState == .off
             if result.disposition == .completed,
                let current = result.value?.handle.element
             {
@@ -248,11 +248,11 @@ extension Miri {
             debugLog("suppressing focus adoption during fullscreen space guard")
             return false
         }
-        if let fullscreenState = windowManagement.fullscreenWindowStates.values.first(where: {
+        if let fullscreenState = windowManagement.fullscreenOSWindowStates.values.first(where: {
             $0.pid == pid && sameWindow($0.element, focusedElement)
         }) {
             suspendWorkspaceFullscreenForExternalFocus(applyLayout: false)
-            enforceRememberedFullscreenWorkspaceIfNeeded(fullscreenState)
+            enforceRememberedFullscreenOSWorkspaceIfNeeded(fullscreenState)
             debugLog("suppressing focus adoption while focused on remembered fullscreen app='\(fullscreenState.appName)' bundle='\(fullscreenState.bundleID ?? "nil")'")
             return false
         }
@@ -260,7 +260,7 @@ extension Miri {
         // Use the title from the same read that identified focus, before a
         // formerly tiled window can receive workspace fullscreen sizing.
         var classificationChanged = false
-        if let snapshot, snapshot.minimized != true, snapshot.fullscreen != true,
+        if let snapshot, snapshot.minimized != true, snapshot.fullscreenOS != true,
            let known = allWindows().first(where: { sameWindow($0.element, focusedElement) }) {
             classificationChanged = upsertDiscoveredWindow(ManagedWindow(
                 element: focusedElement, pid: pid, windowID: snapshot.handle.windowID,
@@ -269,7 +269,10 @@ extension Miri {
         }
 
         if windowManagement.floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
-            if applyLayout, classificationChanged || activeWorkspaceObject()?.fullscreenState == .off {
+            if layoutFullscreenMode == .perWindow {
+                suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
+            }
+            if applyLayout, classificationChanged || windowManagement.activeFullscreenState == .off {
                 projectLayout(focusActiveWindow: false)
             }
             return true
@@ -313,10 +316,12 @@ extension Miri {
             let changedFocus = windowManagement.activeWorkspace != loc.workspace || workspace.activeColumn != loc.column || workspace.columns[loc.column].activeRow != row
             let viewport = currentViewport()
             let scrollOffset = horizontalCameraOffset(for: workspace, viewport: viewport)
-            let fullscreenChanged = windowManagement.resumeWorkspaceFullscreen(in: workspace)
+            let previousFullscreen = windowManagement.fullscreenState(in: workspace)
             setActiveWorkspace(loc.workspace)
             windowManagement.setActiveColumn(loc.column, in: workspace)
             workspace.columns[loc.column].activeRow = row
+            let resumedFullscreen = windowManagement.resumeWorkspaceFullscreen(in: workspace)
+            let fullscreenChanged = resumedFullscreen || previousFullscreen != windowManagement.fullscreenState(in: workspace)
             if changedFocus || fullscreenChanged {
                 cancelWorkspaceBoundaryHold()
                 focusStateGeneration &+= 1
@@ -342,6 +347,9 @@ extension Miri {
             return true
         }
 
+        if layoutFullscreenMode == .perWindow {
+            suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
+        }
         if applyLayout, classificationChanged {
             projectLayout(focusActiveWindow: false)
         }
@@ -377,6 +385,7 @@ extension Miri {
         }
         if name == kAXUIElementDestroyedNotification {
             windowManagement.forgetManualBehavior(for: element)
+            windowManagement.forgetWindowFullscreen(for: element)
         }
         if debugLogging {
             debugLog("ax notification name=\(name) pid=\(notificationPID)")
@@ -533,9 +542,9 @@ extension Miri {
     ) {
         let element = snapshot.handle.element
         noteFullscreenSpaceHelperIfNeeded(snapshot)
-        if handleFullscreenTransitionIfNeeded(
+        if handleFullscreenOSTransitionIfNeeded(
             element,
-            isFullscreen: snapshot.fullscreen == true
+            fullscreenOS: snapshot.fullscreenOS == true
         ) {
             return
         }
@@ -552,7 +561,8 @@ extension Miri {
         }
         guard !manualResizeController.notificationsSuppressed else { return }
 
-        if tiledWindowLocation(for: element)?.workspace.fullscreenState != .off {
+        if let location = tiledWindowLocation(for: element),
+           windowManagement.fullscreenState(in: location.workspace) != .off {
             guard !layoutController.isActive else { return }
             projectLayout(focusActiveWindow: false)
             return

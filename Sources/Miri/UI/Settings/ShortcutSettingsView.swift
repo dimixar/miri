@@ -41,8 +41,8 @@ struct ShortcutSettingsView: View {
             includes: { $0.hasPrefix("move_column") }
         ),
         CommandGroup(
-            title: "Workspace fullscreen",
-            detail: "Fill the workspace with the focused window. Toggle back to restore tiling and column navigation.",
+            title: "Layout fullscreen",
+            detail: "Toggle layout fullscreen for the focused window using the behavior selected in Layout settings.",
             includes: { $0 == "toggle_workspace_fullscreen" }
         ),
         CommandGroup(

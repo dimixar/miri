@@ -39,7 +39,7 @@ final class ReconciliationPolicyTests: XCTestCase {
         let disposition = management.classifyMissingWindow(MissingWindowFacts(
             axEnumerationUnavailable: true,
             hasCGInfo: true,
-            isFullscreen: false,
+            fullscreenOS: false,
             pendingFullscreenWithinGrace: false,
             isFullScan: true,
             runningApplicationExists: true,
@@ -87,7 +87,7 @@ final class ReconciliationPolicyTests: XCTestCase {
             title: window.title
         )
         let minimized = PersistentWindowState(identity: identity, workspace: 1, column: 0)
-        let fullscreen = FullscreenWindowState(
+        let fullscreen = FullscreenOSWindowState(
             identity: identity,
             element: window.element,
             pid: window.pid,
@@ -121,7 +121,7 @@ final class ReconciliationPolicyTests: XCTestCase {
                 context.floatingWindows = [window]
             }),
             ("fullscreen in another Space", true, { _, context in
-                context.fullscreenWindowStates[identity] = fullscreen
+                context.fullscreenOSWindowStates[identity] = fullscreen
             }),
             ("minimized in another Space", true, { _, context in
                 context.minimizedWindowStates[identity] = minimized

@@ -58,7 +58,7 @@ struct TransientSystemWindow {
     var element: AXUIElement
 }
 
-struct FullscreenWindowState {
+struct FullscreenOSWindowState {
     let identity: PersistentWindowIdentity
     let element: AXUIElement
     let pid: pid_t

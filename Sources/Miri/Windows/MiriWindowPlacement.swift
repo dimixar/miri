@@ -87,12 +87,12 @@ extension Miri {
         }
         let id = ObjectIdentifier(window)
         layoutController.removeTracking(for: window)
-        windowManagement.clearPendingFullscreenTransition(for: id)
+        windowManagement.clearPendingFullscreenOSTransition(for: id)
         windowManagement.remove(window, preferRightFocus: preferRightFocus)
         reconcileWorkspaceCapacity()
     }
 
-    func rememberFullscreenWindowState(_ window: ManagedWindow) {
+    func rememberFullscreenOSWindowState(_ window: ManagedWindow) {
         guard let location = tiledWindowLocation(for: window.element) else {
             return
         }
@@ -102,7 +102,7 @@ extension Miri {
         let left = leftWindow.map(persistentIdentity(for:))
         let right = rightWindow.map(persistentIdentity(for:))
         let identity = persistentIdentity(for: window)
-        windowManagement.rememberFullscreenState(FullscreenWindowState(
+        windowManagement.rememberFullscreenOSState(FullscreenOSWindowState(
             identity: identity,
             element: window.element,
             pid: window.pid,
@@ -124,31 +124,32 @@ extension Miri {
     }
 
     @discardableResult
-    func restoreExitedFullscreenWindows(discovered: [ManagedWindow]) -> Bool {
+    func restoreExitedFullscreenOSWindows(discovered: [ManagedWindow]) -> Bool {
         var restored = false
         for found in discovered {
-            guard let state = windowManagement.takeFullscreenState(matching: { identity, state in
+            guard let state = windowManagement.takeFullscreenOSState(matching: { identity, state in
                 sameWindow(state.element, found.element) || persistentIdentity(for: found) == identity
             }) else {
                 continue
             }
+            windowManagement.restoreManualWindowState(to: found)
             found.manualWidthRatio = state.standaloneWidthRatio
-            insertRestoredFullscreenWindow(found, state: state)
+            insertRestoredFullscreenOSWindow(found, state: state)
             restored = true
         }
         return restored
     }
 
-    func insertRestoredFullscreenWindow(_ window: ManagedWindow, state: FullscreenWindowState) {
+    func insertRestoredFullscreenOSWindow(_ window: ManagedWindow, state: FullscreenOSWindowState) {
         if windowManagement.restoreRemovedRow(window, focus: state.wasActive, capacity: configStore.effectiveConfig.rowsPerColumn ?? 1) { return }
         windowManagement.ensureWorkspaceExists(state.workspace)
         let workspaces = windowManagement.workspaces
         let workspace = workspaces[min(max(state.workspace, 0), workspaces.count - 1)]
-        let index = restoredFullscreenInsertionIndex(in: workspace, state: state)
+        let index = restoredFullscreenOSInsertionIndex(in: workspace, state: state)
         insertWindow(window, in: workspace, at: index, applyLayout: false, focusNewWindow: state.wasActive)
     }
 
-    func restoredFullscreenInsertionIndex(in workspace: Workspace, state: FullscreenWindowState) -> Int {
+    func restoredFullscreenOSInsertionIndex(in workspace: Workspace, state: FullscreenOSWindowState) -> Int {
         let leftIndex = neighborIndex(id: state.leftNeighborID, identity: state.leftNeighbor, in: workspace)
         let rightIndex = neighborIndex(id: state.rightNeighborID, identity: state.rightNeighbor, in: workspace)
         if let leftIndex, let rightIndex, leftIndex < rightIndex {

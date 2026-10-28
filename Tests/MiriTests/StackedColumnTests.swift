@@ -350,10 +350,10 @@ final class StackedColumnTests: XCTestCase {
         let column = Column(windows: [first, second], activeRow: 1, widthRatio: 0.4, heightRatios: [0.25, 0.75])
         workspace.columns = [column]
         miri.windowManagement.enforceRowCapacity(3)
-        miri.rememberFullscreenWindowState(second)
+        miri.rememberFullscreenOSWindowState(second)
         miri.windowManagement.remove(second)
         XCTAssertTrue(workspace.activeWindow === first)
-        XCTAssertTrue(miri.restoreExitedFullscreenWindows(discovered: [second]))
+        XCTAssertTrue(miri.restoreExitedFullscreenOSWindows(discovered: [second]))
         XCTAssertTrue(workspace.columns[0] === column)
         XCTAssertTrue(workspace.activeWindow === second)
         XCTAssertEqual(column.widthRatio, 0.4)

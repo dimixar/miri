@@ -51,7 +51,7 @@ struct GlobalWindowCleanupResult {
 struct MissingWindowFacts {
     let axEnumerationUnavailable: Bool
     let hasCGInfo: Bool
-    let isFullscreen: Bool
+    let fullscreenOS: Bool
     let pendingFullscreenWithinGrace: Bool
     let isFullScan: Bool
     let runningApplicationExists: Bool
@@ -110,6 +110,7 @@ final class WorkspaceModel {
 @MainActor
 final class WindowManagement {
     private let model = WorkspaceModel()
+    private let fullscreenMode: () -> LayoutFullscreenMode
     let observation: WindowObservationController
 
     private struct ManualTiledPlacement {
@@ -128,6 +129,7 @@ final class WindowManagement {
 
     // Live AX identity only: these overrides are never serialized or matched by title/app.
     private var manualWindowOverrides: [ManualWindowOverride] = []
+    private var fullscreenLayoutWindows: [ManagedWindow] = []
     private struct RemovedRowPlacement {
         let element: AXUIElement
         let contextID: Int
@@ -229,8 +231,10 @@ final class WindowManagement {
 
     init(
         axOperations: AXOperationController,
+        fullscreenMode: @escaping () -> LayoutFullscreenMode = { .perWorkspace },
         emit: @escaping WindowObservationController.EventSink
     ) {
+        self.fullscreenMode = fullscreenMode
         observation = WindowObservationController(axOperations: axOperations, emit: emit)
     }
 
@@ -242,14 +246,14 @@ final class WindowManagement {
     var activeLogicalSpaceContextID: Int { model.activeLogicalSpaceContextID }
     var pendingLogicalSpaceSwitch: Bool { model.pendingLogicalSpaceSwitch }
     var spaceBufferedWindows: [UInt32: BufferedSpaceWindow] { model.spaceBufferedWindows }
-    var fullscreenWindowStates: [PersistentWindowIdentity: FullscreenWindowState] { model.activeContext.fullscreenWindowStates }
+    var fullscreenOSWindowStates: [PersistentWindowIdentity: FullscreenOSWindowState] { model.activeContext.fullscreenOSWindowStates }
     var fullscreenSpaceChangeGuardWorkspace: Int? { model.activeContext.fullscreenSpaceChangeGuardWorkspace }
 
     var hasKnownWindowState: Bool {
         !model.spaceBufferedWindows.isEmpty || model.logicalSpaceContexts.contains { context in
             context.workspaces.contains { !$0.columns.isEmpty }
                 || !context.floatingWindows.isEmpty
-                || !context.fullscreenWindowStates.isEmpty
+                || !context.fullscreenOSWindowStates.isEmpty
                 || !context.minimizedWindowPIDs.isEmpty
         }
     }
@@ -263,7 +267,7 @@ final class WindowManagement {
                     columns: $0.columns.map { WorkspaceModelSnapshot.ColumnSnapshot(id: $0.id, windows: $0.windows, activeRow: $0.activeRow, widthRatio: $0.widthRatio, heightRatios: $0.heightRatios) },
                     activeColumn: $0.activeColumn,
                     scrollOffset: $0.scrollOffset,
-                    fullscreenState: $0.fullscreenState
+                    fullscreenState: fullscreenState(in: $0)
                 )
             },
             floatingWindows: model.activeContext.floatingWindows,
@@ -295,9 +299,19 @@ final class WindowManagement {
     }
 
     func restoreManualWindowState(to window: ManagedWindow) {
+        if let previous = fullscreenLayoutWindows.first(where: { CFEqual($0.element, window.element) }) {
+            window.fullscreenLayout = previous.fullscreenLayout
+            fullscreenLayoutWindows.removeAll { CFEqual($0.element, window.element) }
+            fullscreenLayoutWindows.append(window)
+        }
         guard let index = manualWindowOverrides.firstIndex(where: { CFEqual($0.window.element, window.element) }) else { return }
         window.manualWidthRatio = manualWindowOverrides[index].window.manualWidthRatio
         manualWindowOverrides[index].window = window
+    }
+
+    func forgetWindowFullscreen(for element: AXUIElement) {
+        fullscreenLayoutWindows.filter { CFEqual($0.element, element) }.forEach { $0.fullscreenLayout = false }
+        fullscreenLayoutWindows.removeAll { CFEqual($0.element, element) }
     }
 
     func forgetManualBehavior(for element: AXUIElement) {
@@ -305,6 +319,9 @@ final class WindowManagement {
     }
 
     func discardClosedManualWindows(liveWindowIDs: Set<UInt32>) {
+        fullscreenLayoutWindows.removeAll { window in
+            window.windowID.map { !liveWindowIDs.contains($0) } ?? false
+        }
         manualWindowOverrides.removeAll { override in
             override.window.windowID.map { !liveWindowIDs.contains($0) } ?? false
         }
@@ -329,6 +346,9 @@ final class WindowManagement {
                 rightNeighbor: column + 1 < source.element.columns.count ? source.element.columns[column + 1].activeWindow?.element : nil
             )
             // Floating focus must not leave a different tiled window maximized.
+            forgetWindowFullscreen(for: window.element)
+            window.fullscreenLayout = false
+            source.element.windowFullscreenSuspended = true
             source.element.fullscreenState = .off
             override.behavior = .float
             _ = insertFloating(window)
@@ -357,7 +377,7 @@ final class WindowManagement {
 
     func classifyMissingWindow(_ facts: MissingWindowFacts) -> MissingWindowDisposition {
         if facts.axEnumerationUnavailable, facts.hasCGInfo { return .preserveCGVisible }
-        if facts.isFullscreen { return .moveToFullscreenState }
+        if facts.fullscreenOS { return .moveToFullscreenState }
         if facts.pendingFullscreenWithinGrace { return .preservePendingFullscreen }
         if facts.isFullScan,
            facts.runningApplicationExists,
@@ -383,6 +403,7 @@ final class WindowManagement {
         projection.activeColumn = source.activeColumn
         projection.scrollOffset = source.scrollOffset
         projection.fullscreenState = source.fullscreenState
+        projection.windowFullscreenSuspended = source.windowFullscreenSuspended
         return projection
     }
 
@@ -678,18 +699,18 @@ final class WindowManagement {
 
     @discardableResult
     func focusRow(by delta: Int) -> Bool {
-        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .off,
-              workspace.columns.indices.contains(workspace.activeColumn) else { return false }
+        guard let workspace = activeWorkspaceObject(),
+              fullscreenMode() == .perWindow || fullscreenState(in: workspace) == .off,
+              canFocusRow(by: delta) else { return false }
         let column = workspace.columns[workspace.activeColumn]
-        let target = column.activeRow + delta
-        guard column.windows.indices.contains(target) else { return false }
-        column.activeRow = target
+        column.activeRow += delta
+        workspace.windowFullscreenSuspended = false
         return true
     }
 
     @discardableResult
     func moveActiveRow(by delta: Int) -> Bool {
-        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .off,
+        guard let workspace = activeWorkspaceObject(), fullscreenState(in: workspace) == .off,
               workspace.columns.indices.contains(workspace.activeColumn) else { return false }
         let column = workspace.columns[workspace.activeColumn]
         let target = column.activeRow + delta
@@ -702,7 +723,7 @@ final class WindowManagement {
 
     @discardableResult
     func moveActiveWindowHorizontally(by delta: Int, capacity: Int) -> Bool {
-        guard delta != 0, let workspace = activeWorkspaceObject(), workspace.fullscreenState == .off,
+        guard delta != 0, let workspace = activeWorkspaceObject(), fullscreenState(in: workspace) == .off,
               let window = workspace.activeWindow else { return false }
         let sourceIndex = workspace.activeColumn
         let source = workspace.columns[sourceIndex]
@@ -825,27 +846,58 @@ final class WindowManagement {
         workspace.scrollOffset = offset
     }
 
+    func fullscreenState(in workspace: Workspace) -> WorkspaceFullscreenState {
+        guard fullscreenMode() == .perWindow else { return workspace.fullscreenState }
+        guard workspace.activeWindow?.fullscreenLayout == true else { return .off }
+        return workspace.windowFullscreenSuspended ? .suspended : .active
+    }
+
+    var activeFullscreenState: WorkspaceFullscreenState {
+        activeWorkspaceObject().map { fullscreenState(in: $0) } ?? .off
+    }
+
+    func canFocusRow(by delta: Int) -> Bool {
+        guard let workspace = activeWorkspaceObject(),
+              workspace.columns.indices.contains(workspace.activeColumn) else { return false }
+        let column = workspace.columns[workspace.activeColumn]
+        return column.windows.indices.contains(column.activeRow + delta)
+    }
+
     @discardableResult
     func toggleWorkspaceFullscreen() -> Bool {
         guard let workspace = activeWorkspaceObject(), !workspace.isEmpty else { return false }
-        workspace.fullscreenState = workspace.fullscreenState == .off ? .active : .off
+        if fullscreenMode() == .perWindow {
+            guard let window = workspace.activeWindow else { return false }
+            window.fullscreenLayout.toggle()
+            fullscreenLayoutWindows.removeAll { CFEqual($0.element, window.element) }
+            if window.fullscreenLayout { fullscreenLayoutWindows.append(window) }
+            workspace.windowFullscreenSuspended = false
+        } else {
+            workspace.fullscreenState = workspace.fullscreenState == .off ? .active : .off
+        }
         return true
     }
 
     @discardableResult
     func suspendWorkspaceFullscreen() -> Bool {
-        guard let workspace = activeWorkspaceObject(), workspace.fullscreenState == .active else { return false }
-        workspace.fullscreenState = .suspended
+        guard let workspace = activeWorkspaceObject(), fullscreenState(in: workspace) == .active else { return false }
+        if fullscreenMode() == .perWindow {
+            workspace.windowFullscreenSuspended = true
+        } else {
+            workspace.fullscreenState = .suspended
+        }
         return true
     }
 
     @discardableResult
     func resumeWorkspaceFullscreen(in target: Workspace) -> Bool {
-        let previousState = target.fullscreenState
-        if target.fullscreenState == .suspended {
+        let previousState = fullscreenState(in: target)
+        if fullscreenMode() == .perWindow {
+            target.windowFullscreenSuspended = false
+        } else if target.fullscreenState == .suspended {
             target.fullscreenState = .active
         }
-        return previousState != target.fullscreenState
+        return previousState != fullscreenState(in: target)
     }
 
     func removeWindowID(_ windowID: UInt32, from context: LogicalSpaceContext) {
@@ -876,33 +928,33 @@ final class WindowManagement {
         model.spaceBufferedWindows.removeValue(forKey: windowID)
     }
 
-    func pendingFullscreenTransition(for id: ObjectIdentifier) -> CFAbsoluteTime? {
-        model.activeContext.pendingFullscreenTransitionSince[id]
+    func pendingFullscreenOSTransition(for id: ObjectIdentifier) -> CFAbsoluteTime? {
+        model.activeContext.pendingFullscreenOSTransitionSince[id]
     }
 
-    func recordPendingFullscreenTransition(for id: ObjectIdentifier, at time: CFAbsoluteTime) {
-        model.activeContext.pendingFullscreenTransitionSince[id] = time
+    func recordPendingFullscreenOSTransition(for id: ObjectIdentifier, at time: CFAbsoluteTime) {
+        model.activeContext.pendingFullscreenOSTransitionSince[id] = time
     }
 
-    func clearPendingFullscreenTransition(for id: ObjectIdentifier) {
-        model.activeContext.pendingFullscreenTransitionSince.removeValue(forKey: id)
+    func clearPendingFullscreenOSTransition(for id: ObjectIdentifier) {
+        model.activeContext.pendingFullscreenOSTransitionSince.removeValue(forKey: id)
     }
 
     func setFullscreenSpaceChangeGuardWorkspace(_ index: Int?) {
         model.activeContext.fullscreenSpaceChangeGuardWorkspace = index
     }
 
-    func rememberFullscreenState(_ state: FullscreenWindowState) {
-        model.activeContext.fullscreenWindowStates[state.identity] = state
+    func rememberFullscreenOSState(_ state: FullscreenOSWindowState) {
+        model.activeContext.fullscreenOSWindowStates[state.identity] = state
     }
 
-    func takeFullscreenState(
-        matching predicate: (PersistentWindowIdentity, FullscreenWindowState) -> Bool
-    ) -> FullscreenWindowState? {
-        guard let match = model.activeContext.fullscreenWindowStates.first(where: { predicate($0.key, $0.value) }) else {
+    func takeFullscreenOSState(
+        matching predicate: (PersistentWindowIdentity, FullscreenOSWindowState) -> Bool
+    ) -> FullscreenOSWindowState? {
+        guard let match = model.activeContext.fullscreenOSWindowStates.first(where: { predicate($0.key, $0.value) }) else {
             return nil
         }
-        model.activeContext.fullscreenWindowStates.removeValue(forKey: match.key)
+        model.activeContext.fullscreenOSWindowStates.removeValue(forKey: match.key)
         return match.value
     }
 
@@ -1014,14 +1066,15 @@ final class WindowManagement {
             context.floatingWindows.removeAll { $0.pid == pid }
             context.signature.subtract(removed.compactMap(\.windowID))
         }
+        fullscreenLayoutWindows.removeAll { $0.pid == pid }
         let buffered = model.spaceBufferedWindows.values.filter { $0.window.pid == pid }.map(\.window)
         for window in buffered where seen.insert(ObjectIdentifier(window)).inserted { removed.append(window) }
         changed = changed || !buffered.isEmpty
         model.spaceBufferedWindows = model.spaceBufferedWindows.filter { $0.value.window.pid != pid }
         for context in model.logicalSpaceContexts {
-            let fullscreenCount = context.fullscreenWindowStates.count
+            let fullscreenCount = context.fullscreenOSWindowStates.count
             let minimizedCount = context.minimizedWindowStates.count
-            context.fullscreenWindowStates = context.fullscreenWindowStates.filter { $0.value.pid != pid }
+            context.fullscreenOSWindowStates = context.fullscreenOSWindowStates.filter { $0.value.pid != pid }
             let terminatedMinimizedIdentities = Set(
                 context.minimizedWindowPIDs.compactMap { identity, trackedPID in
                     trackedPID == pid ? identity : nil
@@ -1031,9 +1084,9 @@ final class WindowManagement {
                 !terminatedMinimizedIdentities.contains($0.key)
             }
             context.minimizedWindowPIDs = context.minimizedWindowPIDs.filter { $0.value != pid }
-            changed = changed || context.fullscreenWindowStates.count != fullscreenCount
+            changed = changed || context.fullscreenOSWindowStates.count != fullscreenCount
                 || context.minimizedWindowStates.count != minimizedCount
-            for window in removed { context.pendingFullscreenTransitionSince.removeValue(forKey: ObjectIdentifier(window)) }
+            for window in removed { context.pendingFullscreenOSTransitionSince.removeValue(forKey: ObjectIdentifier(window)) }
         }
         assertInvariants()
         return GlobalWindowCleanupResult(removedWindows: removed, changed: changed)

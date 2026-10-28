@@ -87,7 +87,7 @@ extension Miri {
 
     func likelyFullscreenExitSettle(discovered: [ManagedWindow]) -> Bool {
         guard discoveredSignature(discovered).isEmpty,
-              !windowManagement.fullscreenWindowStates.isEmpty
+              !windowManagement.fullscreenOSWindowStates.isEmpty
         else {
             return false
         }
