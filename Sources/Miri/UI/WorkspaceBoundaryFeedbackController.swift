@@ -63,7 +63,7 @@ final class WorkspaceBoundaryFeedbackController {
         guard panel.isVisible else { return }
         feedbackView.setExpansion(1)
         let initialAlpha = feedbackView.alphaValue
-        animate(duration: 0.20) { [weak self] elapsed in
+        animate(duration: 0.20, delay: 0.50) { [weak self] elapsed in
             self?.feedbackView.alphaValue = initialAlpha * (1 - elapsed / 0.20)
         }
     }
@@ -81,10 +81,10 @@ final class WorkspaceBoundaryFeedbackController {
         animationTimer = nil
     }
 
-    private func animate(duration: TimeInterval, update: @escaping @MainActor (CGFloat) -> Void) {
+    private func animate(duration: TimeInterval, delay: TimeInterval = 0, update: @escaping @MainActor (CGFloat) -> Void) {
         stopAnimation()
         let token = generation
-        let start = ProcessInfo.processInfo.systemUptime
+        let start = ProcessInfo.processInfo.systemUptime + delay
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             guard let self else {
                 timer.invalidate()
@@ -92,11 +92,12 @@ final class WorkspaceBoundaryFeedbackController {
             }
             MainActor.assumeIsolated {
                 guard self.generation == token else { return }
-                let elapsed = min(duration, ProcessInfo.processInfo.systemUptime - start)
+                let elapsed = min(duration, max(0, ProcessInfo.processInfo.systemUptime - start))
                 update(CGFloat(elapsed))
                 if elapsed >= duration { self.hide() }
             }
         }
+        if delay > 0 { timer.fireDate = Date(timeIntervalSinceNow: delay) }
         animationTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
