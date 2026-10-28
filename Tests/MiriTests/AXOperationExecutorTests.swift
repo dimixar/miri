@@ -22,6 +22,32 @@ private final class LockedValues<Value>: @unchecked Sendable {
 
 final class AXOperationExecutorTests: XCTestCase {
     @MainActor
+    func testTransientRecoverySkipsOwnProcessWithAndWithoutRepositioning() {
+        let controller = AXOperationController(log: { _ in })
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let handle = AXElementHandle(
+            element: AXUIElementCreateApplication(pid),
+            pid: pid,
+            windowID: nil
+        )
+
+        for origin: CGPoint? in [nil, CGPoint(x: 100, y: 100)] {
+            let completed = expectation(description: "own-process recovery skipped")
+            completed.assertForOverFulfill = true
+            controller.recoverTransientWindow(handle: handle, centeredOrigin: origin) { result in
+                XCTAssertTrue(Thread.isMainThread)
+                XCTAssertEqual(result.disposition, .superseded)
+                XCTAssertEqual(result.error, .success)
+                XCTAssertNil(result.value)
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 1)
+        }
+
+        XCTAssertFalse(controller.isCircuitOpen(pid: pid))
+    }
+
+    @MainActor
     func testProductionApplicationReadPipelineAlwaysCompletes() {
         let controller = AXOperationController(log: { _ in })
         let completed = expectation(description: "production application read completed")

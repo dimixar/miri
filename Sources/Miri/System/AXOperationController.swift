@@ -663,6 +663,18 @@ final class AXOperationController {
         centeredOrigin: CGPoint?,
         completion: @escaping @MainActor (AXOperationResult<Bool>) -> Void = { _ in }
     ) {
+        // Own-process AX actions call AppKit directly on the caller's thread.
+        // Let AppKit position and present our sheets instead of raising them
+        // from a background PID lane. They still participate in the transient
+        // window guard so layout stays paused while a Miri dialog is open.
+        guard handle.pid != ProcessInfo.processInfo.processIdentifier else {
+            completion(AXOperationResult(
+                value: nil, error: .success, disposition: .superseded,
+                queueWait: 0, elapsed: 0, budgetExhausted: false, retryAfter: nil
+            ))
+            return
+        }
+
         submit(
             pid: handle.pid,
             key: "transient-recovery:\(handle.operationKey)",
