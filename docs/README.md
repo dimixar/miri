@@ -2,7 +2,8 @@
 
 ## Current Reference
 
-- [Configuration](configuration.md): layout, window rules, shortcuts, and menu bar settings.
+- [Configuration](configuration.md): layout, window rules, shortcuts, and menu bar settings,
+  including [per-workspace and per-window fullscreen](configuration.md#layout-fullscreen).
 - [Troubleshooting](troubleshooting.md): permissions, session recovery, app issues, and debug logs.
 - [Architecture](architecture.md): code structure, event flow, persistence, and private API scope.
 - [Window discovery and reconciliation](window-discovery-and-reconciliation.md): startup scans, app events, and session gating.

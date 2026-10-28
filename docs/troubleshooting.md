@@ -139,7 +139,7 @@ Common causes:
 - The app does not expose a settable AX position or size.
 
 Look for `raw ax window source=...` and compare `manageable`, `known`, role,
-subrole, frame, minimized, and fullscreen fields.
+subrole, frame, minimized, and fullscreenOS fields.
 
 For an application launched while miri is already running, the log should show
 `app launch settling started`, followed by an initial reconciliation and
@@ -200,6 +200,35 @@ does not activate every resized background application merely to force a redraw,
 because doing so would steal focus. If focusing the window immediately fixes
 only its content while its outer frame was already correct, this is application
 rendering behavior rather than failed window placement.
+
+## Fullscreen Focus Or Vertical Navigation Is Unexpected
+
+Check **Settings → Layout → Layout fullscreen → Fullscreen behavior**:
+
+- **Per workspace** is the default. Horizontal keyboard focus is blocked while
+  fullscreen is enabled, and vertical focus shortcuts use held workspace
+  navigation even if the column has other windows.
+- **Per window** allows horizontal focus changes and remembers fullscreen for
+  each window. Focusing a normal window restores normal tiling; returning to a
+  fullscreen window restores its fullscreen presentation. Dock and Command-based
+  focus changes follow the same rule.
+
+**Vertical navigation while fullscreen** appears only in per-window mode. Its
+default, **Switch workspaces**, preserves the existing held navigation.
+**Focus windows first** tries the row above or below before falling back to a
+workspace hold. At the top/bottom edge or in a single-window column, a workspace
+hold is expected; release and press again if the current keypress began inside
+the stack. Resize and drag-layout controls remain disabled while fullscreen is
+presented.
+
+In per-window mode, a workspace's fullscreen indicator follows its focused
+window. It remains on an inactive workspace if that window was fullscreen when
+you left. A fullscreen designation on an unfocused peer does not show the
+indicator. Layout fullscreen is temporary runtime state and resets when Miri
+restarts. Native macOS fullscreen, reported as `fullscreenOS` in raw window
+logs, is separate and can move the window into another macOS Space.
+
+See [layout fullscreen settings](configuration.md#layout-fullscreen).
 
 ## Same-App Window Focus Does Not Move The Layout
 

@@ -40,8 +40,9 @@ multi-display configurations are outside the current scope and untested.
   neighbor when possible. See [alignment rules](docs/configuration.md#layout).
 - **Virtual workspaces.** Each keeps its own focus and scroll position, with
   separate state for inferred native macOS Spaces.
-- **Floating and workspace fullscreen.** Untile an individual window or let it
-  fill the usable workspace without creating a macOS Space.
+- **Floating and layout fullscreen.** Untile an individual window or fill the
+  usable workspace without creating a macOS Space. Choose workspace fullscreen
+  or remember fullscreen separately for each window while keeping focus navigation.
 - **Persistent layouts.** Restore column order, widths, and focus across restarts,
   with window restoration on quit and crash cleanup.
 - **Optional snapshot animations.** Animate movement and resizing using captured
@@ -62,6 +63,12 @@ from native macOS Spaces.
 Stacking is off by default. Enable two or three rows in **Settings → Layout →
 Stacked columns**, then use `LAlt+Shift+H` / `LAlt+Shift+L` to join windows.
 Stacked windows share a column width but can have different heights.
+
+Choose **Per workspace** or **Per window** under **Settings → Layout → Layout
+fullscreen**. Per-window fullscreen restores normal tiling when you focus a
+normal window and returns to fullscreen when you refocus a fullscreen window.
+Its additional vertical-navigation setting can focus other rows before falling
+back to held workspace navigation. See [layout fullscreen](docs/configuration.md#layout-fullscreen).
 
 ## Requirements
 
@@ -146,7 +153,7 @@ unless configured otherwise.
 | `LAlt+Shift+J` / `LAlt+Shift+K` | Reorder row down / up; hold at the edge to move that window to another workspace |
 | `LAlt+Shift+H` / `LAlt+Shift+L` | Move focused window into the adjacent column or a new column |
 | `LAlt+Shift+[` / `LAlt+Shift+]` | Move column to first / last |
-| `LAlt+Shift+F` | Toggle workspace fullscreen |
+| `LAlt+Shift+F` | Toggle layout fullscreen using the selected behavior |
 | `LAlt+Ctrl+F` | Toggle focused window floating/tiled |
 | `LAlt+Ctrl+J` / `LAlt+Ctrl+K` | Smaller / larger row height preset (no wrapping) |
 | `LAlt+Ctrl+H` / `LAlt+Ctrl+L` | Cycle active column width preset |
@@ -167,8 +174,10 @@ bindings in **Settings → Shortcuts**; the reference covers
 <img src="assets/repo/menu-bar.png" alt="Miri menu bar: workspace 1 is active and expanded into stacked app icons; workspace 2 shows its last-focused app and workspace 3 is empty." width="284">
 
 The active workspace expands into app icons; inactive workspaces show their
-number and last-focused app, if any. Appearance and colors are
-[configurable](docs/configuration.md#menu-bar).
+number and last-focused app, if any. In per-window fullscreen mode, the fullscreen
+indicator follows the workspace's focused window and stays on an inactive
+workspace if that window was fullscreen when you left. Appearance and colors
+are [configurable](docs/configuration.md#menu-bar).
 
 Open **Settings…** from the menu bar to edit the active JSON config and reload
 in place. The menu also offers config access, window rescanning, permission

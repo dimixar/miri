@@ -36,6 +36,8 @@ at startup, so disabling it in System Settings stays respected.
 {
   "default_width_ratio": 0.67,
   "preset_width_ratios": [0.33, 0.5, 0.67, 1.0],
+  "layout_fullscreen_mode": "per_workspace",
+  "fullscreen_vertical_navigation": "switch_workspaces",
   "animation_strategy": "snapshot",
   "snapshot_animation_speed": 50,
   "animation_fps": 60,
@@ -136,6 +138,9 @@ at startup, so disabling it in System Settings stays respected.
   SkyLight group move after Accessibility sizing so the configured corner
   extent includes the rendered shadow. Accessibility positioning remains the
   fallback when the required private symbols are unavailable.
+- `layout_fullscreen_mode`: `per_workspace` (default) or `per_window`.
+- `fullscreen_vertical_navigation`: `switch_workspaces` (default) or
+  `focus_windows_first`. Applies only to per-window layout fullscreen.
 - `width_resize_mode`: `default` or `intelligent`.
 - `ax_created_placeholder_probe_cooldown_ms`: per-app cooldown for short
   placeholder-window probes after an already-tracked app emits a tiny
@@ -203,9 +208,11 @@ row, or hold at the bottom/top boundary to switch workspace. Repeats that starte
 within a stack cannot arm a boundary crossing; release and press again at the edge.
 Horizontal column focus chooses the row with the closest vertical center, using
 the actual row heights. Exact ties keep the destination's remembered row.
-In workspace fullscreen, these shortcuts always use held next/previous workspace
-navigation, regardless of the hidden row position. They preserve each workspace's
-remembered focus and fullscreen state rather than focusing a boundary row.
+In per-workspace fullscreen, these shortcuts always use held next/previous
+workspace navigation, regardless of the hidden row position. Per-window fullscreen
+uses the same default, with an option to focus available rows first. Fullscreen
+workspace crossings preserve the destination's remembered focus; see
+[layout fullscreen](#layout-fullscreen).
 `move_window_down` / `move_window_up` use Shift with those keys: reorder the
 focused row, or hold at the boundary to move only that window to a new column in
 the next/previous workspace. Moving down beyond the last workspace creates the
@@ -232,19 +239,62 @@ the relative-workspace hold safeguard. Explicit old bindings suppress conflictin
 inherited row/window defaults. To adopt the new workflow, clear the old binding
 and assign it to the corresponding row/window action in Settings → Shortcuts.
 
-`toggle_workspace_fullscreen` defaults to `lalt+shift+f` and is editable under
-Settings → Shortcuts → Workspace fullscreen. It toggles a temporary full-workspace
-override for the focused tiled window, preserving normal ratios. Column navigation,
-width shortcuts, and drag-layout gestures are disabled while enabled. External
-focus changes within that workspace apply the override to the focused tiled
-window; toggling off restores normal tiling with that window focused. This is
-separate from native macOS fullscreen and does not create a macOS Space.
+### Layout fullscreen
 
-Cmd-Tab, Cmd-grave, Dock/window activation, and explicit workspace navigation
-keep each workspace's mode in place. Focusing a tiled window resumes only its
-own workspace's suspended override; it does not inherit another workspace's mode.
-Unmanaged focus suspends the override until a tiled window regains focus.
-The mode is not saved across restarts.
+`toggle_workspace_fullscreen` defaults to `lalt+shift+f` and is editable under
+Settings → Shortcuts → Layout fullscreen. Settings → Layout → Layout fullscreen
+selects the behavior. Both modes fill the usable workspace viewport with the
+focused tiled window while preserving normal widths, row heights and placement.
+They are separate from native macOS fullscreen and do not create a macOS Space.
+Layout fullscreen state is not saved across restarts. Existing configurations
+keep per-workspace behavior. The action name remains `toggle_workspace_fullscreen`
+for both modes, so changing behavior does not require rebinding the shortcut.
+
+- **Per workspace** (`per_workspace`, default): the override belongs to the
+  workspace. Column focus navigation, resizing and drag-layout gestures are
+  disabled while enabled. External focus changes apply the override to the newly
+  focused tiled window. Vertical focus shortcuts use held workspace navigation,
+  preserving each workspace's remembered focus. Unmanaged focus suspends the
+  override until a tiled window regains focus.
+- **Per window** (`per_window`): the override is remembered separately for each
+  live window until toggled off. Horizontal keyboard navigation, Cmd-Tab,
+  Cmd-grave and Dock/window activation can focus another window. A normal window
+  restores normal tiling; returning to a fullscreen window restores its fullscreen
+  presentation. Floating or unmanaged focus suspends the presentation without
+  forgetting the window's fullscreen designation. Resizing and drag-layout
+  gestures remain disabled while a fullscreen window is presented.
+
+In per-window mode, an additional **Vertical navigation while fullscreen**
+dropdown appears. Its selection is retained when you switch back to per-workspace
+mode, where the dropdown is hidden:
+
+- **Switch workspaces** (`switch_workspaces`, default): up/down uses the existing
+  held workspace navigation even when the column contains another row.
+- **Focus windows first** (`focus_windows_first`): up/down focuses an available
+  row in that direction and applies that window's own fullscreen state. At the
+  top/bottom edge, or in a single-window column, it falls back to held workspace
+  navigation while preserving the destination's remembered focus.
+
+For example, to enable per-window fullscreen with row navigation first:
+
+```json
+{
+  "layout_fullscreen_mode": "per_window",
+  "fullscreen_vertical_navigation": "focus_windows_first"
+}
+```
+
+These settings apply through the normal config reload without restarting Miri.
+A window's designation survives rescans, title changes, hiding/minimization, and
+native fullscreen entry/exit for that same live window. Closing the window or
+explicitly floating it clears its designation.
+
+The workspace fullscreen indicator is reused in per-window mode. It appears when
+that workspace's focused window is fullscreen, and remains on an inactive
+workspace if that was its focused window when you left. A remembered fullscreen
+flag on an unfocused peer does not show the indicator.
+
+### Floating windows
 
 `toggle_window_floating` defaults to `lalt+ctrl+f` and is editable under
 Settings → Shortcuts → Floating windows. It toggles the actual focused managed
@@ -256,8 +306,11 @@ workspace, adjacent position, and width when possible; after a move to a differe
 native Space it uses the current workspace instead. Ignored windows, dialogs,
 and native-fullscreen windows are not toggled.
 
-Floating a workspace-fullscreen window exits that mode without focusing a
-different column. The override clears when the window closes or Miri restarts.
+Floating a fullscreen window exits its layout fullscreen mode without focusing
+a different column. In per-window mode, other windows keep their own fullscreen
+designations. The floating override clears when the window closes or Miri restarts.
+
+### Keybinding compatibility
 
 Existing explicit shortcuts are preserved. If an older config still explicitly
 assigns `lalt+ctrl+f` to fullscreen and does not configure the floating command,

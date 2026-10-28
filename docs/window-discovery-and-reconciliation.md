@@ -24,8 +24,9 @@ Startup performs a full discovery pass:
 1. Iterate regular running applications and register bounded AX observers,
    including for applications currently hidden.
 2. Read each visible app's `AXWindows`.
-3. Filter out minimized, fullscreen, unknown-subrole, transient, and ignored
-   windows.
+3. Filter out minimized, native macOS fullscreen, unknown-subrole, transient,
+   and ignored windows. Native state is read as `fullscreenOS`; layout fullscreen
+   windows remain part of the tiled model.
 4. Convert accepted AX elements into `ManagedWindow` values.
 5. Restore persisted layout and logical Space context when available.
 
@@ -110,7 +111,18 @@ and projects the remaining windows. Deminiaturization follows the normal
 reconciliation path and can restore the remembered placement. Native fullscreen
 uses the same remember/remove/restore pattern; on exit, a normal window snapshot
 is restored before the focused-fullscreen guard is re-evaluated, so the window
-can rejoin its prior column without first focusing a neighbor.
+can rejoin its prior column without first focusing a neighbor. Native fullscreen
+tracking uses `fullscreenOS` and `FullscreenOSWindowState` names to distinguish
+it from the layout fullscreen designation.
+
+In per-window layout fullscreen, a window's `fullscreenLayout` designation is
+remembered by live AX identity across rediscovery, minimization, and native
+fullscreen return. Authoritative focus adoption selects the target window before
+resolving its layout fullscreen presentation. Dock activation, Cmd-Tab,
+Cmd-Backtick, and AX focus events therefore restore normal tiling for a normal
+window, or fullscreen presentation for a window with that designation. Floating
+or unmanaged focus suspends the presentation without forgetting the tiled
+window's designation. See [layout fullscreen state](architecture.md#layout-fullscreen-state).
 
 ## Session Gating
 

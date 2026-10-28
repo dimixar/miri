@@ -38,9 +38,11 @@ value bridge, and the low-level SkyLight wrapper.
 miri keeps its own logical model instead of treating the current AX frames as
 the source of truth.
 
-- `Workspace`: ordered columns plus active-column and scroll state.
+- `Workspace`: ordered columns plus active-column and scroll state, the
+  per-workspace fullscreen override, and per-window presentation suspension.
 - `ManagedWindow`: AX element, process ID, optional CG window ID, bundle ID,
-  app name, title, and width metadata.
+  app name, title, width metadata, native macOS `fullscreenOS` state, and the
+  independent per-window `fullscreenLayout` designation.
 - `LogicalSpaceContext`: an inferred native macOS Space context with its own
   Miri workspaces, floating windows, active workspace, and visible signature.
 
@@ -212,6 +214,48 @@ During snapshot animation, miri may focus the requested real window, but it
 defers final real-window position and size changes until the animation settles.
 Preparation still parks real windows under the overlay. This prevents normal
 layout frame writes from fighting the overlay animation.
+
+## Layout Fullscreen State
+
+`WindowManagement.fullscreenState(in:)` resolves the effective presentation from
+`layout_fullscreen_mode`. Per-workspace mode uses `Workspace.fullscreenState`
+(`off`, `active`, or `suspended`). Per-window mode uses the workspace's active
+window's `fullscreenLayout` flag, with presentation suspended while floating or
+unmanaged focus is active. Refocusing a tiled window resumes only its own state.
+The mode is read from the current config, so changes apply without recreating
+the window model.
+
+`WorkspaceModelSnapshot` carries this resolved presentation into
+`LayoutState.fullscreenWorkspaces`. The layout engine projects the active row
+across the viewport and hides its peers without changing the stored column
+widths, row shares, or order. Moving focus to a normal window returns to normal
+tiling; moving to another fullscreen window preserves fullscreen presentation.
+
+Keyboard boundary routing resolves vertical focus shortcuts before arming the
+existing hold gate. Per-workspace mode and the per-window default route directly
+to workspace navigation. Per-window `focus_windows_first` allows an available
+row in the requested direction, then falls back to workspace navigation at the
+edge. Fullscreen workspace fallback preserves the destination's remembered row.
+The existing hold duration, repeat handling, and focus validation still apply.
+
+The workspace bar consumes the same resolved state. In per-window mode it marks
+only a workspace whose focused window has an active fullscreen presentation.
+Inactive workspaces retain their last focused window and indicator; an
+unfocused peer's fullscreen designation alone does not mark the workspace.
+
+Per-window designations belong to live AX identities. A runtime registry
+restores the flag when discovery creates another wrapper for the same window,
+including after minimization or native fullscreen. Title or app-name matches
+cannot transfer this designation to another window. Destruction, process
+termination, explicit floating, or toggling off clears it. Layout fullscreen
+state is not serialized across Miri restarts.
+
+Native macOS fullscreen remains independent: `AXWindowReadSnapshot.fullscreenOS`
+and `ManagedWindow.fullscreenOS` describe `AXFullScreen`.
+`FullscreenOSWindowState`, `fullscreenOSWindowStates`, and pending native
+transition records preserve placement while macOS moves that window to a native
+fullscreen Space. Miri's layout fullscreen does not create or switch native
+Spaces. See [configuration](configuration.md#layout-fullscreen) for the settings.
 
 ## Native Space Handling
 
