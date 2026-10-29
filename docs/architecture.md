@@ -220,8 +220,8 @@ layout frame writes from fighting the overlay animation.
 `WindowManagement.fullscreenState(in:)` resolves the effective presentation from
 `layout_fullscreen_mode`. Per-workspace mode uses `Workspace.fullscreenState`
 (`off`, `active`, or `suspended`). Per-window mode uses the workspace's active
-window's `fullscreenLayout` flag, with presentation suspended while floating or
-unmanaged focus is active. Refocusing a tiled window resumes only its own state.
+window's `fullscreenLayout` flag. Floating or unmanaged focus preserves that
+presentation; focusing another tiled window applies only its own state.
 The mode is read from the current config, so changes apply without recreating
 the window model.
 

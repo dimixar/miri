@@ -219,6 +219,8 @@ extension Miri {
     }
 
     func suspendWorkspaceFullscreenForExternalFocus(applyLayout: Bool) {
+        // Per-window presentation follows tiled focus, even while another window has OS focus.
+        guard layoutFullscreenMode == .perWorkspace else { return }
         if windowManagement.suspendWorkspaceFullscreen(), applyLayout {
             projectLayout(focusActiveWindow: false)
         }
@@ -269,9 +271,6 @@ extension Miri {
         }
 
         if windowManagement.floatingWindows.contains(where: { sameWindow($0.element, focusedElement) }) {
-            if layoutFullscreenMode == .perWindow {
-                suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
-            }
             if applyLayout, classificationChanged || windowManagement.activeFullscreenState == .off {
                 projectLayout(focusActiveWindow: false)
             }
@@ -347,9 +346,6 @@ extension Miri {
             return true
         }
 
-        if layoutFullscreenMode == .perWindow {
-            suspendWorkspaceFullscreenForExternalFocus(applyLayout: applyLayout)
-        }
         if applyLayout, classificationChanged {
             projectLayout(focusActiveWindow: false)
         }

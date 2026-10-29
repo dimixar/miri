@@ -260,8 +260,8 @@ for both modes, so changing behavior does not require rebinding the shortcut.
   live window until toggled off. Horizontal keyboard navigation, Cmd-Tab,
   Cmd-grave and Dock/window activation can focus another window. A normal window
   restores normal tiling; returning to a fullscreen window restores its fullscreen
-  presentation. Floating or unmanaged focus suspends the presentation without
-  forgetting the window's fullscreen designation. Resizing and drag-layout
+  presentation. Floating or unmanaged focus leaves the last focused tiled
+  window's fullscreen presentation unchanged. Resizing and drag-layout
   gestures remain disabled while a fullscreen window is presented.
 
 In per-window mode, an additional **Vertical navigation while fullscreen**

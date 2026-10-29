@@ -121,8 +121,8 @@ fullscreen return. Authoritative focus adoption selects the target window before
 resolving its layout fullscreen presentation. Dock activation, Cmd-Tab,
 Cmd-Backtick, and AX focus events therefore restore normal tiling for a normal
 window, or fullscreen presentation for a window with that designation. Floating
-or unmanaged focus suspends the presentation without forgetting the tiled
-window's designation. See [layout fullscreen state](architecture.md#layout-fullscreen-state).
+or unmanaged focus leaves the last focused tiled window's fullscreen presentation
+unchanged. See [layout fullscreen state](architecture.md#layout-fullscreen-state).
 
 ## Session Gating
 
