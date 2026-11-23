@@ -75,6 +75,72 @@ final class StackedColumnTests: XCTestCase {
         }
     }
 
+    func testZeroSliverParkingClearsPhysicalDisplaysAndWindowShadow() throws {
+        let viewport = CGRect(x: 5, y: 30, width: 990, height: 720)
+        let displays = [CGRect(x: 0, y: 0, width: 1000, height: 800),
+                        CGRect(x: 1000, y: 200, width: 800, height: 950)]
+        let desktop = displays[0].union(displays[1])
+        let outsets: (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) = (12, 10, 8, 20)
+        let windows = (1...3).map { id in
+            LayoutEngineWindow(window: window(Int32(id)), widthRatio: 0.5, renderedOutsets: outsets)
+        }
+        let items = LayoutEngine.project(LayoutEngineInput(
+            workspaces: [LayoutEngineWorkspace(columns: windows, activeColumn: 1, scrollOffset: 0)],
+            state: LayoutState(activeWorkspace: 0, activeColumns: [1], scrollOffsets: [0], fullscreenWorkspaces: [true]),
+            viewport: viewport,
+            settings: LayoutEngineSettings(focusAlignment: .default, innerGap: 0, parkedSliverWidth: 0, physicalPixelScale: 2),
+            parkHidden: true, zeroSliverBounds: desktop
+        ))
+        XCTAssertEqual(items.map(\.visible), [false, true, false])
+        XCTAssertEqual(items[1].frame, viewport)
+        for item in items where !item.visible {
+            let shadowFrame = CGRect(x: item.frame.minX - outsets.left, y: item.frame.minY - outsets.top,
+                                     width: item.frame.width + outsets.left + outsets.right,
+                                     height: item.frame.height + outsets.top + outsets.bottom)
+            XCTAssertGreaterThan(shadowFrame.minY, desktop.maxY)
+            XCTAssertFalse(displays.contains { $0.intersects(shadowFrame) })
+        }
+        XCTAssertLessThan(items[0].frame.maxX + outsets.right, desktop.minX)
+        XCTAssertGreaterThan(items[2].frame.minX - outsets.left, desktop.maxX)
+    }
+
+    func testEdgeParkingPreservesActualSizeAndAvoidsNeighboringDisplays() {
+        let main = CGRect(x: 0, y: 0, width: 2056, height: 1329)
+        let right = CGRect(x: main.maxX, y: 200, width: 1000, height: 1100)
+        let viewport = CGRect(x: 2.5, y: 42.5, width: 2051, height: 1284)
+        let size = CGSize(width: 990, height: 1240)
+        let candidates = LayoutEngine.edgeParkingFrames(
+            size: size, viewport: viewport, displays: [main, right], preferLeft: false
+        )
+        XCTAssertEqual(candidates, [
+            CGRect(origin: CGPoint(x: -989, y: 89), size: size),
+            CGRect(origin: CGPoint(x: 3055, y: 200), size: size),
+        ])
+        XCTAssertTrue(candidates.allSatisfy { LayoutEngine.hasOnlyParkingStrip($0, on: [main, right]) })
+        XCTAssertFalse(LayoutEngine.hasOnlyParkingStrip(
+            CGRect(origin: CGPoint(x: 1891, y: 1185), size: size), on: [main, right]
+        ), "Reject the corner position macOS clamped back onto this display")
+    }
+
+    func testEdgeParkingOffersTheOppositeEdgeWhenTheFirstIsClamped() {
+        let display = CGRect(x: 0, y: 0, width: 2056, height: 1329)
+        let size = CGSize(width: 990, height: 1240)
+        let candidates = LayoutEngine.edgeParkingFrames(
+            size: size, viewport: display, displays: [display], preferLeft: false
+        )
+        XCTAssertEqual(candidates.map(\.origin), [CGPoint(x: 2055, y: 89), CGPoint(x: -989, y: 89)])
+    }
+
+    func testNonzeroParkingStillUsesConfiguredViewportSliver() {
+        let viewport = CGRect(x: 5, y: 30, width: 990, height: 720)
+        let parked = LayoutEngine.parkedFrame(
+            size: CGSize(width: 400, height: 300), viewport: viewport, beforeActive: false,
+            renderedOutsets: (12, 10, 8, 20), sliver: 0.5,
+            zeroSliverBounds: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        XCTAssertEqual(parked, CGRect(x: 1006.5, y: 757.5, width: 400, height: 300))
+    }
+
     func testHeightRedistributesSiblingsProportionallyAndHonorsMinimum() {
         let column = Column(windows: [window(1), window(2), window(3)], heightRatios: [0.2, 0.3, 0.5])
         XCTAssertTrue(column.setHeightRatio(0.4, row: 0))

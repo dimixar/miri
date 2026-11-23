@@ -30,6 +30,7 @@ struct LayoutEngineInput {
     var settings: LayoutEngineSettings
     var parkHidden: Bool
     var interactiveCameraOffset: CGFloat? = nil
+    var zeroSliverBounds: CGRect? = nil
 }
 
 /// Pure geometry and projection. The engine receives a complete immutable view
@@ -100,10 +101,12 @@ enum LayoutEngine {
                             ? columnIndex < activeColumn
                             : workspaceIndex < activeWorkspace
                         frame = parkedFrame(
-                            column: row,
+                            size: CGSize(width: input.viewport.width * row.widthRatio, height: input.viewport.height),
                             viewport: input.viewport,
                             beforeActive: beforeActive,
-                            settings: input.settings
+                            renderedOutsets: row.renderedOutsets,
+                            sliver: max(0, input.settings.parkedSliverWidth) / max(input.settings.physicalPixelScale, 1),
+                            zeroSliverBounds: input.zeroSliverBounds
                         )
                     }
                     result.append(LayoutItem(window: row.window, frame: frame, visible: visible))
@@ -330,19 +333,60 @@ enum LayoutEngine {
         return min(max(value, 0), workspace.columns.count - 1)
     }
 
-    private static func parkedFrame(
-        column: LayoutEngineWindow,
+    // Accessibility may clamp a completely offscreen window back into view.
+    // Retain one coordinate unit at a side edge and keep the window vertically
+    // anchored to that display. Use its actual size, not its projected tile.
+    static func edgeParkingFrames(
+        size: CGSize, viewport: CGRect, displays: [CGRect], preferLeft: Bool
+    ) -> [CGRect] {
+        let displayOrder = displays.sorted { lhs, rhs in
+            let left = lhs.intersection(viewport), right = rhs.intersection(viewport)
+            let leftArea = left.isNull ? 0 : left.width * left.height
+            let rightArea = right.isNull ? 0 : right.width * right.height
+            return leftArea > rightArea
+        }
+        var candidates: [CGRect] = []
+        for display in displayOrder {
+            for left in [preferLeft, !preferLeft] {
+                let frame = CGRect(
+                    x: left ? display.minX - size.width + 1 : display.maxX - 1,
+                    y: max(display.minY, display.maxY - size.height),
+                    width: size.width, height: size.height
+                )
+                if hasOnlyParkingStrip(frame, on: displays), !candidates.contains(frame) {
+                    candidates.append(frame)
+                }
+            }
+        }
+        return candidates
+    }
+
+    static func hasOnlyParkingStrip(_ frame: CGRect, on displays: [CGRect]) -> Bool {
+        !displays.isEmpty && displays.allSatisfy { display in
+            let overlap = display.intersection(frame)
+            return overlap.isEmpty || overlap.width <= 1
+        }
+    }
+
+    static func parkedFrame(
+        size: CGSize,
         viewport: CGRect,
         beforeActive: Bool,
-        settings: LayoutEngineSettings
+        renderedOutsets: (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat),
+        sliver: CGFloat,
+        zeroSliverBounds: CGRect?
     ) -> CGRect {
-        let width = viewport.width * column.widthRatio
-        let sliver = max(0, settings.parkedSliverWidth) / max(settings.physicalPixelScale, 1)
-        var frame = CGRect(x: viewport.minX, y: viewport.minY, width: width, height: viewport.height)
-        frame.origin.x = beforeActive
-            ? viewport.minX - width - column.renderedOutsets.right + sliver
-            : viewport.maxX + column.renderedOutsets.left - sliver
-        frame.origin.y = viewport.maxY + column.renderedOutsets.top - sliver
-        return frame
+        // At zero, clear the physical desktop (including any display next to
+        // or below the layout viewport). Leave room for position rounding.
+        let bounds = sliver == 0 ? zeroSliverBounds ?? viewport : viewport
+        let overlap = sliver == 0 ? -1 : sliver
+        return CGRect(
+            x: beforeActive
+                ? bounds.minX - size.width - renderedOutsets.right + overlap
+                : bounds.maxX + renderedOutsets.left - overlap,
+            y: bounds.maxY + renderedOutsets.top - overlap,
+            width: size.width,
+            height: size.height
+        )
     }
 }

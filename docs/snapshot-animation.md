@@ -110,12 +110,14 @@ into a visible jump.
 Real windows may be moved offscreen while the overlay owns the visible motion.
 `parked_sliver_width` controls how much of the parked real window remains
 visible along each axis in physical pixels. The default is `1`; this leaves a
-small corner instead of a full-height strip. Accessibility placement runs
-first; a dynamically resolved SkyLight transaction then attempts to move the
-window and its compositor group beyond the lower display corner. Miri verifies the
-WindowServer position before accepting that move. WindowServer shadow
-parameters are included in both edge calculations, with direct movement and
-compositor transforms retained as verified fallbacks.
+small corner instead of a full-height strip. For nonzero settings, Accessibility
+placement runs first, then a SkyLight transaction attempts to move the window
+and its compositor group beyond the lower display corner, accounting for
+shadows. At `0`, Accessibility moves the window without resizing it to a
+physical side edge, leaving a one-point anchor to avoid macOS clamping a fully
+offscreen request. Miri checks WindowServer bounds, tries another safe edge
+when available, and uses the compositor correction if Accessibility leaves
+too much of the window on screen.
 
 Parking is intentionally separate from final layout. A parked real window is
 not the presentation state; it is only a staging detail to keep the overlay

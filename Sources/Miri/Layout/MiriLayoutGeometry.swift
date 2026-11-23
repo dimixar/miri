@@ -127,18 +127,6 @@ extension Miri {
         )
     }
 
-    func parkedFrame(for window: ManagedWindow, viewport: CGRect, beforeActive: Bool) -> CGRect {
-        let width = viewport.width * widthRatio(for: window)
-        let sliver = parkedSliverPoints(for: viewport)
-        let visualOutsets = renderedOutsets(for: window)
-        var frame = CGRect(x: viewport.minX, y: viewport.minY, width: width, height: viewport.height)
-        frame.origin.x = beforeActive
-            ? viewport.minX - width - visualOutsets.right + sliver
-            : viewport.maxX + visualOutsets.left - sliver
-        frame.origin.y = viewport.maxY + visualOutsets.top - sliver
-        return frame
-    }
-
     func parkedSliverPoints(for viewport: CGRect) -> CGFloat {
         let pixelWidth = max(0, parkedSliverWidth)
         return points(forPhysicalPixels: pixelWidth, in: viewport)

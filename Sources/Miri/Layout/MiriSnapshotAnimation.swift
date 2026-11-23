@@ -194,6 +194,8 @@ extension LayoutController {
             return
         }
         let viewport = currentViewport()
+        let sliver = parkedSliverPoints(for: viewport)
+        let zeroSliverBounds = sliver == 0 ? physicalDesktopBounds() : nil
         var hiddenIDs = Set(snapshotHiddenWindows.map(ObjectIdentifier.init))
         var remaining = windows.count
         for window in windows {
@@ -211,13 +213,13 @@ extension LayoutController {
                     width: 320,
                     height: viewport.height
                 )
-            let sliver = parkedSliverPoints(for: viewport)
-            let visualOutsets = renderedOutsets(for: window)
-            let parked = CGRect(
-                x: viewport.maxX + visualOutsets.left - sliver,
-                y: viewport.maxY + visualOutsets.top - sliver,
-                width: frame.width,
-                height: frame.height
+            let parked = LayoutEngine.parkedFrame(
+                size: frame.size,
+                viewport: viewport,
+                beforeActive: false,
+                renderedOutsets: renderedOutsets(for: window),
+                sliver: sliver,
+                zeroSliverBounds: zeroSliverBounds
             )
             resetCompositorTransform(for: window)
             setWindowFrame(parked, for: window, correctParking: true) { _ in

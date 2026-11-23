@@ -623,6 +623,7 @@ final class AXOperationController {
         _ frame: CGRect,
         handle: AXElementHandle,
         disableEnhancedUserInterface: Bool,
+        positionOnly: Bool = false,
         priority: AXOperationPriority = .interactive,
         completion: @escaping @MainActor (AXOperationResult<CGRect>) -> Void
     ) {
@@ -641,17 +642,16 @@ final class AXOperationController {
             key: "set-frame:\(handle.operationKey)",
             priority: priority,
             operationName: "set-frame",
-            callCountEstimate: disableEnhancedUserInterface ? 6 : 3,
+            callCountEstimate: (disableEnhancedUserInterface ? 3 : 0) + (positionOnly ? 1 : 3),
             operation: {
                 guard permit.isValid else { return (nil, .success) }
-                let error: AXError
-                if disableEnhancedUserInterface {
-                    error = withDisabledEnhancedUserInterface(for: handle.pid) {
-                        setAXFrame(frame, for: handle.element, shouldContinue: { permit.isValid })
-                    }
-                } else {
-                    error = setAXFrame(frame, for: handle.element, shouldContinue: { permit.isValid })
+                let write: () -> AXError = {
+                    guard permit.isValid else { return .success }
+                    if positionOnly { return setAXPosition(frame.origin, for: handle.element) }
+                    return setAXFrame(frame, for: handle.element, shouldContinue: { permit.isValid })
                 }
+                let error = disableEnhancedUserInterface
+                    ? withDisabledEnhancedUserInterface(for: handle.pid, write) : write()
                 return (error == .success ? frame : nil, error)
             },
             completion: completion

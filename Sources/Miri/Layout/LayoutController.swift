@@ -183,6 +183,7 @@ final class LayoutController {
         interactiveCameraOffset: CGFloat? = nil
     ) -> [LayoutItem] {
         let scale = max((dependencies.screenContaining(viewport) ?? NSScreen.main)?.backingScaleFactor ?? 1, 1)
+        let settings = dependencies.settings()
         let modelSnapshot = dependencies.modelSnapshot()
         let workspaces = modelSnapshot.workspaces.map { workspace in
             LayoutEngineWorkspace(
@@ -207,13 +208,14 @@ final class LayoutController {
                 state: state,
                 viewport: viewport,
                 settings: LayoutEngineSettings(
-                    focusAlignment: dependencies.settings().focusAlignment,
-                    innerGap: dependencies.settings().innerGap,
-                    parkedSliverWidth: dependencies.settings().parkedSliverWidth,
+                    focusAlignment: settings.focusAlignment,
+                    innerGap: settings.innerGap,
+                    parkedSliverWidth: settings.parkedSliverWidth,
                     physicalPixelScale: scale
                 ),
                 parkHidden: parkHidden,
-                interactiveCameraOffset: interactiveCameraOffset
+                interactiveCameraOffset: interactiveCameraOffset,
+                zeroSliverBounds: parkHidden && settings.parkedSliverWidth == 0 ? physicalDesktopBounds() : nil
             )
         )
     }
@@ -658,36 +660,77 @@ final class LayoutController {
         return CGRectMakeWithDictionaryRepresentation(bounds as CFDictionary, &frame) ? frame : nil
     }
 
-    func applyCompositorParkingCorrection(to targetFrame: CGRect, for window: ManagedWindow) {
+    @discardableResult
+    func applyCompositorParkingCorrection(
+        to targetFrame: CGRect, for window: ManagedWindow, useExactOrigin: Bool = false
+    ) -> Bool {
         guard window !== userInteractionWindow,
               let windowID = window.windowID,
               let observedFrame = windowServerFrame(for: windowID)
-        else { return }
+        else { return false }
         let viewport = dependencies.currentViewport()
         let parksBeforeViewport = targetFrame.midX < viewport.midX
-        let correctedOrigin = CGPoint(
+        let correctedOrigin = useExactOrigin ? targetFrame.origin : CGPoint(
             x: parksBeforeViewport ? targetFrame.maxX - observedFrame.width : targetFrame.minX,
             y: targetFrame.minY
         )
         if windowSystem.moveWithTransaction(windowID, to: correctedOrigin) {
             dependencies.debugLog("parking correction method=transaction id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y)) observed=(\(observedFrame.minX),\(observedFrame.minY),\(observedFrame.width),\(observedFrame.height))")
-            return
+            return true
         }
         if windowSystem.move(windowID, to: correctedOrigin) {
             dependencies.debugLog("parking correction method=direct-move id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
-            return
+            return true
         }
         let offset = CGPoint(x: correctedOrigin.x - observedFrame.minX, y: correctedOrigin.y - observedFrame.minY)
-        guard abs(offset.x) >= 0.001 || abs(offset.y) >= 0.001 else { return }
+        guard abs(offset.x) >= 0.001 || abs(offset.y) >= 0.001 else { return true }
         let original = originalWindowTransforms[windowID]
             ?? windowSystem.transform(for: windowID)
             ?? CGAffineTransform(translationX: -observedFrame.minX, y: -observedFrame.minY)
         if windowSystem.translate(windowID, from: original, by: offset) {
             originalWindowTransforms[windowID] = original
             dependencies.debugLog("parking correction method=transform id=\(windowID) offset=(\(offset.x),\(offset.y))")
-        } else {
-            dependencies.debugLog("parking correction failed id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
+            return true
         }
+        dependencies.debugLog("parking correction failed id=\(windowID) target=(\(correctedOrigin.x),\(correctedOrigin.y))")
+        return false
+    }
+
+    private func writeEdgeParkingPosition(
+        _ frame: CGRect, for window: ManagedWindow, handle: AXElementHandle,
+        isCurrent: @escaping @MainActor () -> Bool,
+        completion: @escaping @MainActor (AXOperationResult<CGRect>) -> Void
+    ) {
+        let viewport = dependencies.currentViewport()
+        let displays = physicalDisplayBounds()
+        let currentSize = handle.windowID.flatMap(windowServerFrame)?.size ?? frame.size
+        let candidates = LayoutEngine.edgeParkingFrames(
+            size: currentSize, viewport: viewport, displays: displays, preferLeft: frame.midX < viewport.midX
+        )
+        let parkingFrames = candidates.isEmpty ? [frame] : Array(candidates.prefix(2))
+
+        func attempt(_ index: Int) {
+            let target = parkingFrames[index]
+            axOperations.setFrame(target, handle: handle, disableEnhancedUserInterface: true, positionOnly: true) { result in
+                guard isCurrent(), result.disposition == .completed else { completion(result); return }
+                // AX may say success before the app moves (or clamps) the window.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak window] in
+                    guard let self, let window, isCurrent() else { completion(result); return }
+                    let observed = handle.windowID.flatMap(self.windowServerFrame)
+                    if let observed, LayoutEngine.hasOnlyParkingStrip(observed, on: displays) {
+                        self.debugLog("edge parking confirmed id=\(handle.windowID ?? 0) frame=\(observed)")
+                    } else if observed != nil, parkingFrames.indices.contains(index + 1) {
+                        attempt(index + 1)
+                        return
+                    } else if !self.applyCompositorParkingCorrection(to: target, for: window, useExactOrigin: true) {
+                        // Do not cache an unconfirmed target as a stable park.
+                        self.requestedFrames.removeValue(forKey: ObjectIdentifier(window))
+                    }
+                    completion(result)
+                }
+            }
+        }
+        attempt(0)
     }
 
     private func scheduleFloatingWindowRaise() {
@@ -724,11 +767,13 @@ final class LayoutController {
             pid: window.pid,
             windowID: window.windowID
         )
-        axOperations.setFrame(
-            frame,
-            handle: handle,
-            disableEnhancedUserInterface: true
-        ) { [weak self, weak window] result in
+        let useEdgeParking = correctParking && dependencies.settings().parkedSliverWidth == 0
+        let isCurrent: @MainActor () -> Bool = { [weak self, weak window] in
+            guard let self, let window else { return false }
+            return self.frameWriteEpoch == writeEpoch && self.frameRetryGenerations[id] == retryGeneration
+                && self.requestedFrames[id] == frame && window !== self.userInteractionWindow
+        }
+        let finish: @MainActor (AXOperationResult<CGRect>) -> Void = { [weak self, weak window] result in
             completion(result)
             guard let self, let window,
                   self.frameWriteEpoch == writeEpoch,
@@ -782,7 +827,7 @@ final class LayoutController {
                     }
                 }
             }
-            if correctParking {
+            if correctParking && !useEdgeParking {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak window] in
                     guard let self, let window,
                           self.frameWriteEpoch == writeEpoch,
@@ -791,6 +836,11 @@ final class LayoutController {
                     self.applyCompositorParkingCorrection(to: frame, for: window)
                 }
             }
+        }
+        if useEdgeParking {
+            writeEdgeParkingPosition(frame, for: window, handle: handle, isCurrent: isCurrent, completion: finish)
+        } else {
+            axOperations.setFrame(frame, handle: handle, disableEnhancedUserInterface: true, completion: finish)
         }
     }
 
@@ -857,6 +907,21 @@ extension LayoutController {
 
     func currentViewport() -> CGRect { dependencies.currentViewport() }
     func parkedSliverPoints(for viewport: CGRect) -> CGFloat { dependencies.parkedSliverPoints(viewport) }
+
+    private func physicalDisplayBounds() -> [CGRect] {
+        let frames = NSScreen.screens.compactMap { screen -> CGRect? in
+            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+                return nil
+            }
+            return CGDisplayBounds(displayID)
+        }
+        return frames.isEmpty ? [CGDisplayBounds(CGMainDisplayID())] : frames
+    }
+
+    func physicalDesktopBounds() -> CGRect {
+        physicalDisplayBounds().reduce(.null) { $0.union($1) }
+    }
+
     func renderedOutsets(for window: ManagedWindow) -> (left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat) {
         dependencies.renderedOutsets(window)
     }

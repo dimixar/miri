@@ -133,11 +133,11 @@ at startup, so disabling it in System Settings stays respected.
   scale and final frame edges are aligned to physical pixels.
 - `parked_sliver_width`: number of pixels left visible in each axis when real
   windows are parked beyond the lower-left or lower-right display corner
-  during snapshot animation or hidden-workspace staging.
-  Miri reads the WindowServer shadow parameters and uses a transactional
-  SkyLight group move after Accessibility sizing so the configured corner
-  extent includes the rendered shadow. Accessibility positioning remains the
-  fallback when the required private symbols are unavailable.
+  during snapshot animation or hidden-workspace staging. At `0`, Miri moves
+  the window without resizing it and checks WindowServer readback. It parks
+  against a physical side edge with a one-point anchor so macOS is less likely
+  to push the window back on screen. Nonzero values use the configured corner
+  overlap, accounting for WindowServer shadows.
 - `layout_fullscreen_mode`: `per_workspace` (default) or `per_window`.
 - `fullscreen_vertical_navigation`: `switch_workspaces` (default) or
   `focus_windows_first`. Applies only to per-window layout fullscreen.
