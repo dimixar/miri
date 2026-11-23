@@ -13,9 +13,11 @@ extension Miri {
             guard !windowManagement.observation.transientWindowActive,
                   let workspace = activeWorkspaceObject(),
                   windowManagement.fullscreenState(in: workspace) == .off,
-                  let windowID = event.windowID ?? sessionRecoveryFrontmostWindowID(at: event.location),
-                  let window = workspace.windows.first(where: { $0.windowID == windowID }),
-                  let frame = layoutController.windowServerFrame(for: windowID)
+                  let (window, frame) = MouseInteractionController.sourceAtMouseDown(
+                      event, in: workspace,
+                      frameForID: layoutController.windowServerFrame(for:),
+                      hitTest: sessionRecoveryFrontmostWindowID(at:)
+                  )
             else { return }
             let viewport = currentViewport()
             let offset = horizontalCameraOffset(for: workspace, viewport: viewport)
@@ -89,11 +91,9 @@ extension Miri {
     func observeMouseWindowFrame() {
         guard let session = mouseInteractionController.session, !session.ending,
               let windowID = session.window.windowID else { return }
-        guard let frame = layoutController.windowServerFrame(for: windowID) else {
-            cancelMouseInteraction()
-            requestReconciliation(.all(adoptFocused: true, source: .accessibility, reason: "mouse-window-missing"))
-            return
-        }
+        // A single missed WindowServer sample is not a mouse-up. Keep ownership
+        // while the button is held; lifecycle events and the release verify it.
+        guard let frame = layoutController.windowServerFrame(for: windowID) else { return }
         mouseInteractionController.observeFrame(frame)
         layoutController.recordPresentationFrame(frame, for: session.window)
     }
@@ -187,21 +187,31 @@ extension Miri {
         guard mouseInteractionController.session?.generation == release.generation,
               mouseInteractionIsValid else { return }
         guard let sourceID = release.window.windowID,
-              layoutController.windowServerFrame(for: sourceID) != nil else {
+              let serverFrame = layoutController.windowServerFrame(for: sourceID) else {
             cancelMouseInteraction()
             requestReconciliation(.all(adoptFocused: true, source: .accessibility, reason: "mouse-source-closed"))
             return
         }
-        if let finalFrame { mouseInteractionController.observeFrame(finalFrame, finishing: true) }
+        let frame = finalFrame ?? serverFrame
+        mouseInteractionController.observeFrame(frame, finishing: true)
         let phase = mouseInteractionController.session?.phase ?? release.phase
         if phase == .resizing {
-            _ = updateManualWidthRatio(for: release.window.element, observedFrame: finalFrame ?? release.latestFrame)
+            _ = updateManualWidthRatio(for: release.window.element, observedFrame: frame)
         } else if phase == .dragging {
-            if case let .swap(target, _) = release.preview,
+            let viewport = mouseInteractionLayoutViewport ?? currentViewport()
+            // Fast drags can report their first moved frame in the final AX
+            // read, after mouse-up captured a still-pending session.
+            let preview = release.phase == .pending
+                ? MouseInteractionController.swapPreview(
+                    at: release.pointer, excluding: release.window,
+                    items: mouseDisplayedLayout(viewport), viewport: mouseEdgeViewport(viewport)
+                )
+                : release.preview
+            if case let .swap(target, _) = preview,
                !target.isMinimized, !target.fullscreenOS,
                let targetID = target.windowID,
                let targetFrame = layoutController.windowServerFrame(for: targetID),
-               targetFrame.intersects(mouseInteractionLayoutViewport ?? currentViewport()),
+               targetFrame.intersects(viewport),
                windowManagement.swapWindows(release.window, with: target, in: release.workspace) {
                 // Preserve the scrolled view where possible; normal final projection
                 // may reveal/align the source at its new column.

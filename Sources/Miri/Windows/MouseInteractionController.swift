@@ -107,6 +107,36 @@ final class MouseInteractionController {
         }
     }
 
+    static func sourceAtMouseDown(
+        _ event: MousePointerEvent,
+        in workspace: Workspace,
+        frameForID: (UInt32) -> CGRect?,
+        hitTest: (CGPoint) -> UInt32?
+    ) -> (window: ManagedWindow, frame: CGRect)? {
+        func hit(_ id: UInt32) -> (ManagedWindow, CGRect)? {
+            guard let window = workspace.windows.first(where: { $0.windowID == id }),
+                  !window.isMinimized, !window.fullscreenOS,
+                  let frame = frameForID(id), frame.contains(event.location) else { return nil }
+            return (window, frame)
+        }
+
+        for id in [event.windowID, event.alternateWindowID].compactMap({ $0 }) {
+            if let source = hit(id) { return source }
+        }
+        // A nonzero event ID can still be stale or refer to a helper window.
+        // Use only the actual frontmost hit, not a tile underneath another app.
+        return hitTest(event.location).flatMap(hit)
+    }
+
+    static func swapPreview(
+        at point: CGPoint, excluding source: ManagedWindow, items: [LayoutItem], viewport: CGRect
+    ) -> MouseInteractionPreview {
+        guard viewport.contains(point), let target = items.first(where: {
+            $0.window !== source && $0.visible && $0.frame.contains(point)
+        }) else { return .none }
+        return .swap(target: target.window, frame: target.frame)
+    }
+
     func updatePreview(
         items: [LayoutItem], viewport: CGRect, scrollBounds: ClosedRange<CGFloat>,
         now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
@@ -119,12 +149,8 @@ final class MouseInteractionController {
         let preview: MouseInteractionPreview
         if let direction = trackEdge(viewport: viewport, now: now) {
             preview = .scroll(direction: direction, canScroll: canScroll(direction, bounds: scrollBounds))
-        } else if viewport.contains(current.pointer), let target = items.first(where: {
-            $0.window !== current.window && $0.visible && $0.frame.contains(current.pointer)
-        }) {
-            preview = .swap(target: target.window, frame: target.frame)
         } else {
-            preview = .none
+            preview = Self.swapPreview(at: current.pointer, excluding: current.window, items: items, viewport: viewport)
         }
         session?.preview = preview
         return preview

@@ -9,6 +9,7 @@ struct MousePointerEvent {
     let kind: Kind
     let location: CGPoint
     let windowID: UInt32?
+    var alternateWindowID: UInt32? = nil
 }
 
 private let inputHotKeySignature = OSType(
@@ -160,9 +161,11 @@ final class InputController {
         }
         let handlingID = event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent)
         let pointedID = event.getIntegerValueField(.mouseEventWindowUnderMousePointer)
-        let rawID = handlingID > 0 ? handlingID : pointedID
-        let windowID = rawID > 0 && rawID <= Int64(UInt32.max) ? UInt32(rawID) : nil
-        emit(.input(.pointer(MousePointerEvent(kind: kind, location: event.location, windowID: windowID))))
+        let windowID = handlingID > 0 ? UInt32(exactly: handlingID) : nil
+        let alternateWindowID = pointedID > 0 ? UInt32(exactly: pointedID) : nil
+        emit(.input(.pointer(MousePointerEvent(
+            kind: kind, location: event.location, windowID: windowID, alternateWindowID: alternateWindowID
+        ))))
     }
 
     fileprivate func pointerMonitorDisabled() {

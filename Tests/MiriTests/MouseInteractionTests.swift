@@ -35,6 +35,44 @@ final class MouseInteractionTests: XCTestCase {
         XCTAssertNil(controller.advanceScroll(viewport: viewport, bounds: 0...500, now: 1))
     }
 
+    func testMouseDownFindsTileWhenEventReportsAnUntrackedHandler() {
+        let source = window(1, windowID: 10)
+        let workspace = Workspace()
+        workspace.columns = [Column(windows: [source])]
+        let point = CGPoint(x: 150, y: 110)
+        let frameForID: (UInt32) -> CGRect? = { $0 == 10 ? self.frame : nil }
+        let alternate = MousePointerEvent(kind: .down, location: point, windowID: 99, alternateWindowID: 10)
+        XCTAssertTrue(MouseInteractionController.sourceAtMouseDown(
+            alternate, in: workspace, frameForID: frameForID, hitTest: { _ in nil }
+        )?.window === source)
+
+        let unavailable = MousePointerEvent(kind: .down, location: point, windowID: 99)
+        XCTAssertTrue(MouseInteractionController.sourceAtMouseDown(
+            unavailable, in: workspace, frameForID: frameForID, hitTest: { _ in 10 }
+        )?.window === source)
+        XCTAssertNil(MouseInteractionController.sourceAtMouseDown(
+            unavailable, in: workspace, frameForID: frameForID, hitTest: { _ in 99 }
+        ), "Do not grab a tile behind a different frontmost window")
+    }
+
+    func testFinalFrameCanIdentifyDragAndResolveTheReleaseTarget() throws {
+        let controller = fixture()
+        defer { controller.cancel() }
+        let point = CGPoint(x: 750, y: 200)
+        controller.updatePointer(point)
+        let release = try XCTUnwrap(controller.session)
+        XCTAssertEqual(release.phase, .pending)
+        controller.markEnding()
+        controller.observeFrame(frame.offsetBy(dx: 650, dy: 100), finishing: true)
+        XCTAssertEqual(controller.session?.phase, .dragging)
+        let target = window(2)
+        let item = LayoutItem(window: target, frame: CGRect(x: 600, y: 0, width: 400, height: 800), visible: true)
+        guard case let .swap(actual, _) = MouseInteractionController.swapPreview(
+            at: release.pointer, excluding: release.window, items: [item], viewport: viewport
+        ) else { return XCTFail("Expected a swap target even when movement arrived after mouse-up") }
+        XCTAssertTrue(actual === target)
+    }
+
     func testSwapTargetsNonadjacentVisibleWindowWithoutChangingModel() throws {
         let controller = fixture()
         defer { controller.cancel() }
@@ -234,8 +272,8 @@ final class MouseInteractionTests: XCTestCase {
         return controller
     }
 
-    private func window(_ id: Int32) -> ManagedWindow {
-        ManagedWindow(element: AXUIElementCreateApplication(id), pid: id, windowID: nil,
+    private func window(_ id: Int32, windowID: UInt32? = nil) -> ManagedWindow {
+        ManagedWindow(element: AXUIElementCreateApplication(id), pid: id, windowID: windowID,
                       bundleID: nil, appName: "Test", title: "Window")
     }
 
